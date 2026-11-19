@@ -1,0 +1,6 @@
+# delivery-loop config root. Project settings are committed; session and run
+# state is local to one machine and one session.
+.delivery/session/
+.delivery/receipts/
+.delivery/AUTONOMOUS
+.delivery/ALLOW_FRONTIER
