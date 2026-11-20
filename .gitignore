@@ -4,3 +4,5 @@
 .delivery/receipts/
 .delivery/AUTONOMOUS
 .delivery/ALLOW_FRONTIER
+.claude/worktrees
+.subagent-guard/
