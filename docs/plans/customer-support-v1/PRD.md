@@ -12,8 +12,7 @@
 | Q1 | Which AWS account and region host the stack? | No deploy. Local stack only. | yes: Phase 0 deploy exit |
 | Q2 | Which npmjs organization owns the public package? | Scope `@pressw-llc` on both registries. | yes: Phase 6 publish |
 | Q3 | Which Cognito user pool backs admin login? | CDK creates a new pool restricted to `pressw.ai` emails. | no |
-| Q4 | What happens to a marked staff reply with a low Jev wording score? | Hold the reply. Warn the author in the source channel. Send on confirm. | no |
-| Q5 | Which low score triggers Q4? | Score below 3 of 5. | no |
+| Q4 | What happens to a marked staff reply that scores low on Jev wording? | Below 3 of 5: hold, warn the author in the source channel, send on confirm. | no |
 | Q6 | What does the triage agent see from attachments? | File name, type, and size only. No file content. | no |
 | Q7 | What are the attachment limits? | 10 files per message, 25 MB per file, allowlisted types. | no |
 | Q8 | How does a laptop run a claimed triage job? | A headless Claude Code subagent with one tool: submit the result. | no |
@@ -99,7 +98,7 @@ PressW has no shared intake path for client support requests. V1 gives client de
 | D16 | A channel key is `client[:project[:user]]`. A subscription matches by prefix. | `acme` receives every `acme` job. A three-part key receives one user's jobs. |
 | D17 | Laptop and cloud claimants submit the same result schema through the same validation. | A laptop result gets no extra trust. |
 | D18 | Channel adapters run as Lambda pipeline steps triggered by stream events. | Slack and email arrive later as new adapters with no core change. |
-| D19 | A staff comment is internal unless it starts with the customer marker. A marked comment gets a Jev wording score from 0 to 5. | No unmarked comment reaches a customer. Q4 and Q5 set the low-score behavior. |
+| D19 | A staff comment is internal unless it starts with the customer marker. A marked comment gets a Jev wording score from 0 to 5. | No unmarked comment reaches a customer. Q4 sets the low-score behavior. |
 | D20 | Every message stores its origin channel, author, and audience. | The thread shows where each party replied. |
 | D21 | Admin settings store integration keys in AWS Secrets Manager. Postgres stores a reference only. | No secret in a database dump, a log, or an API response. |
 | D22 | AWS CDK defines the stack. Docker Compose runs Postgres and LocalStack locally. | The same containers and scripts run locally and in AWS. |
