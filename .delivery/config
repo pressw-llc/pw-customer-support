@@ -1,0 +1,10 @@
+# Delivery-loop project settings. Committed: a team shares these.
+# Read by the plugin's guard hooks and by scripts/delivery.sh.
+
+# Branches the autonomous boundary guard refuses to push to or merge into.
+PROTECTED_BRANCHES="main master"
+PRODUCTION_BRANCHES="prod production"
+
+# Where the PR gate looks for a phase's validation evidence, relative to the
+# repo root. A plan directory beneath this holds PRD.md and evidence/.
+PLANS_DIR="docs/plans"
