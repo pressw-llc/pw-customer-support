@@ -258,8 +258,10 @@ flowchart TD
     P --> A[Adapter: comment.received]
     A --> O{Own comment?}
     O -- yes --> S[Ignore]
-    O -- no --> C{Reply with parent, body is exactly @confirm?}
-    C -- yes --> H2{Same author, hold alive?}
+    O -- no --> U{Human Linear user?}
+    U -- no --> I
+    U -- yes --> C{Reply with parent, body is exactly @confirm?}
+    C -- yes --> H2{Same author, older hold, warning posted, hold alive?}
     H2 -- yes --> SEND
     H2 -- no --> S
     C -- no --> M{Starts with @external?}
@@ -271,9 +273,13 @@ flowchart TD
     D -- author sends @confirm --> H2
 ```
 
+An edit or a delete of a held comment cancels the hold. Comments with no human Linear user are always internal.
+
 ### Marker rule
 
-A comment is a customer reply only when its body, after leading ASCII whitespace, starts with the literal `@external` and the next character is ASCII whitespace or the end of the body. Matching is case sensitive. Whitespace means space, tab, CR, and LF. Every other character before the marker keeps the comment internal. That covers a quote mark, a code fence, a list dash, a zero-width character, a byte order mark, a no-break space, and a marker on line 2. A marker with no text after it stays internal. The customer sees the text with the marker removed.
+A comment is a customer reply only when its body, after leading ASCII whitespace, starts with the literal `@external` and the next character is ASCII whitespace or the end of the body. Matching is case sensitive. Whitespace means space, tab, CR, and LF. Every other character before the marker keeps the comment internal. That covers a quote mark, a code fence, a list dash, a zero-width character, a byte order mark, a no-break space, and a marker on line 2. A marker with no text after it stays internal. The customer sees the text with the marker removed and converted to plain text: markdown links and mention links become their visible text, images and HTML tags drop, and URLs to `linear.app` and `uploads.linear.app` drop. Other bare URLs stay as text. The conversion runs in linear time. A reply that is empty after conversion stays internal.
+
+A comment is staff only when it has a human Linear user. A comment with no `userId`, or with `botActor`, `externalUserId`, `externalUser`, or a non-user actor type, is stored as an internal message. It can never be a reply and can never confirm a hold. The author name comes only from `data.user.name`.
 
 An internal comment becomes a message with `audience=internal`, `origin_channel=linear`, and `author=staff`. No customer route returns it.
 
@@ -297,15 +303,23 @@ The `noul` question separated the sample replies better than a `score` question 
 
 A hold posts a fixed warning comment as a reply in the thread of the held comment. The warning names the score and carries no model text. The author confirms by replying in that thread with a comment whose whole trimmed body is `@confirm`. Matching is case sensitive.
 
-A confirm sends the latest held reply of the same author in that thread and records `confirmed_by`. A confirm from another user, in another thread, or after the 24 hour hold lifetime does nothing. A held reply never sends twice. A held comment edited in Linear is out of scope for V1. The edit changes nothing, and the author posts a new reply.
+A confirm sends the latest held reply of the same author in that thread and records `confirmed_by`. The reply must be older than the confirm by Linear comment time, and its warning comment must already be posted. A confirm from another user, in another thread, or after the 24 hour hold lifetime does nothing. A held reply never sends twice.
+
+A confirm that arrives before its hold or its warning is processed stays pending and retries with backoff. It never releases a hold that is newer than the confirm.
+
+Editing or deleting a held comment in Linear cancels the hold in the same transaction as the webhook delivery row, appends `reply.cancelled` with reason `edited` or `removed`, and makes a later `@confirm` do nothing. The warning says so, and the author posts a new `@external` comment. An update that keeps the body, such as a reaction, changes nothing. An edit after the reply was sent does not change what the customer saw. An edit before processing replaces the stored body, and a delete before processing drops the comment.
+
+A hold past its expiry is hidden from `listHeldReplies`, skipped by the warning retry, and marked `expired` with `reply.expired` by the next dispatcher tick.
 
 ### Customer follow-ups
 
-A `message.created` event from the widget makes the adapter post one comment on the ticket. The comment starts with `Customer follow-up via widget`, quotes the text with markup stripped and links defanged, lists attachment filenames, and ends with `Support message ID: <id>`. The adapter looks for that last line before it posts, so a retry never posts twice. Messages already inside the ticket description count as delivered. A follow-up that lands while the ticket is created is posted after `ticket.created`. Failed deliveries retry with the ticket backoff.
+A `message.created` event from the widget makes the adapter post one comment on the ticket once the message intake is complete. The `message.intake_completed` event triggers the post at once instead of waiting for the redelivery floor. The comment starts with `Customer follow-up via widget`, quotes the text with markup stripped and links defanged, lists attachment filenames, and ends with `Support message ID: <id>`. The adapter looks for that last line before it posts, so a retry never posts twice. A message counts as delivered with the ticket only when the issue was created in that call, its intake is complete, and its whole text fits the 4,000 character quote. Every other message flows as a comment. Attachments that finish after delivery follow as a filename list in a later comment. A follow-up that lands while the ticket is created is posted after `ticket.created`. Failed deliveries retry with the ticket backoff.
 
 Follow-ups get the static checks and no Jev injection judgment. No agent reads them in V1, and deterministic code writes them to Linear only as quoted text.
 
-The adapter ignores its own comments. It matches the follow-up header, the hold warning opening, a recorded comment id, and the integration user id.
+The adapter ignores its own comments. It matches the follow-up header, the hold warning opening, and a recorded comment id. Comments by the key owner that carry none of these are real staff comments.
+
+A comment on an issue with no ticket row yet is stored pending with no request. It attaches when the ticket row appears, or the redelivery sweep attaches it. After 10 minutes it is marked ignored and its body is cleared. Stale inbound comments redeliver with the capped exponential backoff, and never attempted rows go first. Webhook delivery ids older than 7 days are purged.
 
 ### Webhook setup
 
@@ -313,11 +327,11 @@ Create a Linear webhook for the `Comment` resource and point it at `POST <api>/w
 
 The route checks the `Linear-Signature` header against an HMAC SHA-256 of the raw body, rejects a `webhookTimestamp` older than 60 seconds, treats `Linear-Delivery` as an idempotency key, and caps the body at 256 KiB.
 
-The Linear stub sends signed `Comment` webhooks for tests. `stub.configureWebhook({ url, secret })` sets the target, and `stub.staffComment({ issueId, body, parentId })` creates a staff comment and sends the webhook.
+The Linear stub sends signed `Comment` webhooks for tests. `stub.configureWebhook({ url, secret })` sets the target, and `stub.staffComment({ issueId, body, parentId, createdAt, userId, deliver })` creates a staff comment and sends the webhook, and `stub.editComment` and `stub.removeComment` send the update and remove webhooks.
 
 ### Validation
 
-`bun run validate:phase-3` needs `TYPESAFE_API_KEY`. It starts the API, the worker, and the Linear stub, then prints one PASS or FAIL line for A14, A15, and A16, plus a table of live wording scores for 17 sample replies. It seeds its ticket through the human triage path, so it needs no Anthropic key. The e2e suite in `e2e/reply-loop.spec.ts` forces scores through an injected scorer in `e2e/backend.ts`.
+`bun run validate:phase-3` needs `TYPESAFE_API_KEY`. It starts the API, the worker, and the Linear stub, then prints one PASS, FAIL, or SKIP line for A14, A15, the flag band, and A16. The flag band prints SKIP and the script exits non-zero when no live sample lands in the 2 to 3 range, unless you pass `--allow-skip`. A16 waits one redelivery period and syncs again before it asserts a single copy. plus a table of live wording scores for 17 sample replies. It seeds its ticket through the human triage path, so it needs no Anthropic key. The e2e suite in `e2e/reply-loop.spec.ts` forces scores through an injected scorer in `e2e/backend.ts`.
 
 ## Modules
 
