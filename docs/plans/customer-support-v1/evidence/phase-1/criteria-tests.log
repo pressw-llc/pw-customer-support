@@ -1,0 +1,14 @@
+PASS A2: request with text and two attachments persists request, files, and request.created
+PASS A4: a renamed executable is rejected, recorded, and never stored in S3
+PASS A4: a 26 MB file is rejected as too_large
+PASS A4: an eleventh file is rejected as too_many_files
+PASS A4: mp4, mov, and webm video are rejected
+PASS D7: when static-check processing throws, the request row and request.created event still exist
+PASS D7: when storage throws, the request and event persist and the file reports storage_failed
+PASS A17: key A with a hashed ID from project B lists no requests
+PASS A17: key A cannot read a project B thread
+PASS A17: key A cannot post a follow-up to a project B request
+PASS A17: key A cannot mark a project B thread read
+PASS A17: key A cannot download a project B attachment
+PASS a second customer in the same project cannot read the first customer&apos;s thread
+13 pass, 0 fail (bun test modules/api, junit failures=0)
