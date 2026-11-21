@@ -40,6 +40,19 @@ bun run stack:down
 
 `bun run check` leaves the stack running.
 
+## Vendored skills
+
+The `pw-pipeline-*` and `pw-agents-*` skills are upstream copies. Do not edit them.
+
+They describe the pipelines repository's own ports and compose file. This repository uses Postgres on 5447 and LocalStack on 4577 through the root `docker-compose.yml`.
+
+Refresh them with the upstream install commands. Phase 2 adds both packages to `modules/triage` first.
+
+```bash
+bunx pw-pipeline skills install --force
+bunx pw-managed-agents skills install --force
+```
+
 ## Plans
 
 Plans live in `docs/plans/customer-support-v1/`. `PRD.md` holds the locked decisions and the acceptance criteria. `PLAN.md` holds the phases. Start work with `/delivery-loop:scope <branch>`.

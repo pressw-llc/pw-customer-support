@@ -15,3 +15,8 @@
 /coverage/
 /.next/
 /.turbo/
+
+# Vendored upstream skill copies
+/.claude/skills/pw-pipeline-*/
+/.claude/skills/pw-agents-*/
+/.claude/skills/README.md
