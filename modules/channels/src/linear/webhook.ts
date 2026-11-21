@@ -3,7 +3,11 @@ import {
   LINEAR_WEBHOOK_MAX_AGE_SECONDS,
   LINEAR_WEBHOOK_MAX_BYTES,
 } from "@pw-support/contracts";
-import { persistInboundComment, type SupportDb } from "@pw-support/db";
+import {
+  applyCommentChange,
+  persistInboundComment,
+  type SupportDb,
+} from "@pw-support/db";
 import { z } from "zod";
 import { plainReplyText } from "../reply/marker";
 import { LINEAR_WEBHOOK_SECRET, type SecretsProvider } from "./client";
@@ -37,7 +41,10 @@ const payloadSchema = z.object({
   type: z.string(),
   webhookTimestamp: z.number(),
   data: z.record(z.unknown()).optional(),
-  actor: z.object({ name: z.string().nullish() }).partial().nullish(),
+  actor: z
+    .object({ name: z.string().nullish(), type: z.string().nullish() })
+    .partial()
+    .nullish(),
 });
 
 const commentSchema = z.object({
@@ -47,14 +54,19 @@ const commentSchema = z.object({
   parentId: z.string().min(1).nullish(),
   userId: z.string().min(1).nullish(),
   user: z.object({ name: z.string().nullish() }).partial().nullish(),
+  createdAt: z.string().nullish(),
+  botActor: z.unknown().nullish(),
+  externalUserId: z.unknown().nullish(),
+  externalUser: z.unknown().nullish(),
 });
 
-export function signLinearWebhook(
-  secret: string,
-  rawBody: Uint8Array | string,
-): string {
-  return createHmac("sha256", secret).update(rawBody).digest("hex");
-}
+const changeSchema = z.object({
+  id: z.string().min(1),
+  body: z.string().optional(),
+});
+
+const present = (value: unknown): boolean =>
+  value !== null && value !== undefined;
 
 export function signatureMatches(
   secret: string,
@@ -66,13 +78,32 @@ export function signatureMatches(
   return timingSafeEqual(expected, Buffer.from(signature, "hex"));
 }
 
-function authorNameOf(
+function authorNameOf(comment: z.infer<typeof commentSchema>): string | null {
+  const cleaned = plainReplyText(comment.user?.name ?? "")
+    .slice(0, MAX_AUTHOR_NAME_CHARS)
+    .trim();
+  return cleaned === "" ? null : cleaned;
+}
+
+function humanAuthorId(
   comment: z.infer<typeof commentSchema>,
   actor: z.infer<typeof payloadSchema>["actor"],
 ): string | null {
-  const raw = comment.user?.name ?? actor?.name ?? "";
-  const cleaned = plainReplyText(raw).slice(0, MAX_AUTHOR_NAME_CHARS).trim();
-  return cleaned === "" ? null : cleaned;
+  const machine =
+    present(comment.botActor) ||
+    present(comment.externalUserId) ||
+    present(comment.externalUser) ||
+    (actor?.type != null && actor.type !== "user");
+  return machine ? null : (comment.userId ?? null);
+}
+
+function sourceTime(raw: string | null | undefined, fallback: Date): Date {
+  const parsed = raw ? new Date(raw) : null;
+  return parsed && !Number.isNaN(parsed.getTime()) ? parsed : fallback;
+}
+
+function cleanBody(body: string): string {
+  return body.replaceAll("\u0000", "�");
 }
 
 function respond(
@@ -118,7 +149,38 @@ export function createLinearWebhookIntake(
       if (!delivery || delivery.length > 200) {
         return respond(400, { error: "delivery_required" });
       }
-      if (payload.data.type !== "Comment" || payload.data.action !== "create") {
+      if (payload.data.type !== "Comment") {
+        return respond(200, { status: "ignored", reason: "event_not_handled" });
+      }
+      if (
+        payload.data.action === "update" ||
+        payload.data.action === "remove"
+      ) {
+        const change = changeSchema.safeParse(payload.data.data);
+        if (!change.success) {
+          return respond(200, {
+            status: "ignored",
+            reason: "not_an_issue_comment",
+          });
+        }
+        const outcome = await applyCommentChange(deps.db, {
+          deliveryId: delivery,
+          commentId: change.data.id,
+          action: payload.data.action,
+          body:
+            change.data.body === undefined
+              ? undefined
+              : cleanBody(change.data.body),
+        });
+        if (outcome.status === "cancelled") {
+          return respond(200, { status: "accepted", change: "cancelled" });
+        }
+        if (outcome.status === "updated" || outcome.status === "removed") {
+          return respond(200, { status: "accepted", change: outcome.status });
+        }
+        return respond(200, { status: "ignored", reason: outcome.status });
+      }
+      if (payload.data.action !== "create") {
         return respond(200, { status: "ignored", reason: "event_not_handled" });
       }
       const comment = commentSchema.safeParse(payload.data.data);
@@ -133,12 +195,16 @@ export function createLinearWebhookIntake(
         commentId: comment.data.id,
         issueId: comment.data.issueId,
         parentCommentId: comment.data.parentId ?? null,
-        authorId: comment.data.userId ?? null,
-        authorName: authorNameOf(comment.data, payload.data.actor),
-        body: comment.data.body.replaceAll("\u0000", "�"),
+        authorId: humanAuthorId(comment.data, payload.data.actor),
+        authorName: authorNameOf(comment.data),
+        body: cleanBody(comment.data.body),
+        sourceCreatedAt: sourceTime(comment.data.createdAt, clock()),
       });
       if (result.status === "stored") {
         return respond(200, { status: "accepted" });
+      }
+      if (result.status === "awaiting_ticket") {
+        return respond(200, { status: "accepted", pending: "awaiting_ticket" });
       }
       return respond(200, {
         status: "ignored",

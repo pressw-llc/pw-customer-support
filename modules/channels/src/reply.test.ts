@@ -5,9 +5,13 @@ import {
   isConfirmComment,
   isSystemComment,
   plainReplyText,
+  replyMarker,
 } from "./reply/marker";
+import { plainStaffText } from "./reply/plain-text";
 import { createJevWordingScorer, WORDING_QUESTION } from "./reply/wording";
 import { wordingScorerFor } from "./runtime";
+
+const REPLY_ID = "11111111-1111-4111-8111-111111111111";
 
 describe("marker rules", () => {
   test("the marker must open the body and end at whitespace", () => {
@@ -46,7 +50,12 @@ describe("marker rules", () => {
     expect(isSystemComment("Customer follow-up via widget\n\n> hi")).toBe(true);
     expect(
       isSystemComment(
-        buildHoldWarning({ reason: "too_long", score: 0, maxChars: 9 }),
+        buildHoldWarning({
+          reason: "too_long",
+          score: 0,
+          maxChars: 9,
+          replyId: REPLY_ID,
+        }),
       ),
     ).toBe(true);
     expect(isSystemComment("@external hi")).toBe(false);
@@ -54,20 +63,101 @@ describe("marker rules", () => {
 
   test("the hold warning is a fixed template per reason", () => {
     expect(
-      buildHoldWarning({ reason: "wording_low", score: 1.94, maxChars: 10 }),
+      buildHoldWarning({
+        reason: "wording_low",
+        score: 1.94,
+        maxChars: 10,
+        replyId: REPLY_ID,
+      }),
     ).toBe(
-      "Reply held, not sent to the customer. The wording check scored it 1.9 out of 5. A reply needs 2.0 or more to send. Reply `@confirm` in this thread to send it as written. The hold expires after 24 hours.",
+      `Reply held, not sent to the customer. The wording check scored it 1.9 out of 5. A reply needs 2.0 or more to send. Reply \`@confirm\` in this thread to send it as written. Editing or deleting the comment cancels the hold, so post a new \`@external\` comment instead. The hold expires after 24 hours.\n\n${replyMarker(REPLY_ID)}`,
     );
     expect(
       buildHoldWarning({
         reason: "wording_unavailable",
         score: 0,
         maxChars: 10,
+        replyId: REPLY_ID,
       }),
     ).toContain("The wording check was unavailable.");
     expect(
-      buildHoldWarning({ reason: "too_long", score: 0, maxChars: 10 }),
+      buildHoldWarning({
+        reason: "too_long",
+        score: 0,
+        maxChars: 10,
+        replyId: REPLY_ID,
+      }),
     ).toContain("longer than 10 characters");
+  });
+});
+
+describe("plain text for released staff replies", () => {
+  test("links and mentions become their visible text and images vanish", () => {
+    expect(
+      plainStaffText(
+        "Hi [Ada](https://example.com/a), see ![shot](https://uploads.linear.app/x/y.png) and [@Dave](https://linear.app/acme/profiles/dave).",
+      ),
+    ).toBe("Hi Ada, see  and @Dave.");
+  });
+
+  test("linear urls are dropped and other urls stay as plain text", () => {
+    expect(
+      plainStaffText(
+        "Docs: https://example.com/guide and https://linear.app/acme/issue/ACME-1/x and HTTPS://UPLOADS.LINEAR.APP/f.pdf done",
+      ),
+    ).toBe("Docs: https://example.com/guide and  and  done");
+    expect(
+      plainStaffText("[https://linear.app/a/b](https://linear.app/a/b)"),
+    ).toBe("");
+    expect(plainStaffText("http://notlinear.app/x")).toBe(
+      "http://notlinear.app/x",
+    );
+    expect(plainStaffText("https://evil.com/?u=linear.app")).toBe(
+      "https://evil.com/?u=linear.app",
+    );
+  });
+
+  test("html tags are stripped and brackets without a link stay", () => {
+    expect(
+      plainStaffText("a <b>bold</b><script>x()</script> [not a link] (x)"),
+    ).toBe("a bold [not a link] (x)");
+    expect(plainStaffText("[open](")).toBe("[open](");
+    expect(plainStaffText("![x] [y](z")).toBe("![x] [y](z");
+  });
+
+  test("a reply that is only an image or a linear url stays internal", () => {
+    expect(
+      classifyStaffComment("@external ![x](https://a.example/i.png)").kind,
+    ).toBe("internal");
+    expect(classifyStaffComment("@external https://linear.app/a/b").kind).toBe(
+      "internal",
+    );
+    expect(
+      classifyStaffComment("@external Hi [Ada](https://a.example) bye"),
+    ).toEqual({ kind: "external", text: "Hi Ada bye" });
+  });
+
+  test("hostile 500k character inputs finish in linear time", () => {
+    const size = 500_000;
+    const inputs = [
+      "[".repeat(size),
+      "![".repeat(size / 2),
+      "[a](".repeat(size / 4),
+      "[a]".repeat(size / 3),
+      "](".repeat(size / 2),
+      "<".repeat(size),
+      "<a ".repeat(size / 3),
+      "https://".repeat(size / 8),
+      "https://linear.app/".repeat(size / 19),
+      `${"[".repeat(size / 2)}]${")".repeat(size / 2)}`,
+      " ".repeat(size),
+    ];
+    for (const input of inputs) {
+      const started = performance.now();
+      plainStaffText(input);
+      classifyStaffComment(`@external ${input}`);
+      expect(performance.now() - started).toBeLessThan(1000);
+    }
   });
 });
 

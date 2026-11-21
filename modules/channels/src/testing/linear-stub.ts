@@ -1,4 +1,4 @@
-import { signLinearWebhook } from "../linear/webhook";
+import { signLinearWebhook } from "./sign";
 
 export interface StubTeam {
   id: string;
@@ -28,9 +28,16 @@ export interface StubComment {
   id: string;
   issueId: string;
   body: string;
-  userId: string;
+  userId: string | null;
   userName: string;
   parentId: string | null;
+  createdAt?: string;
+  payloadExtra?: PayloadExtra;
+}
+
+export interface PayloadExtra {
+  data?: Record<string, unknown>;
+  actor?: Record<string, unknown>;
 }
 
 export interface StubWebhookTarget {
@@ -48,10 +55,15 @@ export interface StubDelivery {
 export interface StaffCommentInput {
   issueId: string;
   body: string;
-  userId?: string;
+  userId?: string | null;
   userName?: string;
   parentId?: string;
+  createdAt?: Date;
+  deliver?: boolean;
+  payloadExtra?: PayloadExtra;
 }
+
+export type CommentAction = "create" | "update" | "remove";
 
 export interface WebhookOverrides {
   deliveryId?: string;
@@ -60,6 +72,7 @@ export interface WebhookOverrides {
   signature?: string | null;
   omitDelivery?: boolean;
   rawBody?: string;
+  action?: CommentAction;
 }
 
 export const STUB_VIEWER_ID = "user-integration";
@@ -70,22 +83,29 @@ export const STUB_STAFF_NAME = "Ada Staff";
 export function commentWebhookPayload(
   comment: StubComment,
   timestamp: number = Date.now(),
+  action: CommentAction = "create",
 ): Record<string, unknown> {
-  const createdAt = new Date(timestamp).toISOString();
+  const createdAt = comment.createdAt ?? new Date(timestamp).toISOString();
+  const human = comment.userId !== null;
   return {
-    action: "create",
+    action,
     type: "Comment",
-    actor: { id: comment.userId, name: comment.userName, type: "user" },
+    actor: {
+      ...(human ? { id: comment.userId, name: comment.userName } : {}),
+      type: "user",
+      ...comment.payloadExtra?.actor,
+    },
     createdAt,
     data: {
       id: comment.id,
       createdAt,
-      updatedAt: createdAt,
+      updatedAt: new Date(timestamp).toISOString(),
       body: comment.body,
       issueId: comment.issueId,
       parentId: comment.parentId,
       userId: comment.userId,
-      user: { id: comment.userId, name: comment.userName },
+      user: human ? { id: comment.userId, name: comment.userName } : null,
+      ...comment.payloadExtra?.data,
     },
     url: `https://linear.app/stub/issue/${comment.issueId}#comment-${comment.id}`,
     organizationId: "org-stub",
@@ -102,7 +122,9 @@ export async function deliverCommentWebhook(
   const deliveryId = overrides.deliveryId ?? crypto.randomUUID();
   const rawBody =
     overrides.rawBody ??
-    JSON.stringify(commentWebhookPayload(comment, overrides.timestamp));
+    JSON.stringify(
+      commentWebhookPayload(comment, overrides.timestamp, overrides.action),
+    );
   const signature =
     overrides.signature === undefined
       ? signLinearWebhook(overrides.secret ?? target.secret, rawBody)
@@ -148,6 +170,8 @@ export interface LinearStub {
     comment: StubComment;
     delivery: StubDelivery | null;
   }>;
+  editComment(commentId: string, body: string): Promise<StubDelivery | null>;
+  removeComment(commentId: string): Promise<StubDelivery | null>;
   failNext(count: number, message?: string): void;
   reset(): void;
   stop(): Promise<void>;
@@ -215,12 +239,30 @@ export function startLinearStub(options: StubOptions = {}): LinearStub {
         id: crypto.randomUUID(),
         issueId: issue.id,
         body: input.body,
-        userId: input.userId ?? STUB_STAFF_ID,
+        userId: input.userId === undefined ? STUB_STAFF_ID : input.userId,
         userName: input.userName ?? STUB_STAFF_NAME,
         parentId: input.parentId ?? null,
+        createdAt: input.createdAt?.toISOString(),
+        payloadExtra: input.payloadExtra,
       };
       stub.comments.push(comment);
-      return { comment, delivery: await emit(comment) };
+      return {
+        comment,
+        delivery: input.deliver === false ? null : await emit(comment),
+      };
+    },
+    async editComment(commentId, body) {
+      const comment = stub.comments.find((c) => c.id === commentId);
+      if (!comment) throw new GraphQlFailure("Entity not found: Comment");
+      comment.body = body;
+      return emit(comment, "update");
+    },
+    async removeComment(commentId) {
+      const index = stub.comments.findIndex((c) => c.id === commentId);
+      const comment = stub.comments[index];
+      if (!comment) throw new GraphQlFailure("Entity not found: Comment");
+      stub.comments.splice(index, 1);
+      return emit(comment, "remove");
     },
     failNext(count, message = "Internal server error") {
       failures = { count, message };
@@ -241,10 +283,15 @@ export function startLinearStub(options: StubOptions = {}): LinearStub {
   let webhook: StubWebhookTarget | null = null;
   const counters = new Map<string, number>();
 
-  async function emit(comment: StubComment): Promise<StubDelivery | null> {
+  async function emit(
+    comment: StubComment,
+    action: CommentAction = "create",
+  ): Promise<StubDelivery | null> {
     if (!webhook) return null;
     try {
-      const delivery = await deliverCommentWebhook(webhook, comment);
+      const delivery = await deliverCommentWebhook(webhook, comment, {
+        action,
+      });
       stub.deliveries.push(delivery);
       return delivery;
     } catch {

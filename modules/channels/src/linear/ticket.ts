@@ -90,18 +90,63 @@ export function inertText(value: string, singleLine = false): string {
   return cleaned.split("\n").map(inertLine).join("\n").trim();
 }
 
-export function quoteCustomerText(text: string): string {
-  const cleaned = defangLinks(stripMarkup(text))
+function cleanCustomerText(text: string): string {
+  return defangLinks(stripMarkup(text))
     .replace(/[[\]&]/g, "\\$&")
     .trim();
+}
+
+function quoteLines(text: string): string {
+  return text
+    .split("\n")
+    .map((line) => (line === "" ? ">" : `> ${line}`))
+    .join("\n");
+}
+
+export function quoteCustomerText(text: string): string {
+  const cleaned = cleanCustomerText(text);
   const capped =
     cleaned.length > QUOTE_MAX_CHARS
       ? `${cleaned.slice(0, QUOTE_MAX_CHARS)}\n[text cut at ${QUOTE_MAX_CHARS} characters]`
       : cleaned;
-  return capped
-    .split("\n")
-    .map((line) => (line === "" ? ">" : `> ${line}`))
-    .join("\n");
+  return quoteLines(capped);
+}
+
+export interface TicketMessage {
+  id: string;
+  text: string;
+  ready: boolean;
+}
+
+interface QuotedMessages {
+  quote: string;
+  includedIds: Set<string>;
+}
+
+function quoteMessages(messages: TicketMessage[]): QuotedMessages {
+  const parts: string[] = [];
+  const includedIds = new Set<string>();
+  let used = 0;
+  let omitted = false;
+  for (const message of messages) {
+    if (!message.ready) continue;
+    const cleaned = cleanCustomerText(message.text);
+    const cost = (parts.length > 0 ? 2 : 0) + cleaned.length;
+    if (used + cost > QUOTE_MAX_CHARS) {
+      if (parts.length === 0) {
+        parts.push(
+          `${cleaned.slice(0, QUOTE_MAX_CHARS)}\n[text cut at ${QUOTE_MAX_CHARS} characters]`,
+        );
+      }
+      omitted = parts.length > 0 && includedIds.size > 0;
+      break;
+    }
+    parts.push(cleaned);
+    includedIds.add(message.id);
+    used += cost;
+  }
+  if (omitted) parts.push("[further messages follow as comments]");
+  return { quote: quoteLines(parts.join("\n\n")), includedIds };
 }
 
 export function safeFilename(filename: string): string {
@@ -114,6 +159,24 @@ export function safeFilename(filename: string): string {
 
 export function messageMarker(messageId: string): string {
   return `Support message ID: ${messageId}`;
+}
+
+export function attachmentsMarker(attachmentId: string): string {
+  return `Support attachment ID: ${attachmentId}`;
+}
+
+export function buildLateAttachmentsComment(input: {
+  originChannel: string;
+  attachmentNames: string[];
+  marker: string;
+}): string {
+  return [
+    `${FOLLOW_UP_HEADER_PREFIX} ${safeFilename(input.originChannel)}`,
+    `Attachments added later:\n${input.attachmentNames
+      .map((name) => `- \`${safeFilename(name)}\``)
+      .join("\n")}`,
+    input.marker,
+  ].join("\n\n");
 }
 
 export interface FollowUpInput {
@@ -144,11 +207,13 @@ export interface TicketInput {
   result: TriageResult;
   outcome: TriageOutcome;
   humanTriageReason?: HumanTriageReason;
-  customerText: string;
+  messages: TicketMessage[];
   attachments: TicketAttachment[];
 }
 
 export interface TicketAttachment {
+  id: string;
+  messageId: string;
   filename: string;
   notAnalyzed?: boolean;
 }
@@ -158,6 +223,8 @@ export interface TicketDraft {
   description: string;
   priority: number;
   labelNames: string[];
+  deliveredMessageIds: string[];
+  deliveredAttachmentIds: string[];
 }
 
 export function buildTicket(input: TicketInput): TicketDraft {
@@ -174,12 +241,14 @@ export function buildTicket(input: TicketInput): TicketDraft {
       `Category: ${result.category}. Priority: ${result.priority}.`,
     );
   }
-  sections.push(
-    `## Customer message\n${quoteCustomerText(input.customerText)}`,
+  const quoted = quoteMessages(input.messages);
+  sections.push(`## Customer message\n${quoted.quote}`);
+  const listed = input.attachments.filter((file) =>
+    quoted.includedIds.has(file.messageId),
   );
-  if (input.attachments.length > 0) {
+  if (listed.length > 0) {
     sections.push(
-      `## Attachments\n${input.attachments
+      `## Attachments\n${listed
         .map(
           (file) =>
             `- \`${safeFilename(file.filename)}\`${file.notAnalyzed ? " (not analyzed)" : ""}`,
@@ -195,5 +264,7 @@ export function buildTicket(input: TicketInput): TicketDraft {
     description: sections.join("\n\n"),
     priority: PRIORITY_VALUES[result.priority],
     labelNames,
+    deliveredMessageIds: [...quoted.includedIds],
+    deliveredAttachmentIds: listed.map((file) => file.id),
   };
 }

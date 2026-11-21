@@ -3,6 +3,7 @@ import {
   type ReplyHoldReason,
   WORDING_HOLD_BELOW,
 } from "@pw-support/contracts";
+import { plainStaffText } from "./plain-text";
 
 export const EXTERNAL_MARKER = "@external";
 export const CONFIRM_COMMAND = "@confirm";
@@ -41,7 +42,7 @@ export function classifyStaffComment(body: string): StaffCommentClass {
   if (end < body.length && !ASCII_SPACE.has(body.charAt(end))) {
     return { kind: "internal" };
   }
-  const text = plainReplyText(body.slice(end));
+  const text = plainReplyText(plainStaffText(body.slice(end)));
   return text === "" ? { kind: "internal" } : { kind: "external", text };
 }
 
@@ -60,10 +61,15 @@ export function isSystemComment(body: string): boolean {
   );
 }
 
+export function replyMarker(replyId: string): string {
+  return `Support reply ID: ${replyId}`;
+}
+
 export function buildHoldWarning(input: {
   reason: ReplyHoldReason;
   score: number;
   maxChars: number;
+  replyId: string;
 }): string {
   const why =
     input.reason === "wording_low"
@@ -72,5 +78,5 @@ export function buildHoldWarning(input: {
         ? `The reply is longer than ${input.maxChars} characters.`
         : "The wording check was unavailable.";
   const hours = Math.round(REPLY_HOLD_TTL_SECONDS / 3600);
-  return `${HOLD_WARNING_PREFIX} ${why} Reply \`${CONFIRM_COMMAND}\` in this thread to send it as written. The hold expires after ${hours} hours.`;
+  return `${HOLD_WARNING_PREFIX} ${why} Reply \`${CONFIRM_COMMAND}\` in this thread to send it as written. Editing or deleting the comment cancels the hold, so post a new \`${EXTERNAL_MARKER}\` comment instead. The hold expires after ${hours} hours.\n\n${replyMarker(input.replyId)}`;
 }

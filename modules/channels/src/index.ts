@@ -12,5 +12,6 @@ export * from "./linear/ticket";
 export * from "./linear/webhook";
 export * from "./poller";
 export * from "./reply/marker";
+export * from "./reply/plain-text";
 export * from "./reply/wording";
 export * from "./runtime";

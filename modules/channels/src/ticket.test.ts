@@ -1,6 +1,8 @@
 import { describe, expect, test } from "bun:test";
 import { HUMAN_TRIAGE_LABEL, humanTriageResult } from "@pw-support/contracts";
 import {
+  attachmentsMarker,
+  buildLateAttachmentsComment,
   buildTicket,
   inertText,
   LABEL_NAMES,
@@ -76,7 +78,7 @@ describe("buildTicket", () => {
     requestId: REQUEST_ID,
     result: VALID_RESULT,
     outcome: "agent" as const,
-    customerText: "My export fails.",
+    messages: [{ id: "m1", text: "My export fails.", ready: true }],
     attachments: [],
   };
 
@@ -126,8 +128,10 @@ describe("buildTicket", () => {
     ].join("\n");
     const draft = buildTicket({
       ...base,
-      customerText: hostile,
-      attachments: [{ filename: "evil`name](x).png" }],
+      messages: [{ id: "m1", text: hostile, ready: true }],
+      attachments: [
+        { id: "a1", messageId: "m1", filename: "evil`name](x).png" },
+      ],
     });
     const quote = section(draft.description, "## Customer message");
     const quoted = quote.filter((line) => line.startsWith(">"));
@@ -238,14 +242,65 @@ describe("buildTicket", () => {
     const draft = buildTicket({
       ...base,
       attachments: [
-        { filename: "a.png", notAnalyzed: true },
-        { filename: "b.txt" },
+        { id: "a1", messageId: "m1", filename: "a.png", notAnalyzed: true },
+        { id: "a2", messageId: "m1", filename: "b.txt" },
       ],
     });
     expect(section(draft.description, "## Attachments").slice(0, 2)).toEqual([
       "- `a.png` (not analyzed)",
       "- `b.txt`",
     ]);
+  });
+
+  test("only ready messages that fit the quote cap count as delivered with the ticket", () => {
+    const draft = buildTicket({
+      ...base,
+      messages: [
+        { id: "m1", text: "first", ready: true },
+        { id: "m2", text: "not ready", ready: false },
+        { id: "m3", text: "third", ready: true },
+        { id: "m4", text: "z".repeat(QUOTE_MAX_CHARS), ready: true },
+        { id: "m5", text: "after the overflow", ready: true },
+      ],
+      attachments: [
+        { id: "a1", messageId: "m1", filename: "one.txt" },
+        { id: "a2", messageId: "m2", filename: "two.txt" },
+        { id: "a4", messageId: "m4", filename: "four.txt" },
+      ],
+    });
+    expect(draft.deliveredMessageIds).toEqual(["m1", "m3"]);
+    expect(draft.deliveredAttachmentIds).toEqual(["a1"]);
+    expect(draft.description).toContain("> first\n>\n> third");
+    expect(draft.description).not.toContain("not ready");
+    expect(draft.description).not.toContain("zzzz");
+    expect(draft.description).toContain(
+      "[further messages follow as comments]",
+    );
+    expect(draft.description).not.toContain("two.txt");
+  });
+
+  test("a first message over the cap is cut and not counted as delivered", () => {
+    const draft = buildTicket({
+      ...base,
+      messages: [
+        { id: "m1", text: "x".repeat(QUOTE_MAX_CHARS + 10), ready: true },
+      ],
+    });
+    expect(draft.deliveredMessageIds).toEqual([]);
+    expect(draft.description).toContain(
+      `[text cut at ${QUOTE_MAX_CHARS} characters]`,
+    );
+  });
+
+  test("late attachment comments carry the follow-up header and the marker last", () => {
+    const comment = buildLateAttachmentsComment({
+      originChannel: "widget",
+      attachmentNames: ["a`b.log"],
+      marker: attachmentsMarker("att-1"),
+    });
+    expect(comment.startsWith("Customer follow-up via widget\n\n")).toBe(true);
+    expect(comment).toContain("- `a_b.log`");
+    expect(comment.endsWith("Support attachment ID: att-1")).toBe(true);
   });
 
   test("a title with markup or newlines becomes one clean line", () => {

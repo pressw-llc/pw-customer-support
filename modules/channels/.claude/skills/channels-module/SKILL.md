@@ -37,15 +37,21 @@ description: Work in the channels module: the adapter contract, the event dispat
 - Write customer text only as quoted content. Strip markup, neutralize mentions, cap the length.
 - Send the Linear key as the raw `Authorization` value with no Bearer prefix. Never log it.
 - Treat a staff comment as internal unless it starts with `@external`. `classifyStaffComment` allows only ASCII space, tab, CR, and LF before the marker, and requires whitespace or the end of the body after it. A bare marker with no text stays internal.
-- Treat `@confirm` as a confirm only when the whole trimmed body equals it and the comment has a parent. `confirmHeldReply` releases the latest held reply of the same author in that thread.
+- Treat `@confirm` as a confirm only when the whole trimmed body equals it and the comment has a parent. `confirmHeldReply` releases the latest held reply of the same author in that thread that is older than the confirm and already warned. A confirm that is early stays pending and retries.
+- Treat a comment with no human Linear user as internal. The webhook stores `author_id` null for a missing `userId`, `botActor`, `externalUserId`, `externalUser`, or a non-user actor type. The adapter stores a null-author comment as internal before the confirm and marker rules run. Take the author name only from `data.user.name`.
+- Accept `Comment` `update` and `remove` webhooks. A changed body or a delete cancels a held reply in the delivery transaction. An update that keeps the body changes nothing. An edit after send never changes the customer message.
+- Convert released staff text to plain text in `reply/plain-text.ts`: links to their text, images and HTML dropped, `linear.app` URLs dropped, in linear time. Reuse `stripMarkup` from `@pw-support/contracts`.
 - Score a marked reply with one Jev `noul` judgment and multiply by 5. `createJevWordingScorer` does it. Store the raw judgment in `support.judgments` with kind `wording`. Hold below 2, send and flag from 2 to below 3, send from 3.
 - Hold on a scorer error, a missing key, a non finite score, or text over `MAX_MESSAGE_CHARS`. The hold warning is a fixed template and carries no model text.
-- Skip our own comments: a follow-up header, the hold warning prefix, a recorded Linear comment id, or the integration user id from `viewerId`.
+- Skip our own comments by the follow-up header, the hold warning prefix, or a recorded Linear comment id. Never skip by the key owner's user id: the key owner can write real staff comments.
+- Mark a message delivered with the ticket only when the issue was created in that call, the message intake is complete, and its text fits the quote cap. `buildTicket` returns the ids it included. Post attachments that finish later as a filename list through follow-up sync.
+- Give the hold warning a `Support reply ID: <id>` last line. Lock the reply row while posting, and look the warning up by that marker first.
 - Verify the webhook in `linear/webhook.ts`: raw body signature in constant time, 60 second window, delivery id idempotency, 256 KiB cap, fail closed without a secret. Persist the comment and `comment.received` before any judgment.
 - Post a follow-up as one quoted comment per message. End it with `Support message ID: <id>` and find an existing comment by that marker before posting. Mark messages inside the ticket description as delivered with the ticket.
 - Give follow-ups the static checks only. No Jev injection judgment runs on them, because no agent reads them in V1.
-- Redeliver undelivered follow-ups and stale inbound comments through `adapter.redeliver`.
-- Keep stub-only helpers (`staffComment`, `deliverCommentWebhook`, `configureWebhook`) behind `@pw-support/channels/testing`.
+- Redeliver undelivered follow-ups and stale inbound comments through `adapter.redeliver`, each on a capped exponential backoff. `redeliver` also attaches or expires orphan comments, expires holds, and purges old webhook rows.
+- Subscribe to `message.intake_completed` so a finished follow-up intake posts at once.
+- Keep stub-only helpers (`staffComment`, `editComment`, `removeComment`, `deliverCommentWebhook`, `configureWebhook`, `signLinearWebhook`) behind `@pw-support/channels/testing`. The production barrel exports only the verifier.
 - Run the adapter as a Lambda pipeline step in `pipelines/linear-outbound`. One adapter handles `triage.result.accepted`, `ticket.created`, `message.created`, and `comment.received`.
 
 ## Commands

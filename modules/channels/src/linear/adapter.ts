@@ -14,29 +14,36 @@ import {
 } from "@pw-support/contracts";
 import {
   appendEvent,
+  attachOrphanComments,
   claimFollowUpRedeliveries,
+  claimStaleInboundEvents,
   claimTicketRedeliveries,
   confirmHeldReply,
   displayBody,
+  expireHeldReplies,
   findTicketByRequest,
   followUpLockKey,
   getInboundComment,
-  getReplyByInbound,
   getTriageJobForRequest,
   type InboundCommentRow,
   ignoreInboundComment,
   insertTicket,
   inTransaction,
+  isMessageReady,
   isRecordedOwnComment,
   listJudgments,
-  listStaleInboundEvents,
+  listLateAttachments,
   listUndeliveredFollowUps,
   loadTriageContext,
+  lockReplyNeedingWarning,
+  markAttachmentsDelivered,
   markMessagesDeliveredViaTicket,
+  purgeStaleRecords,
   recordFollowUpDelivered,
   recordReplyWarning,
   requestHasEvent,
   resolveExternalReply,
+  resolveOrphanComments,
   type SupportDb,
   storeInternalComment,
   type TicketRow,
@@ -48,17 +55,22 @@ import {
   classifyStaffComment,
   isConfirmComment,
   isSystemComment,
+  replyMarker,
 } from "../reply/marker";
 import type { WordingScorer } from "../reply/wording";
 import type { LinearClient } from "./client";
 import {
+  attachmentsMarker,
   buildFollowUpComment,
+  buildLateAttachmentsComment,
   buildTicket,
   messageMarker,
   requestMarker,
 } from "./ticket";
 
 export const LINEAR_ADAPTER_NAME = "linear";
+
+const PURGE_INTERVAL_MS = 10 * 60 * 1000;
 
 const storedResultSchema = z.object({
   result: triageResultSchema,
@@ -82,6 +94,7 @@ export interface LinearAdapter extends ChannelAdapter {
   createTicketForRequest(requestId: string): Promise<TicketOutcome>;
   syncFollowUps(requestId: string): Promise<number>;
   processInboundComment(inboundId: string): Promise<void>;
+  redeliver(): Promise<EventEnvelope[]>;
 }
 
 interface WordingDecision {
@@ -96,6 +109,7 @@ const inboundPayloadSchema = z.object({ inboundId: z.string().uuid() });
 export function createLinearAdapter(deps: LinearAdapterDeps): LinearAdapter {
   const { db, linear } = deps;
   const clock = deps.now ?? (() => new Date());
+  let lastPurgeAt = Number.NEGATIVE_INFINITY;
 
   async function decideWording(text: string): Promise<WordingDecision> {
     if (text.length > MAX_MESSAGE_CHARS) {
@@ -132,27 +146,34 @@ export function createLinearAdapter(deps: LinearAdapterDeps): LinearAdapter {
   }
 
   async function isOwnComment(inbound: InboundCommentRow): Promise<boolean> {
-    if (isSystemComment(inbound.body)) return true;
-    if (await isRecordedOwnComment(db, inbound.commentId)) return true;
     return (
-      inbound.authorId !== null &&
-      inbound.authorId === (await linear.viewerId())
+      isSystemComment(inbound.body) ||
+      (await isRecordedOwnComment(db, inbound.commentId))
     );
   }
 
   async function ensureHoldWarning(inbound: InboundCommentRow): Promise<void> {
-    const reply = await getReplyByInbound(db, inbound.id);
-    if (reply?.status !== "held" || reply.warningCommentId) return;
-    const warning = await linear.createComment(
-      inbound.issueId,
-      buildHoldWarning({
-        reason: (reply.holdReason ?? "wording_low") as ReplyHoldReason,
-        score: reply.wordingScore,
-        maxChars: MAX_MESSAGE_CHARS,
-      }),
-      reply.threadRootId,
-    );
-    await recordReplyWarning(db, reply.id, warning.id);
+    await inTransaction(db, async (tx) => {
+      const reply = await lockReplyNeedingWarning(tx, inbound.id, clock());
+      if (!reply) return;
+      const existing = await linear.findCommentByMarker(
+        inbound.issueId,
+        replyMarker(reply.id),
+      );
+      const warning =
+        existing ??
+        (await linear.createComment(
+          inbound.issueId,
+          buildHoldWarning({
+            reason: (reply.holdReason ?? "wording_low") as ReplyHoldReason,
+            score: reply.wordingScore,
+            maxChars: MAX_MESSAGE_CHARS,
+            replyId: reply.id,
+          }),
+          reply.threadRootId,
+        ));
+      await recordReplyWarning(tx, reply.id, warning.id);
+    });
   }
 
   async function processInboundComment(inboundId: string): Promise<void> {
@@ -162,8 +183,13 @@ export function createLinearAdapter(deps: LinearAdapterDeps): LinearAdapter {
       await ensureHoldWarning(inbound);
       return;
     }
+    if (!inbound.requestId) return;
     if (await isOwnComment(inbound)) {
       await ignoreInboundComment(db, inbound.id, "own_comment");
+      return;
+    }
+    if (inbound.authorId === null) {
+      await storeInternalComment(db, inbound.id);
       return;
     }
     if (inbound.parentCommentId && isConfirmComment(inbound.body)) {
@@ -178,6 +204,7 @@ export function createLinearAdapter(deps: LinearAdapterDeps): LinearAdapter {
     const decision = await decideWording(classified.text);
     const resolved = await resolveExternalReply(db, {
       inboundId: inbound.id,
+      sourceBody: inbound.body,
       text: classified.text,
       score: decision.score,
       band: decision.band,
@@ -217,8 +244,28 @@ export function createLinearAdapter(deps: LinearAdapterDeps): LinearAdapter {
           messageId: item.message.id,
           requestId,
           linearCommentId: comment.id,
+          attachmentIds: item.attachmentIds,
           now: clock(),
         });
+        delivered++;
+      }
+      for (const late of await listLateAttachments(tx, requestId, clock())) {
+        const marker = attachmentsMarker(late.attachmentIds[0] as string);
+        const found = await linear.findCommentByMarker(
+          ticket.linearIssueId,
+          marker,
+        );
+        if (!found) {
+          await linear.createComment(
+            ticket.linearIssueId,
+            buildLateAttachmentsComment({
+              originChannel: "widget",
+              attachmentNames: late.attachmentNames,
+              marker,
+            }),
+          );
+        }
+        await markAttachmentsDelivered(tx, late.attachmentIds, clock());
         delivered++;
       }
       return delivered;
@@ -269,8 +316,14 @@ export function createLinearAdapter(deps: LinearAdapterDeps): LinearAdapter {
         humanTriageReason: stored.humanTriageReason as
           | HumanTriageReason
           | undefined,
-        customerText: context.messages.map((m) => m.body).join("\n\n"),
+        messages: context.messages.map((message, index) => ({
+          id: message.id,
+          text: message.body,
+          ready: index === 0 || isMessageReady(message, clock()),
+        })),
         attachments: context.attachments.map((file) => ({
+          id: file.id,
+          messageId: file.messageId,
           filename: file.filename,
           notAnalyzed: withheld.has(`image:${file.id}`),
         })),
@@ -279,8 +332,12 @@ export function createLinearAdapter(deps: LinearAdapterDeps): LinearAdapter {
       for (const name of draft.labelNames) {
         labelIds.push(await linear.findOrCreateLabel(teamId, name));
       }
+      const adopted = await linear.findIssueByMarker(
+        teamId,
+        requestMarker(requestId),
+      );
       const issue =
-        (await linear.findIssueByMarker(teamId, requestMarker(requestId))) ??
+        adopted ??
         (await linear.createIssue({
           teamId,
           title: draft.title,
@@ -299,12 +356,15 @@ export function createLinearAdapter(deps: LinearAdapterDeps): LinearAdapter {
         if (!winner) throw new Error("ticket insert conflicted without a row");
         return { status: "exists", ticket: winner };
       }
-      await markMessagesDeliveredViaTicket(
-        tx,
-        requestId,
-        context.messages.map((message) => message.id),
-        clock(),
-      );
+      await attachOrphanComments(tx, issue.id, context.request);
+      if (!adopted) {
+        await markMessagesDeliveredViaTicket(tx, {
+          requestId,
+          messageIds: draft.deliveredMessageIds,
+          attachmentIds: draft.deliveredAttachmentIds,
+          now: clock(),
+        });
+      }
       await appendEvent(tx, {
         type: "ticket.created",
         channelKey: context.request.channelKey,
@@ -327,6 +387,7 @@ export function createLinearAdapter(deps: LinearAdapterDeps): LinearAdapter {
       "triage.result.accepted",
       "ticket.created",
       "message.created",
+      "message.intake_completed",
       "comment.received",
     ],
     async handle(event: EventEnvelope) {
@@ -345,10 +406,16 @@ export function createLinearAdapter(deps: LinearAdapterDeps): LinearAdapter {
     },
     async redeliver() {
       const now = clock();
+      await resolveOrphanComments(db, { now });
+      await expireHeldReplies(db, { now });
+      if (now.getTime() - lastPurgeAt >= PURGE_INTERVAL_MS) {
+        lastPurgeAt = now.getTime();
+        await purgeStaleRecords(db, { now });
+      }
       return [
         ...(await claimTicketRedeliveries(db, { now })),
         ...(await claimFollowUpRedeliveries(db, { now })),
-        ...(await listStaleInboundEvents(db, { now })),
+        ...(await claimStaleInboundEvents(db, { now })),
       ];
     },
     createTicketForRequest,
