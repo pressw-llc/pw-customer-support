@@ -23,6 +23,19 @@ import {
 
 const SECRET = "sk-test-very-secret-value";
 
+const VALUES = [
+  "plain",
+  "hello$A",
+  `a $A $${"{"}B} #c`,
+  'say "hi" it\'s $A',
+  "p\\qr",
+  "a\\nb",
+  "\\$A",
+  "cost $5 and $",
+  "  padded  ",
+  "x\\\\y",
+];
+
 let dir: string;
 let out: string[];
 let err: string[];
@@ -60,7 +73,7 @@ describe("parse and format", () => {
         "# E=skipped",
         "",
         "F=",
-        'G="a \\"q\\" \\\\"',
+        'G="a \\$A b"',
         'H="unterminated',
       ].join("\n"),
     );
@@ -70,23 +83,55 @@ describe("parse and format", () => {
       ["C", "single"],
       ["D", "4"],
       ["F", ""],
-      ["G", 'a "q" \\'],
+      ["G", "a $A b"],
       ["H", '"unterminated'],
     ]);
   });
 
-  test("quotes values that need quoting and rejects newlines", () => {
+  test("quotes values that need quoting and rejects bad values", () => {
     expect(formatValue("plain")).toBe("plain");
     expect(formatValue("")).toBe("");
-    expect(formatValue("a b")).toBe('"a b"');
-    expect(formatValue("a#b")).toBe('"a#b"');
-    expect(formatValue('say "hi"')).toBe('"say \\"hi\\""');
+    expect(formatValue("a b")).toBe("'a b'");
+    expect(formatValue("a#b")).toBe("'a#b'");
+    expect(formatValue('say "hi"')).toBe("'say \"hi\"'");
+    expect(formatValue("hello$A")).toBe("'hello\\$A'");
+    expect(formatValue("cost $5")).toBe("'cost \\$5'");
+    expect(formatValue("a $ b")).toBe("'a $ b'");
     expect(() => formatValue("a\nb")).toThrow("newlines");
+    expect(() => formatValue("a\\")).toThrow("backslash");
   });
 
-  test("round trips a quoted value", () => {
-    const text = upsertKey("", "K", 'a "b" #c \\');
-    expect(parseEnv(text)[0]?.value).toBe('a "b" #c \\');
+  test("round trips values through the serializer and parser", () => {
+    for (const value of VALUES) {
+      const text = upsertKey("", "K", value);
+      expect(parseEnv(text)[0]?.value).toBe(value);
+    }
+  });
+});
+
+describe("bun dotenv loader", () => {
+  test("reads serialized values back literally", async () => {
+    for (const value of VALUES) {
+      const loaderDir = mkdtempSync(join(tmpdir(), "env-loader-"));
+      try {
+        const text = upsertKey(
+          upsertKey("A=EXPANDED\nB=EXP\n", "TOKEN", value),
+          "LAST",
+          "1",
+        );
+        writeFileSync(join(loaderDir, ".env.local"), text);
+        const proc = Bun.spawnSync(
+          ["bun", "-e", "console.log(JSON.stringify(process.env.TOKEN))"],
+          {
+            cwd: loaderDir,
+            env: { PATH: process.env.PATH ?? "", HOME: process.env.HOME ?? "" },
+          },
+        );
+        expect(JSON.parse(proc.stdout.toString().trim())).toBe(value);
+      } finally {
+        rmSync(loaderDir, { recursive: true, force: true });
+      }
+    }
   });
 });
 
@@ -141,17 +186,22 @@ describe("sync and describe", () => {
     expect(missingKeys("A=1\nB=2\n", "A=x\n")).toEqual(["B"]);
   });
 
-  test("describes states without values", () => {
-    const lines = describeKeys("A=1\nB=\nC=3\nD=4\n", "A=x\nB=\nC=\n");
+  test("describes the union of both files without values", () => {
+    const lines = describeKeys("A=1\nB=\nC=3\nD=4\n", "A=x\nB=\nC=\nE=5\n");
     expect(lines).toEqual([
       "A example: default local: set",
       "B example: blank local: blank",
       "C example: default local: blank",
       "D example: default local: missing",
+      "E example: missing local: set",
     ]);
     expect(describeKeys("A=1\n", null)).toEqual([
       "A example: default local: missing",
     ]);
+    expect(describeKeys(null, "L=1\n")).toEqual([
+      "L example: missing local: set",
+    ]);
+    expect(describeKeys(null, null)).toEqual([]);
   });
 });
 
@@ -271,9 +321,62 @@ describe("cli", () => {
     expect(out.join("\n")).not.toContain(SECRET);
   });
 
-  test("list and check fail without an example", async () => {
-    expect(await run(["list"])).toBe(1);
+  test("list includes local-only keys and works without a template", async () => {
+    await run(["set", "L=1", "--local-only"]);
+    out.length = 0;
+    expect(await run(["list"])).toBe(0);
+    expect(out).toEqual(["L example: missing local: set"]);
+  });
+
+  test("check fails without an example", async () => {
     expect(await run(["check"])).toBe(1);
+  });
+
+  test("a mistyped flag writes nothing and never echoes the value", async () => {
+    for (const flag of ["--secreet", "--secrets", "--secret=oops", "-s"]) {
+      err.length = 0;
+      const code = await run(
+        ["set", "LINEAR_API_KEY", "--stdin", flag],
+        "fake-key\n",
+      );
+      expect(code).toBe(1);
+      expect(err.join("\n")).toContain(flag.split("=")[0] as string);
+      expect(err.join("\n")).not.toContain("fake-key");
+      expect(err.join("\n")).not.toContain("oops");
+      expect(existsSync(join(dir, ".env.example"))).toBe(false);
+      expect(existsSync(join(dir, ".env.local"))).toBe(false);
+    }
+  });
+
+  test("a mistyped flag leaves existing files unchanged", async () => {
+    await run(["set", "KEEP=1"]);
+    const before = [example(), local()];
+    expect(
+      await run(["set", "KEEP=2", "--secreet", "--local-only"], "fake-key\n"),
+    ).toBe(1);
+    expect(await run(["unset", "KEEP", "--bogus"])).toBe(1);
+    expect(await run(["sync", "--force"])).toBe(1);
+    expect(await run(["list", "--verbose"])).toBe(1);
+    expect(await run(["check", "--fix"])).toBe(1);
+    expect([example(), local()]).toEqual(before);
+  });
+
+  test("rejects extra positionals without echoing them", async () => {
+    expect(await run(["set", "KEY", "fake-key"])).toBe(1);
+    expect(await run(["sync", "extra"])).toBe(1);
+    expect(err.join("\n")).not.toContain("fake-key");
+    expect(existsSync(join(dir, ".env.example"))).toBe(false);
+  });
+
+  test("rejects =VALUE together with --stdin", async () => {
+    expect(await run(["set", "KEY=a", "--stdin"], "b\n")).toBe(1);
+    expect(existsSync(join(dir, ".env.example"))).toBe(false);
+  });
+
+  test("writes values with a dollar sign literally", async () => {
+    await run(["set", "TOKEN=hello$A", "--secret"]);
+    expect(local()).toBe("TOKEN='hello\\$A'\n");
+    expect(example()).toBe("TOKEN=\n");
   });
 
   test("check passes with no local, fails on missing keys", async () => {

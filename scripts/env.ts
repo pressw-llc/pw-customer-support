@@ -33,25 +33,30 @@ function joinLines(lines: string[]): string {
   return lines.length === 0 ? "" : `${lines.join("\n")}\n`;
 }
 
+const EXPANSION = /\$(?=[A-Za-z0-9_{])/g;
+const ESCAPED_EXPANSION = /\\(?=\$[A-Za-z0-9_{])/g;
+
 export function formatValue(value: string): string {
   if (/[\r\n]/.test(value)) throw new Error("values may not contain newlines");
-  if (value === "" || !/[\s#"'\\]/.test(value)) return value;
-  return `"${value.replaceAll("\\", "\\\\").replaceAll('"', '\\"')}"`;
+  if (value.endsWith("\\")) {
+    throw new Error("values may not end with a backslash");
+  }
+  if (value === "" || !/[\s#"'\\`$]/.test(value)) return value;
+  return `'${value.replace(EXPANSION, "\\$")}'`;
+}
+
+function unescapeExpansion(text: string): string {
+  return text.replace(ESCAPED_EXPANSION, "");
 }
 
 function parseValue(raw: string): string {
   const trimmed = raw.trim();
-  if (trimmed.startsWith('"')) {
-    const close = trimmed.lastIndexOf('"');
-    if (close > 0) {
-      return trimmed.slice(1, close).replace(/\\(["\\])/g, "$1");
-    }
+  const quote = trimmed[0];
+  if (quote === '"' || quote === "'") {
+    const close = trimmed.lastIndexOf(quote);
+    if (close > 0) return unescapeExpansion(trimmed.slice(1, close));
   }
-  if (trimmed.startsWith("'")) {
-    const close = trimmed.lastIndexOf("'");
-    if (close > 0) return trimmed.slice(1, close);
-  }
-  return trimmed.replace(/\s+#.*$/, "");
+  return unescapeExpansion(trimmed.replace(/\s+#.*$/, ""));
 }
 
 export function parseEnv(text: string): EnvEntry[] {
@@ -144,21 +149,23 @@ export function missingKeys(example: string, local: string): string[] {
     .filter((key) => !present.has(key));
 }
 
-export function describeKeys(example: string, local: string | null): string[] {
+export function describeKeys(
+  example: string | null,
+  local: string | null,
+): string[] {
+  const exampleEntries = new Map(
+    parseEnv(example ?? "").map((entry) => [entry.key, entry.value]),
+  );
   const localEntries = new Map(
     parseEnv(local ?? "").map((entry) => [entry.key, entry.value]),
   );
-  return parseEnv(example).map((entry) => {
-    const exampleState = entry.value === "" ? "blank" : "default";
-    const localValue = localEntries.get(entry.key);
-    const localState =
-      local === null || localValue === undefined
-        ? "missing"
-        : localValue === ""
-          ? "blank"
-          : "set";
-    return `${entry.key} example: ${exampleState} local: ${localState}`;
-  });
+  const keys = [...new Set([...exampleEntries.keys(), ...localEntries.keys()])];
+  const state = (value: string | undefined, filled: string) =>
+    value === undefined ? "missing" : value === "" ? "blank" : filled;
+  return keys.map(
+    (key) =>
+      `${key} example: ${state(exampleEntries.get(key), "default")} local: ${state(localEntries.get(key), "set")}`,
+  );
 }
 
 export interface Io {
@@ -177,27 +184,59 @@ interface Parsed {
 
 const defaultDir = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 
+const VALUE_FLAGS = new Set(["--comment", "--dir"]);
+
+const ALLOWED: Record<string, { flags: string[]; positionals: number }> = {
+  set: {
+    flags: [
+      "--secret",
+      "--stdin",
+      "--comment",
+      "--example-only",
+      "--local-only",
+      "--dir",
+    ],
+    positionals: 1,
+  },
+  sync: { flags: ["--dir"], positionals: 0 },
+  unset: { flags: ["--example-only", "--local-only", "--dir"], positionals: 1 },
+  list: { flags: ["--dir"], positionals: 0 },
+  check: { flags: ["--dir"], positionals: 0 },
+};
+
+function flagName(arg: string): string {
+  const eq = arg.indexOf("=");
+  return eq === -1 ? arg : arg.slice(0, eq);
+}
+
 function parseArgs(argv: string[]): Parsed {
   const [command = "", ...rest] = argv;
+  const allowed = ALLOWED[command];
   const positional: string[] = [];
   const flags = new Set<string>();
   let comment: string | undefined;
   let dir = defaultDir;
   for (let i = 0; i < rest.length; i++) {
     const arg = rest[i] as string;
-    if (arg === "--comment") {
-      const next = rest[++i];
-      if (next === undefined) throw new Error("--comment needs a value");
-      comment = next;
-    } else if (arg === "--dir") {
-      const next = rest[++i];
-      if (next === undefined) throw new Error("--dir needs a path");
-      dir = resolve(next);
-    } else if (arg.startsWith("--")) {
-      flags.add(arg);
+    if (arg.startsWith("-")) {
+      const name = flagName(arg);
+      if (!allowed?.flags.includes(name) || name !== arg) {
+        throw new Error(`unknown flag ${name} for ${command}`);
+      }
+      if (VALUE_FLAGS.has(name)) {
+        const next = rest[++i];
+        if (next === undefined) throw new Error(`${name} needs a value`);
+        if (name === "--comment") comment = next;
+        else dir = resolve(next);
+      } else {
+        flags.add(name);
+      }
     } else {
       positional.push(arg);
     }
+  }
+  if (allowed && positional.length > allowed.positionals) {
+    throw new Error(`unexpected extra argument for ${command}`);
   }
   return { command, positional, flags, comment, dir };
 }
@@ -229,6 +268,9 @@ async function runSet(parsed: Parsed, io: Io, paths: Paths): Promise<number> {
   }
   let value = inline;
   if (parsed.flags.has("--stdin")) {
+    if (inline !== undefined) {
+      throw new Error("use either =VALUE or --stdin, not both");
+    }
     value = (await io.readStdin()).replace(/\r?\n$/, "");
   }
   const secret = parsed.flags.has("--secret");
@@ -300,14 +342,11 @@ function runUnset(parsed: Parsed, io: Io, paths: Paths): number {
 }
 
 function runList(io: Io, paths: Paths): number {
-  const example = readIfExists(paths.example);
-  if (example === null) {
-    io.stderr(".env.example is missing");
-    return 1;
-  }
-  for (const line of describeKeys(example, readIfExists(paths.local))) {
-    io.stdout(line);
-  }
+  const lines = describeKeys(
+    readIfExists(paths.example),
+    readIfExists(paths.local),
+  );
+  for (const line of lines) io.stdout(line);
   return 0;
 }
 
@@ -343,6 +382,10 @@ export const USAGE = [
 
 export async function main(argv: string[], io: Io): Promise<number> {
   try {
+    if (!ALLOWED[argv[0] ?? ""]) {
+      io.stderr(USAGE);
+      return 2;
+    }
     const parsed = parseArgs(argv);
     const paths: Paths = {
       example: join(parsed.dir, ".env.example"),

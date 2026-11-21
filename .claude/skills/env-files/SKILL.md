@@ -50,7 +50,7 @@ Remove a key and its comment.
 bun run env unset OLD_KEY
 ```
 
-Show each key with `example: default|blank` and `local: set|blank|missing`.
+Show every key from either file with `example: default|blank|missing` and `local: set|blank|missing`.
 
 ```bash
 bun run env list
@@ -64,6 +64,9 @@ bun run env check
 
 ## Notes
 
+- The script rejects unknown flags and extra arguments before it reads stdin or writes a file.
+- Values with `$` are written in single quotes with `\$` escapes so Bun reads them literally.
+- `DATABASE_URL` and `AWS_ENDPOINT_URL` are derived from the port variables. Set them only to override.
 - Keys match `^[A-Z][A-Z0-9_]*$`.
 - Updating a key replaces its line in place and keeps other lines, comments, and order.
 - `.env.local` has mode 0600 and stays gitignored.
