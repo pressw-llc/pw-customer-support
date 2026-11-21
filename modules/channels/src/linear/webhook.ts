@@ -37,10 +37,7 @@ const payloadSchema = z.object({
   type: z.string(),
   webhookTimestamp: z.number(),
   data: z.record(z.unknown()).optional(),
-  actor: z
-    .object({ name: z.string().nullish() })
-    .partial()
-    .nullish(),
+  actor: z.object({ name: z.string().nullish() }).partial().nullish(),
 });
 
 const commentSchema = z.object({
@@ -113,9 +110,7 @@ export function createLinearWebhookIntake(
       }
       const payload = payloadSchema.safeParse(json);
       if (!payload.success) return respond(400, { error: "invalid_payload" });
-      const ageMs = Math.abs(
-        clock().getTime() - payload.data.webhookTimestamp,
-      );
+      const ageMs = Math.abs(clock().getTime() - payload.data.webhookTimestamp);
       if (ageMs > LINEAR_WEBHOOK_MAX_AGE_SECONDS * 1000) {
         return respond(401, { error: "stale_timestamp" });
       }
@@ -128,7 +123,10 @@ export function createLinearWebhookIntake(
       }
       const comment = commentSchema.safeParse(payload.data.data);
       if (!comment.success) {
-        return respond(200, { status: "ignored", reason: "not_an_issue_comment" });
+        return respond(200, {
+          status: "ignored",
+          reason: "not_an_issue_comment",
+        });
       }
       const result = await persistInboundComment(deps.db, {
         deliveryId: delivery,
@@ -137,7 +135,7 @@ export function createLinearWebhookIntake(
         parentCommentId: comment.data.parentId ?? null,
         authorId: comment.data.userId ?? null,
         authorName: authorNameOf(comment.data, payload.data.actor),
-        body: comment.data.body,
+        body: comment.data.body.replaceAll("\u0000", "�"),
       });
       if (result.status === "stored") {
         return respond(200, { status: "accepted" });

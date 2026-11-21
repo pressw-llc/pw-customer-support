@@ -5,9 +5,9 @@ import {
   type HumanTriageReason,
   humanTriageReasonSchema,
   MAX_MESSAGE_CHARS,
+  REPLY_HOLD_TTL_SECONDS,
   type ReplyBand,
   type ReplyHoldReason,
-  REPLY_HOLD_TTL_SECONDS,
   triageOutcomeSchema,
   triageResultSchema,
   WORDING_MAX_SCORE,
@@ -135,13 +135,14 @@ export function createLinearAdapter(deps: LinearAdapterDeps): LinearAdapter {
     if (isSystemComment(inbound.body)) return true;
     if (await isRecordedOwnComment(db, inbound.commentId)) return true;
     return (
-      inbound.authorId !== null && inbound.authorId === (await linear.viewerId())
+      inbound.authorId !== null &&
+      inbound.authorId === (await linear.viewerId())
     );
   }
 
   async function ensureHoldWarning(inbound: InboundCommentRow): Promise<void> {
     const reply = await getReplyByInbound(db, inbound.id);
-    if (!reply || reply.status !== "held" || reply.warningCommentId) return;
+    if (reply?.status !== "held" || reply.warningCommentId) return;
     const warning = await linear.createComment(
       inbound.issueId,
       buildHoldWarning({
@@ -331,7 +332,8 @@ export function createLinearAdapter(deps: LinearAdapterDeps): LinearAdapter {
     async handle(event: EventEnvelope) {
       if (event.type === "comment.received") {
         const payload = inboundPayloadSchema.safeParse(event.payload);
-        if (payload.success) await processInboundComment(payload.data.inboundId);
+        if (payload.success)
+          await processInboundComment(payload.data.inboundId);
         return;
       }
       if (!event.requestId) return;

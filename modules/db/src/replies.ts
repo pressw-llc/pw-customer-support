@@ -10,11 +10,7 @@ import {
   WORDING_HOLD_BELOW,
 } from "@pw-support/contracts";
 import { and, asc, desc, eq, inArray, isNull, sql } from "drizzle-orm";
-import {
-  inTransaction,
-  type SupportExecutor,
-  type SupportTx,
-} from "./client";
+import { inTransaction, type SupportExecutor, type SupportTx } from "./client";
 import { appendEvent } from "./events";
 import {
   attachments,
@@ -366,7 +362,11 @@ export async function resolveExternalReply(
         type: "reply.flagged",
         channelKey: request.channelKey,
         requestId: request.id,
-        payload: { replyId: sent.id, messageId: message.id, score: input.score },
+        payload: {
+          replyId: sent.id,
+          messageId: message.id,
+          score: input.score,
+        },
       });
     }
     await markProcessed(
@@ -406,7 +406,7 @@ export async function confirmHeldReply(
           eq(replies.status, "held"),
         ),
       )
-      .orderBy(desc(replies.heldAt), desc(replies.id))
+      .orderBy(desc(replies.createdAt), desc(replies.id))
       .for("update");
     if (held.length === 0) return ignore("no_hold");
     const mine = inbound.authorId
@@ -478,7 +478,8 @@ export async function listFlaggedReplies(
   options: { projectId?: string; limit?: number } = {},
 ): Promise<FlaggedReply[]> {
   const conditions = [eq(replies.flagged, true)];
-  if (options.projectId) conditions.push(eq(requests.projectId, options.projectId));
+  if (options.projectId)
+    conditions.push(eq(requests.projectId, options.projectId));
   const rows = await db
     .select({
       reply: replies,
@@ -566,7 +567,10 @@ export async function listUndeliveredFollowUps(
     .orderBy(asc(messages.createdAt), asc(messages.id));
   if (rows.length === 0) return [];
   const files = await db
-    .select({ messageId: attachments.messageId, filename: attachments.filename })
+    .select({
+      messageId: attachments.messageId,
+      filename: attachments.filename,
+    })
     .from(attachments)
     .where(
       inArray(
