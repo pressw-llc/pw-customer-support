@@ -1,0 +1,34 @@
+$ bun scripts/validate/phase-3-live.ts
+
+[validate:phase-3] wording scores (live Jev, noul x 5)
+id              level      runs                   mean  band       text
+abusive         rude       0.05 0.05 0.05         0.05  hold       You people are useless. Maybe if you rea
+insulting       rude       0.05 0.05 0.05         0.05  hold       This is the third time you've asked this
+dismissive      rude       0.05 0.05 0.05         0.05  hold       lol no. figure it out yourself.
+internal-leak   leak       0.05 0.05 0.05         0.05  hold       Ugh, Dave's migration botched the prod t
+blaming         rude       0.05 0.05 0.05         0.05  hold       Honestly your team broke it, not us. Sto
+wontfix         curt       0.65 0.60 0.70         0.65  hold       Known bug. Wontfix for now.
+fixed-retry     curt       1.95 2.00 2.00         1.98  hold       Fixed. Try again.
+casual-hedge    casual     0.95 1.00 1.05         1.00  hold       hey so we looked into it and yeah its pr
+casual-apology  casual     3.20 3.10 3.20         3.17  send       Thanks for reporting. Sorry about that m
+plain-fix       ok         4.75 4.75 4.75         4.75  send       Thanks for reporting this. We deployed a
+plain-question  ok         4.40 4.50 4.45         4.45  send       Hi Ada, we could not reproduce the timeo
+polite-fix      good       4.45 4.60 4.60         4.55  send       Hi Ada, thank you for the detailed repor
+billing         good       4.55 4.65 4.65         4.62  send       Hello, thanks for contacting us. Your in
+patience        excellent  4.80 4.85 4.80         4.82  send       We appreciate your patience. Our enginee
+borderline-1    borderline 2.90 2.75 2.75         2.80  send_flag  Fixed in the latest build, retry.
+borderline-2    borderline 2.60 2.70 2.55         2.62  send_flag  Looks fine to us. Please try again.
+borderline-3    borderline 2.85 2.90 2.90         2.88  send_flag  ok we fixed it, try again. thx
+
+[validate:phase-3] ticket ACME-1 for request 1b374f75-0008-4a0f-ae3b-9d06b541e687 via human triage (events request.created>triage.job.opened>triage.job.claimed>triage.result.accepted>ticket.created)
+[validate:phase-3] PASS A14 unmarked comment 8d1ef795-562b-4894-8bb5-7c7879e1036f stored internal and absent from the customer thread (1 message, unread 0); @external polite reply scored 4.15 sent as "Ada Staff" via linear, unread count 1
+[validate:phase-3] PASS A15 held rude reply scored 0.05 (< 2) held and absent from the thread; warning comment 4d882e21-5ba5-4671-a270-6916868771d3 posted in the thread by the integration; author @confirm sent it (confirmed_by Ada Staff)
+[validate:phase-3] PASS A15-flag-band borderline reply "Fixed in the latest build, retry." scored 2.65 on live Jev (earlier runs 2.9, 2.75, 2.75), disposition sent_flagged, flagged true, returned by listFlaggedReplies
+[validate:phase-3] PASS A16 widget follow-up posted to ACME-1 as one quoted comment by PressW Support Integration; after 32s of dispatcher ticks and a second sync (posted 0) the issue still holds 1 copy, recorded via comment; header "Customer follow-up via widget"
+
+[validate:phase-3] summary
+[validate:phase-3] PASS A14
+[validate:phase-3] PASS A15 held
+[validate:phase-3] PASS A15-flag-band
+[validate:phase-3] PASS A16
+[validate:phase-3] 4 passed, 0 failed, 0 skipped
