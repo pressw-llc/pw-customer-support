@@ -180,8 +180,7 @@ flowchart TD
 | A26 | Each module directory holds at least one skill. The root holds the pipelines skills and a repository skill. | D2 |
 | A27 | A request with a screenshot and a PDF yields a ticket summary that cites content from both. A PDF that holds an injection payload yields a human-triage ticket. | D32, D10 |
 | A28 | A laptop job completes while the engineer's session shows no prompt. The subagent's tool list holds one tool. | D34 |
-| A29 | A saved CC list survives a reload of admin settings. | D37 | Phases 0 to 5 exit on the local stack. The first AWS deploy happens in Phase 6, after the account exists. | No phase before 6 waits on the account. Every phase keeps `cdk synth` green so the deploy stays ready. |
-| D36 |
+| A29 | A saved CC list survives a reload of admin settings. | D36 |
 
 D1, D25 are structural and carry no behavior of their own. A21 and A25 cover them.
 
