@@ -2,7 +2,7 @@ $ bun scripts/check.ts --skip-install
 
 [check] lint
 $ biome check . && bun scripts/lint-boundaries.ts
-Checked 132 files in 33ms. No fixes applied.
+Checked 138 files in 50ms. No fixes applied.
 [lint-boundaries] no violations
 
 [check] build
@@ -13,8 +13,8 @@ $ bun run --filter @pressw-llc/support-react build
 [check] typecheck
 $ tsc --noEmit && bun run --filter '*' typecheck
 @pw-support/contracts typecheck: Exited with code 0
-@pw-support/plugin typecheck: Exited with code 0
 @pw-support/admin typecheck: Exited with code 0
+@pw-support/plugin typecheck: Exited with code 0
 @pw-support/e2e typecheck: Exited with code 0
 @pressw-llc/support-react typecheck: Exited with code 0
 @pw-support/db typecheck: Exited with code 0
@@ -25,30 +25,23 @@ $ tsc --noEmit && bun run --filter '*' typecheck
 @pw-support/api typecheck: Exited with code 0
 
 [check] stack
-$ docker compose up -d --wait
- Network pw-support_default Creating 
- Network pw-support_default Creating 
- Network pw-support_default Created 
- Network pw-support_default Created 
- Container pw-support-postgres-1 Creating 
- Container pw-support-localstack-1 Creating 
- Container pw-support-postgres-1 Created 
- Container pw-support-localstack-1 Created 
- Container pw-support-postgres-1 Starting 
- Container pw-support-localstack-1 Starting 
- Container pw-support-postgres-1 Started 
- Container pw-support-localstack-1 Started 
- Container pw-support-localstack-1 Waiting 
+$ bun scripts/stack.ts up
+ Container pw-support-postgres-1 Running 
+ Container pw-support-localstack-1 Running 
  Container pw-support-postgres-1 Waiting 
+ Container pw-support-localstack-1 Waiting 
  Container pw-support-postgres-1 Healthy 
  Container pw-support-localstack-1 Healthy 
 [stack-setup] bucket pw-support-attachments, queues pw-support-triage-wake and pw-support-triage-wake-dlq ready
 $ bun scripts/db-migrate.ts
-[db:migrate] applied 5: pipeline/0000_initial.sql, pipeline/0001_activity_log.sql, pipeline/0002_pipeline_definitions.sql, 0001_support_schema.sql, 0002_intake.sql
+[db:migrate] up to date
 
 [check] test
 $ bun test --coverage --path-ignore-patterns 'modules/widget/**' --path-ignore-patterns 'e2e/**' --path-ignore-patterns 'examples/**' && bun run --filter @pressw-llc/support-react test
 bun test v1.3.14 (0d9b296a)
+
+scripts/stack.test.ts:
+usage: bun scripts/stack.ts up|down
 
 modules/api/src/app.test.ts:
 inbound processing failed 323 |   test("D7: when static-check processing throws, the request row and request.created event still exist", async () => {
@@ -92,7 +85,7 @@ error: secret bucket detail
 ----------------------------------------|---------|---------|-------------------
 File                                    | % Funcs | % Lines | Uncovered Line #s
 ----------------------------------------|---------|---------|-------------------
-All files                               |   99.61 |   99.71 |
+All files                               |   99.47 |   99.61 |
  modules/admin/src/index.ts             |  100.00 |  100.00 | 
  modules/api/src/app.ts                 |  100.00 |  100.00 | 
  modules/api/src/config.ts              |  100.00 |  100.00 | 
@@ -114,6 +107,7 @@ All files                               |   99.61 |   99.71 |
  modules/contracts/src/message.ts       |  100.00 |  100.00 | 
  modules/contracts/src/module-info.ts   |  100.00 |  100.00 | 
  modules/contracts/src/resources.ts     |  100.00 |  100.00 | 
+ modules/contracts/src/stack-config.ts  |  100.00 |  100.00 | 
  modules/contracts/src/triage-result.ts |  100.00 |  100.00 | 
  modules/db/src/client.ts               |  100.00 |  100.00 | 
  modules/db/src/events.ts               |  100.00 |  100.00 | 
@@ -127,14 +121,16 @@ All files                               |   99.61 |   99.71 |
  modules/infra/src/support-stack.ts     |  100.00 |  100.00 | 
  modules/plugin/src/index.ts            |  100.00 |  100.00 | 
  modules/triage/src/index.ts            |  100.00 |  100.00 | 
+ scripts/env.ts                         |   93.18 |   97.74 | 357,440,450-455
  scripts/lint-boundaries.ts             |  100.00 |  100.00 | 
- scripts/stack-setup.ts                 |  100.00 |   89.66 | 49,83-87
+ scripts/stack-setup.ts                 |  100.00 |   89.47 | 49,83-87
+ scripts/stack.ts                       |  100.00 |   97.44 | 
 ----------------------------------------|---------|---------|-------------------
 
- 235 pass
+ 337 pass
  0 fail
- 468 expect() calls
-Ran 235 tests across 21 files. [2.16s]
+ 878 expect() calls
+Ran 337 tests across 24 files. [2.59s]
 @pressw-llc/support-react test: bun test v1.3.14 (0d9b296a)
 @pressw-llc/support-react test: 
 @pressw-llc/support-react test: src/mount.test.ts:
@@ -288,7 +284,7 @@ Ran 235 tests across 21 files. [2.16s]
 @pressw-llc/support-react test:  36 pass
 @pressw-llc/support-react test:  0 fail
 @pressw-llc/support-react test:  115 expect() calls
-@pressw-llc/support-react test: Ran 36 tests across 4 files. [648.00ms]
+@pressw-llc/support-react test: Ran 36 tests across 4 files. [556.00ms]
 @pressw-llc/support-react test: Exited with code 0
 
 [check] e2e
@@ -297,14 +293,14 @@ $ bun run --filter @pw-support/e2e test
 @pw-support/e2e test: 
 @pw-support/e2e test: Running 6 tests using 1 worker
 @pw-support/e2e test: 
-@pw-support/e2e test:   ✓  1 [chromium] › widget.spec.ts:14:1 › A1: the widget renders from the host app inside a shadow root (258ms)
-@pw-support/e2e test:   ✓  2 [chromium] › widget.spec.ts:29:1 › A1: the widget stays usable under hostile host CSS (204ms)
-@pw-support/e2e test:   ✓  3 [chromium] › widget.spec.ts:59:1 › A2: text with two attachments persists the request, files, and request.created (320ms)
-@pw-support/e2e test:   ✓  4 [chromium] › widget.spec.ts:89:1 › A4: a renamed executable shows a rejection in the UI (243ms)
-@pw-support/e2e test:   ✓  5 [chromium] › widget.spec.ts:112:1 › the thread shows the message and a follow-up reply works (348ms)
-@pw-support/e2e test:   ✓  6 [chromium] › widget.spec.ts:131:1 › a staff reply raises the unread badge and opening the thread clears it (383ms)
+@pw-support/e2e test:   ✓  1 [chromium] › widget.spec.ts:14:1 › A1: the widget renders from the host app inside a shadow root (224ms)
+@pw-support/e2e test:   ✓  2 [chromium] › widget.spec.ts:29:1 › A1: the widget stays usable under hostile host CSS (178ms)
+@pw-support/e2e test:   ✓  3 [chromium] › widget.spec.ts:59:1 › A2: text with two attachments persists the request, files, and request.created (360ms)
+@pw-support/e2e test:   ✓  4 [chromium] › widget.spec.ts:89:1 › A4: a renamed executable shows a rejection in the UI (230ms)
+@pw-support/e2e test:   ✓  5 [chromium] › widget.spec.ts:112:1 › the thread shows the message and a follow-up reply works (300ms)
+@pw-support/e2e test:   ✓  6 [chromium] › widget.spec.ts:131:1 › a staff reply raises the unread badge and opening the thread clears it (464ms)
 @pw-support/e2e test: 
-@pw-support/e2e test:   6 passed (3.2s)
+@pw-support/e2e test:   6 passed (3.3s)
 @pw-support/e2e test: Exited with code 0
 
 [check] synth
@@ -317,10 +313,10 @@ $ bun run --filter @pw-support/infra synth
 stage      status   seconds
 lint       pass     0.2
 build      pass     0.6
-typecheck  pass     3.7
-stack      pass     6.9
-test       pass     2.9
-e2e        pass     3.6
+typecheck  pass     3.8
+stack      pass     1.4
+test       pass     3.2
+e2e        pass     3.7
 synth      pass     1.0
 
 [check] PASSED
