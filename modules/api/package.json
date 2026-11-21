@@ -11,8 +11,12 @@
     "start": "bun src/server.ts"
   },
   "dependencies": {
+    "@aws-sdk/client-s3": "^3.717.0",
     "@pw-support/contracts": "workspace:*",
     "@pw-support/db": "workspace:*",
     "hono": "^4.6.14"
+  },
+  "devDependencies": {
+    "drizzle-orm": "^0.36.4"
   }
 }
