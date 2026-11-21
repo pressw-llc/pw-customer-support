@@ -31,11 +31,11 @@ import {
   setProjectLinearTeam,
   submitTriageResult,
 } from "@pw-support/db";
-import { eq } from "drizzle-orm";
 import {
-  environmentConfig,
-  definition as triageDefinition,
-} from "../../modules/triage/agents/support-triage/agent";
+  triageEnvironmentConfig as environmentConfig,
+  triageAgentDefinition as triageDefinition,
+} from "@pw-support/triage";
+import { eq } from "drizzle-orm";
 import { setupStack, stackConfig } from "../stack-setup";
 
 const partial = process.argv.includes("--partial");

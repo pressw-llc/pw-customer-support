@@ -10,6 +10,10 @@ export {
   extendTriageLease as renewLease,
   submitTriageResult as submitResult,
 } from "@pw-support/db";
+export {
+  definition as triageAgentDefinition,
+  environmentConfig as triageEnvironmentConfig,
+} from "../agents/support-triage/agent";
 export * from "./agent-runner";
 export * from "./config";
 export * from "./extract";
