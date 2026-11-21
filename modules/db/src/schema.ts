@@ -2,6 +2,7 @@ import { sql } from "drizzle-orm";
 import {
   bigint,
   boolean,
+  doublePrecision,
   foreignKey,
   index,
   integer,
@@ -174,3 +175,88 @@ export const rateLimits = support.table(
     index("rate_limits_window_idx").on(t.windowStart),
   ],
 );
+
+export const channelDelays = support.table("channel_delays", {
+  delayChannel: text("delay_channel").primaryKey(),
+  currentDelaySeconds: integer("current_delay_seconds").notNull(),
+  updatedAt: timestamp("updated_at", { withTimezone: true })
+    .notNull()
+    .defaultNow(),
+});
+
+export const triageJobs = support.table(
+  "triage_jobs",
+  {
+    id: id(),
+    requestId: uuid("request_id")
+      .notNull()
+      .references(() => requests.id, { onDelete: "cascade" })
+      .unique("triage_jobs_request_uq"),
+    channelKey: text("channel_key").notNull(),
+    delayChannel: text("delay_channel").notNull(),
+    status: text("status").notNull().default("open"),
+    cloudAvailableAt: timestamp("cloud_available_at", {
+      withTimezone: true,
+    }).notNull(),
+    intakeCompletedAt: timestamp("intake_completed_at", {
+      withTimezone: true,
+    }),
+    laptopClaimedAt: timestamp("laptop_claimed_at", { withTimezone: true }),
+    claimedByKind: text("claimed_by_kind"),
+    claimedBy: text("claimed_by"),
+    claimToken: uuid("claim_token"),
+    leaseExpiresAt: timestamp("lease_expires_at", { withTimezone: true }),
+    attempts: integer("attempts").notNull().default(0),
+    outcome: text("outcome"),
+    result: jsonb("result").$type<Record<string, unknown>>(),
+    agentSessionId: text("agent_session_id"),
+    createdAt: createdAt(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    completedAt: timestamp("completed_at", { withTimezone: true }),
+  },
+  (t) => [index("triage_jobs_status_idx").on(t.status, t.cloudAvailableAt)],
+);
+
+export const judgments = support.table(
+  "judgments",
+  {
+    id: id(),
+    requestId: uuid("request_id")
+      .notNull()
+      .references(() => requests.id, { onDelete: "cascade" }),
+    kind: text("kind").notNull(),
+    subject: text("subject").notNull(),
+    score: doublePrecision("score").notNull(),
+    threshold: doublePrecision("threshold").notNull(),
+    flagged: boolean("flagged").notNull(),
+    raw: jsonb("raw")
+      .$type<Record<string, unknown>>()
+      .notNull()
+      .default(sql`'{}'::jsonb`),
+    createdAt: createdAt(),
+  },
+  (t) => [index("judgments_request_idx").on(t.requestId, t.kind)],
+);
+
+export const eventCursors = support.table("event_cursors", {
+  adapter: text("adapter").primaryKey(),
+  lastSeq: bigint("last_seq", { mode: "number" }).notNull().default(0),
+  updatedAt: timestamp("updated_at", { withTimezone: true })
+    .notNull()
+    .defaultNow(),
+});
+
+export const tickets = support.table("tickets", {
+  id: id(),
+  requestId: uuid("request_id")
+    .notNull()
+    .references(() => requests.id, { onDelete: "cascade" })
+    .unique("tickets_request_uq"),
+  provider: text("provider").notNull().default("linear"),
+  linearIssueId: text("linear_issue_id").notNull(),
+  identifier: text("identifier").notNull(),
+  url: text("url").notNull(),
+  createdAt: createdAt(),
+});

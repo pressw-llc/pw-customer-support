@@ -1,4 +1,9 @@
-import { SUPPORT_KEY_HEADER, SUPPORT_USER_HEADER } from "@pw-support/contracts";
+import {
+  SUPPORT_KEY_HEADER,
+  SUPPORT_USER_HEADER,
+  type TriageTiming,
+  type WakeSender,
+} from "@pw-support/contracts";
 import type { SupportDb } from "@pw-support/db";
 import { Hono } from "hono";
 import { bodyLimit } from "hono/body-limit";
@@ -19,6 +24,8 @@ export interface AppDeps {
   storage: ObjectStorage;
   config: ApiConfig;
   checks?: Checks;
+  wake?: WakeSender;
+  timing?: TriageTiming;
 }
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;

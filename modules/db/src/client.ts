@@ -4,8 +4,17 @@ import postgres from "postgres";
 import * as schema from "./schema";
 
 export type SupportDb = ReturnType<typeof drizzle<typeof schema>>;
-type SupportTx = Parameters<Parameters<SupportDb["transaction"]>[0]>[0];
+export type SupportTx = Parameters<Parameters<SupportDb["transaction"]>[0]>[0];
 export type SupportExecutor = SupportDb | SupportTx;
+
+export function inTransaction<T>(
+  executor: SupportExecutor,
+  fn: (tx: SupportTx) => Promise<T>,
+): Promise<T> {
+  return "rollback" in executor
+    ? fn(executor)
+    : (executor as SupportDb).transaction(fn);
+}
 
 export function localDatabaseUrl(env: NodeJS.ProcessEnv = process.env): string {
   return resolveStackEnv({ ...env, DATABASE_URL: undefined }).databaseUrl;
