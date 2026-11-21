@@ -18,6 +18,8 @@ description: Work in the contracts module: zod schemas and types that every othe
 - Add a test beside each schema. Cover both accepted and rejected input.
 - Add new event types to `eventTypes` in `src/events.ts`. The array is the single source for the enum.
 - `triage-job.ts` holds the job status, claimant, outcome, and human triage reason enums, the timing defaults, the delay halving rule, and the wake message shape. `humanTriageResult()` builds the deterministic fallback result.
+- `admin.ts` holds the admin request, project, key, and integration schemas, the `INTEGRATIONS` table that maps a kind to its secret name and env variable, `secretId`, the acknowledgement thresholds, and `ackState`.
+- `stack-config.ts` also derives the local OIDC issuer from `SUPPORT_OIDC_PORT`.
 - `channel-adapter.ts` holds the adapter contract, the adapter queue names, and the adapter message shape.
 
 ## Commands

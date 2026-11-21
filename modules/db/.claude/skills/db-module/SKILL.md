@@ -28,6 +28,9 @@ description: Work in the db module: Postgres schema, hand-written migrations, th
 - Complete a job through `submitTriageResult` or `submitHumanTriage`. Both validate against the contracts schema. An invalid result reopens the job for the cloud.
 - A job is claimable only after `markIntakeComplete` or the intake grace period. This stops a worker from reading attachments the API has not stored yet.
 - `support.judgments` keeps every raw Jev judgment for V2. `support.tickets` holds one row per request. `support.event_cursors` holds one cursor per adapter.
+- `admin.ts` holds the admin reads and writes. `ACK_STAFF_PREDICATE` defines the first staff action: author `staff` and origin `linear` or audience `external`. Every settings write appends an `admin.*` event with the actor in the same transaction.
+- `support.integrations` holds a Secrets Manager reference per scope and kind. A check constraint requires the reference to start with `pw-support/`. Never store a secret value.
+- `support.projects.severe_cc_emails` holds the CC list for a project.
 - Test against the Compose Postgres. Do not mock the database.
 
 ## Commands
