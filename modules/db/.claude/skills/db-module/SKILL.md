@@ -16,6 +16,8 @@ description: Work in the db module: Postgres schema, hand-written migrations, th
 - Pipeline migrations live in `migrations/pipeline/` and run first. Do not add a client literal to them.
 - Use UUID primary keys. Keep every table in the `support` schema.
 - Append events only through `appendEvent`. A trigger rejects UPDATE, DELETE, and TRUNCATE on `support.events`.
+- `appendEvent` takes a transaction-scoped advisory lock before the insert, and wraps a bare db handle in a transaction. Event appends serialize, so `seq` follows commit order and is a safe cursor for readers that poll `seq > cursor`.
+- Keep a transaction that appends an event short. The lock holds until commit.
 - Keep the drizzle schema in `src/schema.ts` in step with the SQL.
 - Test against the Compose Postgres. Do not mock the database.
 

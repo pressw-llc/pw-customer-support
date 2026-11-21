@@ -1,5 +1,5 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
-import { sql as dsql, eq } from "drizzle-orm";
+import { and, sql as dsql, eq, gt } from "drizzle-orm";
 import { getTableConfig } from "drizzle-orm/pg-core";
 import postgres from "postgres";
 import {
@@ -205,6 +205,50 @@ describe("events", () => {
       }),
     );
     expect(event.requestId).toBe(request.id);
+  });
+
+  test("concurrent appends commit in sequence order", async () => {
+    const channelKey = `${slug}:order`;
+    const readAfter = (cursor: number) =>
+      db
+        .select()
+        .from(events)
+        .where(and(eq(events.channelKey, channelKey), gt(events.seq, cursor)))
+        .orderBy(events.seq);
+    const hold = Promise.withResolvers<void>();
+    const aAppended = Promise.withResolvers<number>();
+    const txA = db.transaction(async (tx) => {
+      const event = await appendEvent(tx, {
+        type: "request.created",
+        channelKey,
+      });
+      aAppended.resolve(event.seq);
+      await hold.promise;
+      return event;
+    });
+    const seqA = await aAppended.promise;
+    let bDone = false;
+    const txB = db
+      .transaction((tx) =>
+        appendEvent(tx, { type: "message.created", channelKey }),
+      )
+      .finally(() => {
+        bDone = true;
+      });
+    await Bun.sleep(200);
+    expect(bDone).toBe(false);
+    const cursorStart = seqA - 1;
+    expect(await readAfter(cursorStart)).toHaveLength(0);
+    hold.resolve();
+    const eventA = await txA;
+    const firstPoll = await readAfter(cursorStart);
+    const cursor = firstPoll.at(-1)?.seq ?? cursorStart;
+    const eventB = await txB;
+    const secondPoll = await readAfter(cursor);
+    expect(eventA.seq).toBe(seqA);
+    expect(eventB.seq).toBeGreaterThan(eventA.seq);
+    const seen = [...firstPoll, ...secondPoll].map((row) => row.seq);
+    expect(seen).toEqual([eventA.seq, eventB.seq]);
   });
 
   test("appendEvent rejects an invalid event", async () => {
