@@ -207,5 +207,6 @@ test("the layout works on a phone and in the dark theme", async ({ page }) => {
     () => document.documentElement.scrollWidth > window.innerWidth,
   );
   expect(overflow).toBe(false);
+  await page.waitForTimeout(400);
   await shot(page, "admin-mobile-dark");
 });
