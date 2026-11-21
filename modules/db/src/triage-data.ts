@@ -163,6 +163,55 @@ export async function readEventsAfter(
   return rows.map((row) => eventEnvelopeSchema.parse(row));
 }
 
+export async function requestHasEvent(
+  db: SupportExecutor,
+  requestId: string,
+  type: EventType,
+): Promise<boolean> {
+  const rows = await db
+    .select({ id: events.id })
+    .from(events)
+    .where(and(eq(events.requestId, requestId), eq(events.type, type)))
+    .limit(1);
+  return rows.length > 0;
+}
+
+export async function listBlockedTicketEvents(
+  db: SupportExecutor,
+  limit = 50,
+): Promise<EventEnvelope[]> {
+  const rows = await db.execute<Record<string, unknown>>(sql`
+    SELECT e.id, e.seq, e.type, e.channel_key, e.request_id, e.payload, e.created_at
+    FROM support.events e
+    WHERE e.type = 'triage.result.accepted'
+      AND EXISTS (
+        SELECT 1 FROM support.events b
+        WHERE b.request_id = e.request_id AND b.type = 'ticket.blocked'
+      )
+      AND NOT EXISTS (
+        SELECT 1 FROM support.tickets t WHERE t.request_id = e.request_id
+      )
+      AND EXISTS (
+        SELECT 1 FROM support.requests r
+        JOIN support.projects p ON p.id = r.project_id
+        WHERE r.id = e.request_id AND p.linear_team_id IS NOT NULL
+      )
+    ORDER BY e.seq
+    LIMIT ${limit}
+  `);
+  return rows.map((row) =>
+    eventEnvelopeSchema.parse({
+      id: row.id,
+      seq: row.seq,
+      type: row.type,
+      channelKey: row.channel_key,
+      requestId: row.request_id,
+      payload: row.payload,
+      createdAt: row.created_at,
+    }),
+  );
+}
+
 export async function getEventBySeq(
   db: SupportExecutor,
   seq: number,

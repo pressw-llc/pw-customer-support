@@ -9,6 +9,7 @@ export interface ChannelAdapter {
   name: string;
   subscribes: readonly EventType[];
   handle(event: EventEnvelope, ctx: AdapterContext): Promise<void>;
+  redeliver?(): Promise<EventEnvelope[]>;
 }
 
 export const ADAPTER_QUEUE_PREFIX = "pw-support-adapter-";

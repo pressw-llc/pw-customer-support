@@ -48,6 +48,19 @@ function missingAgent(): AgentRunner {
   };
 }
 
+export type WorkerRuntime = ReturnType<typeof createWorkerRuntime>;
+
+let sharedRuntime: WorkerRuntime | undefined;
+
+export function getWorkerRuntime(): WorkerRuntime {
+  sharedRuntime ??= createWorkerRuntime();
+  return sharedRuntime;
+}
+
+export function setWorkerRuntime(runtime: WorkerRuntime | undefined): void {
+  sharedRuntime = runtime;
+}
+
 export function createWorkerRuntime(env: EnvLike = process.env) {
   const config = loadTriageConfig(env);
   const db = createDb();

@@ -10,7 +10,10 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
+    "@aws-sdk/client-sqs": "^3.717.0",
     "@pw-support/contracts": "workspace:*",
-    "@pw-support/db": "workspace:*"
+    "@pw-support/db": "workspace:*",
+    "drizzle-orm": "^0.36.4",
+    "zod": "^3.24.1"
   }
 }

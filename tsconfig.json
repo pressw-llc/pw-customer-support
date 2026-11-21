@@ -1,5 +1,5 @@
 {
   "extends": "./tsconfig.base.json",
-  "include": ["scripts/**/*.ts"],
+  "include": ["scripts/**/*.ts", "pipelines/**/*.ts"],
   "exclude": ["scripts/fixtures"]
 }

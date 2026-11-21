@@ -32,6 +32,9 @@ export const triageLabels = [
 ] as const;
 export const triageLabelSchema = z.enum(triageLabels);
 
+export type TriageLabel = z.infer<typeof triageLabelSchema>;
+export type TriagePriority = z.infer<typeof triagePrioritySchema>;
+
 export const TRIAGE_LIMITS = {
   titleMax: 120,
   summaryMax: 2000,
