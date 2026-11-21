@@ -8,7 +8,7 @@ import { parseAgentOutput } from "./parse";
 import {
   createWorkerRuntime,
   getWorkerRuntime,
-  jevFromEnv,
+  jevFromSecrets,
   resolveAgentId,
   setWorkerRuntime,
 } from "./runtime";
@@ -98,6 +98,24 @@ describe("createJevClient", () => {
     expect(
       (first(requests).init.headers as Record<string, string>).Authorization,
     ).toBe("Bearer test-key");
+  });
+
+  test("resolves a lazy api key for each judgment", async () => {
+    const seen: string[] = [];
+    const client = createJevClient({
+      apiKey: async () => {
+        seen.push("resolved");
+        return "lazy-key";
+      },
+      fetcher: (async (_url: string, init: RequestInit) => {
+        seen.push(
+          (init.headers as Record<string, string>).Authorization as string,
+        );
+        return Response.json({ answers: { injection: { noul: 0.2 } } });
+      }) as unknown as typeof fetch,
+    });
+    await client.judgeInjection({ text: "hi" });
+    expect(seen).toEqual(["resolved", "Bearer lazy-key"]);
   });
 
   test("sends an image as an asset with the images header", async () => {
@@ -303,7 +321,9 @@ describe("worker runtime", () => {
       { lockPath: "/nonexistent/agent.lock.json" },
     );
     try {
-      expect(runtime.deps.jev).toBeNull();
+      await expect(
+        runtime.deps.jev?.judgeInjection({ text: "x" }),
+      ).rejects.toThrow(/not configured/);
       expect(runtime.deps.claimant).toMatch(/^cloud-/);
     } finally {
       await runtime.close();
@@ -455,10 +475,25 @@ describe("remote agent verification (S10)", () => {
 });
 
 describe("runtime helpers", () => {
-  test("jevFromEnv returns null without a key", () => {
+  test("jevFromSecrets resolves the key per call and fails when it is missing", async () => {
     const config = loadTriageConfig({});
-    expect(jevFromEnv(config, {})).toBeNull();
-    expect(jevFromEnv(config, { TYPESAFE_API_KEY: "k" })).not.toBeNull();
+    const missing = jevFromSecrets(config, {
+      async get() {
+        throw new Error("secret typesafe-api-key is not configured");
+      },
+    });
+    await expect(missing.judgeInjection({ text: "x" })).rejects.toThrow(
+      /not configured/,
+    );
+    const names: string[] = [];
+    const client = jevFromSecrets(config, {
+      async get(name) {
+        names.push(name);
+        return "k";
+      },
+    });
+    expect(client).toBeDefined();
+    expect(names).toEqual([]);
   });
 
   test("resolveAgentId prefers the env id over the lock file", () => {

@@ -1,11 +1,12 @@
+import { resolveSecretsScope } from "@pw-support/contracts";
 import { createDb, type SupportDb } from "@pw-support/db";
 import { createLinearAdapter, type LinearAdapter } from "./linear/adapter";
 import {
   createLinearClient,
-  envSecrets,
   type LinearClient,
   type SecretsProvider,
 } from "./linear/client";
+import { createManagedSecrets, createSecretsManagerClient } from "./secrets";
 
 type EnvLike = Record<string, string | undefined>;
 
@@ -27,7 +28,14 @@ export function createAdapterRuntime(
 ): AdapterRuntime {
   const db = overrides.db ?? createDb();
   const linear = createLinearClient({
-    secrets: overrides.secrets ?? envSecrets(env),
+    secrets:
+      overrides.secrets ??
+      createManagedSecrets({
+        db,
+        client: createSecretsManagerClient(env),
+        env,
+        scope: resolveSecretsScope(env),
+      }),
     apiUrl: linearApiUrlFor(env),
   });
   return { db, linear, linearAdapter: createLinearAdapter({ db, linear }) };

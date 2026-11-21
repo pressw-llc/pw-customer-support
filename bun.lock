@@ -129,6 +129,7 @@
         "@pressw-llc/managed-agents": "0.5.0",
         "@pressw-llc/pipeline": "0.3.0",
         "@pw-support/api": "workspace:*",
+        "@pw-support/channels": "workspace:*",
         "@pw-support/contracts": "workspace:*",
         "@pw-support/db": "workspace:*",
         "fflate": "0.8.3",

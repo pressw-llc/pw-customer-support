@@ -1,7 +1,8 @@
+import { INTEGRATIONS, integrationKinds } from "@pw-support/contracts";
 import { z } from "zod";
 
 export const LINEAR_API_URL = "https://api.linear.app/graphql";
-export const LINEAR_KEY_SECRET = "linear-api-key";
+export const LINEAR_KEY_SECRET = INTEGRATIONS.linear_api_key.secretName;
 
 export interface SecretsProvider {
   get(name: string): Promise<string>;
@@ -10,9 +11,12 @@ export interface SecretsProvider {
 export function envSecrets(
   env: Record<string, string | undefined> = process.env,
 ): SecretsProvider {
-  const names: Record<string, string> = {
-    [LINEAR_KEY_SECRET]: "LINEAR_API_KEY",
-  };
+  const names: Record<string, string> = Object.fromEntries(
+    integrationKinds.map((kind) => [
+      INTEGRATIONS[kind].secretName,
+      INTEGRATIONS[kind].envVar,
+    ]),
+  );
   return {
     async get(name) {
       const variable = names[name];

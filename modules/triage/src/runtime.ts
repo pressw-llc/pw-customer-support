@@ -10,6 +10,12 @@ import {
   createSqsWakeSender,
   loadConfig,
 } from "@pw-support/api";
+import {
+  createManagedSecrets,
+  createSecretsManagerClient,
+  type SecretsProvider,
+} from "@pw-support/channels";
+import { INTEGRATIONS, resolveSecretsScope } from "@pw-support/contracts";
 import { closeDb, createDb } from "@pw-support/db";
 import {
   type AgentRunner,
@@ -40,14 +46,14 @@ export function resolveAgentId(
   );
 }
 
-export function jevFromEnv(
+export function jevFromSecrets(
   config: TriageConfig,
-  env: EnvLike = process.env,
-): JevClient | null {
-  const apiKey = env.TYPESAFE_API_KEY;
-  return apiKey
-    ? createJevClient({ apiKey, timeoutMs: config.jev.timeoutMs })
-    : null;
+  secrets: SecretsProvider,
+): JevClient {
+  return createJevClient({
+    apiKey: () => secrets.get(INTEGRATIONS.typesafe_api_key.secretName),
+    timeoutMs: config.jev.timeoutMs,
+  });
 }
 
 function missingAgent(): AgentRunner {
@@ -79,6 +85,12 @@ export function createWorkerRuntime(
 ) {
   const config = loadTriageConfig(env);
   const db = createDb();
+  const secrets = createManagedSecrets({
+    db,
+    client: createSecretsManagerClient(env),
+    env,
+    scope: resolveSecretsScope(env),
+  });
   const apiConfig = loadConfig(env);
   const sqs = createSqsClient(env);
   const agentId = resolveAgentId(config, options.lockPath);
@@ -88,7 +100,7 @@ export function createWorkerRuntime(
   const deps: WorkerDeps = {
     db,
     storage: createS3Storage(apiConfig),
-    jev: jevFromEnv(config, env),
+    jev: jevFromSecrets(config, secrets),
     agent:
       agentId && verifier
         ? guardAgentRunner(

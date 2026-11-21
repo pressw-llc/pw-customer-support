@@ -6,6 +6,9 @@ export const ACK_CRITICAL_MINUTES = 60;
 
 export const ADMIN_CHANNEL_KEY = "pw-admin";
 export const SECRET_SCOPE_GLOBAL = "global";
+const SLUG = /^[A-Za-z0-9][A-Za-z0-9_.-]*$/;
+export const slugSchema = z.string().trim().min(1).max(64).regex(SLUG);
+
 export const MAX_CC_LIST = 50;
 export const MAX_SECRET_CHARS = 4096;
 export const KEY_MASK_VISIBLE = 4;
@@ -50,12 +53,18 @@ export function integrationKindForSecretName(
   );
 }
 
+export function resolveSecretsScope(
+  env: Record<string, string | undefined> = process.env,
+): string {
+  const scope = env.SECRETS_SCOPE;
+  return scope && slugSchema.safeParse(scope).success
+    ? scope
+    : SECRET_SCOPE_GLOBAL;
+}
+
 export function secretId(scope: string, secretName: string): string {
   return `${RESOURCE_NAMES.secretsPrefix}${scope}/${secretName}`;
 }
-
-const SLUG = /^[A-Za-z0-9][A-Za-z0-9_.-]*$/;
-export const slugSchema = z.string().trim().min(1).max(64).regex(SLUG);
 
 const emailSchema = z.string().trim().toLowerCase().email().max(254);
 
