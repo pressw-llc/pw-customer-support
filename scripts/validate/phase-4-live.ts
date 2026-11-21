@@ -10,9 +10,15 @@ import {
   closeDb,
   createDb,
   events,
+  getAdminProject,
+  inboundComments,
   integrations,
+  messages,
   migrate,
+  persistInboundRequest,
   projects,
+  replies,
+  upsertCustomer,
 } from "@pw-support/db";
 import { eq } from "drizzle-orm";
 import { generateKeyPair, SignJWT } from "jose";
@@ -161,6 +167,73 @@ try {
     JSON.stringify(stored) === JSON.stringify(emails),
     "A29 the saved CC list is returned on the next read",
     stored.join(","),
+  );
+
+  const seeded = await getAdminProject(db, project.id);
+  if (!seeded) throw new Error("the validation project is missing");
+  const customer = await upsertCustomer(db, project.id, "f".repeat(64));
+  const request = await persistInboundRequest(db, {
+    scope: { project: seeded.project, customer },
+    body: "Validation request with a flagged reply",
+  });
+  const [sentMessage] = await db
+    .insert(messages)
+    .values({
+      requestId: request.request.id,
+      body: "Thanks for waiting",
+      originChannel: "linear",
+      author: "staff",
+      authorName: "Ada Staff",
+      audience: "external",
+    })
+    .returning();
+  const [inbound] = await db
+    .insert(inboundComments)
+    .values({
+      commentId: `validate-${slug}`,
+      issueId: `issue-${slug}`,
+      body: "@external Thanks for waiting",
+      requestId: request.request.id,
+      status: "processed",
+    })
+    .returning();
+  await db.insert(replies).values({
+    requestId: request.request.id,
+    inboundCommentId: (inbound as NonNullable<typeof inbound>).id,
+    threadRootId: `validate-${slug}`,
+    authorName: "Ada Staff",
+    body: "Thanks for waiting",
+    status: "sent",
+    wordingScore: 2.5,
+    flagged: true,
+    messageId: sentMessage?.id,
+    sentAt: new Date(),
+  });
+  const flaggedPath = `/admin/requests?projectId=${project.id}&flaggedReplies=true`;
+  const flaggedAnonymous = await call("GET", flaggedPath);
+  const flaggedAuthed = await call("GET", flaggedPath, real);
+  const flaggedItems =
+    (JSON.parse(flaggedAuthed.text) as { items?: { id: string }[] }).items ??
+    [];
+  const flaggedDetail = await call(
+    "GET",
+    `/admin/requests/${request.request.id}`,
+    real,
+  );
+  const detailReplies =
+    (
+      JSON.parse(flaggedDetail.text) as {
+        replies?: { status: string; score: number; flagged: boolean }[];
+      }
+    ).replies ?? [];
+  report(
+    flaggedAnonymous.status === 401 &&
+      flaggedAuthed.status === 200 &&
+      flaggedItems.some((item) => item.id === request.request.id) &&
+      detailReplies[0]?.score === 2.5 &&
+      detailReplies[0]?.flagged === true,
+    "A15-admin the admin API returns the flagged reply to staff and 401 without a token",
+    `anonymous ${flaggedAnonymous.status}, staff ${flaggedAuthed.status}, ${flaggedItems.length} flagged request`,
   );
 
   const save = await call("PUT", "/admin/integrations/linear_api_key", real, {
