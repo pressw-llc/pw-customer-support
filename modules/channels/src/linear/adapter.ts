@@ -14,13 +14,16 @@ import {
 } from "@pw-support/contracts";
 import {
   appendEvent,
+  applyFetchedComment,
   attachOrphanComments,
   claimFollowUpRedeliveries,
   claimStaleInboundEvents,
   claimTicketRedeliveries,
+  commentNeedsRefresh,
   confirmHeldReply,
   displayBody,
   expireHeldReplies,
+  type FetchedComment,
   findTicketByRequest,
   followUpLockKey,
   getInboundComment,
@@ -31,14 +34,17 @@ import {
   inTransaction,
   isMessageReady,
   isRecordedOwnComment,
+  listHeldNeedingRefresh,
   listJudgments,
   listLateAttachments,
   listUndeliveredFollowUps,
   loadTriageContext,
+  lockReplyNeedingCancelNotice,
   lockReplyNeedingWarning,
   markAttachmentsDelivered,
   markMessagesDeliveredViaTicket,
   purgeStaleRecords,
+  recordCancelNotice,
   recordFollowUpDelivered,
   recordReplyWarning,
   requestHasEvent,
@@ -51,7 +57,9 @@ import {
 import { sql } from "drizzle-orm";
 import { z } from "zod";
 import {
+  buildCancelNotice,
   buildHoldWarning,
+  cancelMarker,
   classifyStaffComment,
   isConfirmComment,
   isSystemComment,
@@ -61,12 +69,13 @@ import type { WordingScorer } from "../reply/wording";
 import type { LinearClient } from "./client";
 import {
   attachmentsMarker,
-  buildFollowUpComment,
+  buildFollowUpParts,
   buildLateAttachmentsComment,
   buildTicket,
-  messageMarker,
+  QUOTE_MAX_CHARS,
   requestMarker,
 } from "./ticket";
+import { cleanAuthorName, cleanBody } from "./webhook";
 
 export const LINEAR_ADAPTER_NAME = "linear";
 
@@ -105,6 +114,7 @@ interface WordingDecision {
 }
 
 const inboundPayloadSchema = z.object({ inboundId: z.string().uuid() });
+const cancelledPayloadSchema = z.object({ replyId: z.string().uuid() });
 
 export function createLinearAdapter(deps: LinearAdapterDeps): LinearAdapter {
   const { db, linear } = deps;
@@ -176,14 +186,79 @@ export function createLinearAdapter(deps: LinearAdapterDeps): LinearAdapter {
     });
   }
 
+  async function fetchCurrent(
+    commentId: string,
+  ): Promise<FetchedComment | null> {
+    const found = await linear.getComment(commentId);
+    if (!found || found.archived) return null;
+    const created = new Date(found.createdAt);
+    const updated = new Date(found.updatedAt);
+    return {
+      issueId: found.issueId ?? "",
+      body: cleanBody(found.body),
+      parentCommentId: found.parentId,
+      authorId: found.automated ? null : found.userId,
+      authorName: cleanAuthorName(found.userName),
+      createdAt: Number.isNaN(created.getTime()) ? clock() : created,
+      updatedAt: Number.isNaN(updated.getTime()) ? clock() : updated,
+    };
+  }
+
+  async function refreshFromLinear(inbound: InboundCommentRow) {
+    await applyFetchedComment(
+      db,
+      inbound.id,
+      await fetchCurrent(inbound.commentId),
+    );
+  }
+
+  async function refreshHeldReplies(inbound: InboundCommentRow) {
+    if (!inbound.requestId || !inbound.parentCommentId) return;
+    const stale = await listHeldNeedingRefresh(
+      db,
+      inbound.requestId,
+      inbound.parentCommentId,
+    );
+    for (const held of stale) await refreshFromLinear(held);
+  }
+
+  async function postCancelNotice(replyId: string): Promise<void> {
+    await inTransaction(db, async (tx) => {
+      const reply = await lockReplyNeedingCancelNotice(tx, replyId);
+      if (!reply) return;
+      const inbound = await getInboundComment(tx, reply.inboundCommentId);
+      if (!inbound) return;
+      const existing = await linear.findCommentByMarker(
+        inbound.issueId,
+        cancelMarker(reply.id),
+      );
+      const notice =
+        existing ??
+        (await linear.createComment(
+          inbound.issueId,
+          buildCancelNotice(reply.id),
+          reply.cancelReason === "removed" &&
+            reply.threadRootId === inbound.commentId
+            ? undefined
+            : reply.threadRootId,
+        ));
+      await recordCancelNotice(tx, reply.id, notice.id);
+    });
+  }
+
   async function processInboundComment(inboundId: string): Promise<void> {
-    const inbound = await getInboundComment(db, inboundId);
+    let inbound = await getInboundComment(db, inboundId);
     if (!inbound) return;
     if (inbound.status === "processed") {
       await ensureHoldWarning(inbound);
       return;
     }
     if (!inbound.requestId) return;
+    if (await commentNeedsRefresh(db, inbound)) {
+      await refreshFromLinear(inbound);
+      inbound = await getInboundComment(db, inboundId);
+      if (!inbound || inbound.status === "processed") return;
+    }
     if (await isOwnComment(inbound)) {
       await ignoreInboundComment(db, inbound.id, "own_comment");
       return;
@@ -193,7 +268,12 @@ export function createLinearAdapter(deps: LinearAdapterDeps): LinearAdapter {
       return;
     }
     if (inbound.parentCommentId && isConfirmComment(inbound.body)) {
-      await confirmHeldReply(db, { inboundId: inbound.id, now: clock() });
+      await refreshHeldReplies(inbound);
+      await confirmHeldReply(db, {
+        inboundId: inbound.id,
+        sourceBody: inbound.body,
+        now: clock(),
+      });
       return;
     }
     const classified = classifyStaffComment(inbound.body);
@@ -222,35 +302,39 @@ export function createLinearAdapter(deps: LinearAdapterDeps): LinearAdapter {
       const ticket = await findTicketByRequest(tx, requestId);
       if (!ticket) return 0;
       const pending = await listUndeliveredFollowUps(tx, requestId, clock());
+      const firstId = (await loadTriageContext(tx, requestId))?.messages[0]?.id;
       let delivered = 0;
       for (const item of pending) {
         if (!item.ready) break;
-        const found = await linear.findCommentByMarker(
-          ticket.linearIssueId,
-          messageMarker(item.message.id),
-        );
-        const comment =
-          found ??
-          (await linear.createComment(
+        const parts = buildFollowUpParts({
+          messageId: item.message.id,
+          originChannel: item.message.originChannel,
+          text: displayBody(item.message),
+          attachmentNames: item.attachmentNames,
+          headChars: item.message.id === firstId ? QUOTE_MAX_CHARS : 0,
+        });
+        let firstCommentId: string | undefined;
+        for (const part of parts) {
+          const found = await linear.findCommentByMarker(
             ticket.linearIssueId,
-            buildFollowUpComment({
-              messageId: item.message.id,
-              originChannel: item.message.originChannel,
-              text: displayBody(item.message),
-              attachmentNames: item.attachmentNames,
-            }),
-          ));
+            part.marker,
+          );
+          const comment =
+            found ??
+            (await linear.createComment(ticket.linearIssueId, part.body));
+          firstCommentId ??= comment.id;
+        }
         await recordFollowUpDelivered(tx, {
           messageId: item.message.id,
           requestId,
-          linearCommentId: comment.id,
+          linearCommentId: firstCommentId as string,
           attachmentIds: item.attachmentIds,
           now: clock(),
         });
         delivered++;
       }
       for (const late of await listLateAttachments(tx, requestId, clock())) {
-        const marker = attachmentsMarker(late.attachmentIds[0] as string);
+        const marker = attachmentsMarker(late.attachmentIds);
         const found = await linear.findCommentByMarker(
           ticket.linearIssueId,
           marker,
@@ -389,12 +473,18 @@ export function createLinearAdapter(deps: LinearAdapterDeps): LinearAdapter {
       "message.created",
       "message.intake_completed",
       "comment.received",
+      "reply.cancelled",
     ],
     async handle(event: EventEnvelope) {
       if (event.type === "comment.received") {
         const payload = inboundPayloadSchema.safeParse(event.payload);
         if (payload.success)
           await processInboundComment(payload.data.inboundId);
+        return;
+      }
+      if (event.type === "reply.cancelled") {
+        const payload = cancelledPayloadSchema.safeParse(event.payload);
+        if (payload.success) await postCancelNotice(payload.data.replyId);
         return;
       }
       if (!event.requestId) return;

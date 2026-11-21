@@ -12,18 +12,18 @@ description: Work in the api module: the Hono HTTP server on Bun. Use when you a
 
 ## Layout
 
-| File                | Role                                                                                                                    |
-| ------------------- | ----------------------------------------------------------------------------------------------------------------------- |
-| `app.ts`            | `createApp(deps)`: CORS, body limit, identity, rate limit, thin routes, error handler                                   |
-| `intake-service.ts` | Persist, then run checks, store files, record rejections, shape responses                                               |
-| `middleware.ts`     | `identify` resolves the key and upserts the customer. `rateLimit` counts per key and per user                           |
-| `file-type.ts`      | `detectFile` by magic bytes and `preflightAttachment` for count, size, and empty checks                                 |
-| `message-checks.ts` | `checkMessage` strips markup in linear time and enforces the length caps. The stripper lives in `@pw-support/contracts` |
-| `storage.ts`        | `ObjectStorage` interface and the S3 implementation                                                                     |
-| `config.ts`         | `loadConfig(env)` with local defaults for the Compose stack                                                             |
-| `wake.ts`           | SQS client, queue lookup, and the wake sender that sends `DelaySeconds`. Triage reuses it                               |
-| `server.ts`         | Process entry. It is glue and no test loads it                                                                          |
-| `testing/`          | `fixtures.ts` builds magic-byte buffers. `harness.ts` builds an app against real Postgres and LocalStack                |
+| File                | Role                                                                                                                                                                 |
+| ------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `app.ts`            | `createApp(deps)`: CORS, body limit, identity, rate limit, thin routes, error handler                                                                                |
+| `intake-service.ts` | Persist, then run checks, store files, record rejections, shape responses                                                                                            |
+| `middleware.ts`     | `identify` resolves the key and upserts the customer. `rateLimit` counts per key and per user                                                                        |
+| `file-type.ts`      | `detectFile` by magic bytes and `preflightAttachment` for count, size, and empty checks                                                                              |
+| `message-checks.ts` | `checkMessage` strips real HTML in linear time and enforces the length caps. Flag `markup` only when HTML was removed. The stripper lives in `@pw-support/contracts` |
+| `storage.ts`        | `ObjectStorage` interface and the S3 implementation                                                                                                                  |
+| `config.ts`         | `loadConfig(env)` with local defaults for the Compose stack                                                                                                          |
+| `wake.ts`           | SQS client, queue lookup, and the wake sender that sends `DelaySeconds`. Triage reuses it                                                                            |
+| `server.ts`         | Process entry. It is glue and no test loads it                                                                                                                       |
+| `testing/`          | `fixtures.ts` builds magic-byte buffers. `harness.ts` builds an app against real Postgres and LocalStack                                                             |
 
 ## Routes
 

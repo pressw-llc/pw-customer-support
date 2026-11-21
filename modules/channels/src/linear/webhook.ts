@@ -42,7 +42,11 @@ const payloadSchema = z.object({
   webhookTimestamp: z.number(),
   data: z.record(z.unknown()).optional(),
   actor: z
-    .object({ name: z.string().nullish(), type: z.string().nullish() })
+    .object({
+      name: z.string().nullish(),
+      type: z.string().nullish(),
+      app: z.unknown().nullish(),
+    })
     .partial()
     .nullish(),
 });
@@ -53,8 +57,16 @@ const commentSchema = z.object({
   issueId: z.string().min(1),
   parentId: z.string().min(1).nullish(),
   userId: z.string().min(1).nullish(),
-  user: z.object({ name: z.string().nullish() }).partial().nullish(),
+  user: z
+    .object({
+      name: z.string().nullish(),
+      type: z.string().nullish(),
+      app: z.unknown().nullish(),
+    })
+    .partial()
+    .nullish(),
   createdAt: z.string().nullish(),
+  updatedAt: z.string().nullish(),
   botActor: z.unknown().nullish(),
   externalUserId: z.unknown().nullish(),
   externalUser: z.unknown().nullish(),
@@ -63,10 +75,14 @@ const commentSchema = z.object({
 const changeSchema = z.object({
   id: z.string().min(1),
   body: z.string().optional(),
+  updatedAt: z.string().nullish(),
 });
 
 const present = (value: unknown): boolean =>
   value !== null && value !== undefined;
+
+const isHuman = (type: string | null | undefined): boolean =>
+  type == null || type.toLowerCase() === "user";
 
 export function signatureMatches(
   secret: string,
@@ -78,8 +94,10 @@ export function signatureMatches(
   return timingSafeEqual(expected, Buffer.from(signature, "hex"));
 }
 
-function authorNameOf(comment: z.infer<typeof commentSchema>): string | null {
-  const cleaned = plainReplyText(comment.user?.name ?? "")
+export function cleanAuthorName(
+  name: string | null | undefined,
+): string | null {
+  const cleaned = plainReplyText(name ?? "")
     .slice(0, MAX_AUTHOR_NAME_CHARS)
     .trim();
   return cleaned === "" ? null : cleaned;
@@ -88,21 +106,26 @@ function authorNameOf(comment: z.infer<typeof commentSchema>): string | null {
 function humanAuthorId(
   comment: z.infer<typeof commentSchema>,
   actor: z.infer<typeof payloadSchema>["actor"],
+  createdAtKnown: boolean,
 ): string | null {
   const machine =
+    !createdAtKnown ||
     present(comment.botActor) ||
     present(comment.externalUserId) ||
     present(comment.externalUser) ||
-    (actor?.type != null && actor.type !== "user");
+    comment.user?.app === true ||
+    actor?.app === true ||
+    !isHuman(comment.user?.type) ||
+    !isHuman(actor?.type);
   return machine ? null : (comment.userId ?? null);
 }
 
-function sourceTime(raw: string | null | undefined, fallback: Date): Date {
+function parsedTime(raw: string | null | undefined): Date | null {
   const parsed = raw ? new Date(raw) : null;
-  return parsed && !Number.isNaN(parsed.getTime()) ? parsed : fallback;
+  return parsed && !Number.isNaN(parsed.getTime()) ? parsed : null;
 }
 
-function cleanBody(body: string): string {
+export function cleanBody(body: string): string {
   return body.replaceAll("\u0000", "�");
 }
 
@@ -167,6 +190,7 @@ export function createLinearWebhookIntake(
           deliveryId: delivery,
           commentId: change.data.id,
           action: payload.data.action,
+          updatedAt: parsedTime(change.data.updatedAt) ?? clock(),
           body:
             change.data.body === undefined
               ? undefined
@@ -190,15 +214,21 @@ export function createLinearWebhookIntake(
           reason: "not_an_issue_comment",
         });
       }
+      const createdAt = parsedTime(comment.data.createdAt);
       const result = await persistInboundComment(deps.db, {
         deliveryId: delivery,
         commentId: comment.data.id,
         issueId: comment.data.issueId,
         parentCommentId: comment.data.parentId ?? null,
-        authorId: humanAuthorId(comment.data, payload.data.actor),
-        authorName: authorNameOf(comment.data),
+        authorId: humanAuthorId(
+          comment.data,
+          payload.data.actor,
+          createdAt !== null,
+        ),
+        authorName: cleanAuthorName(comment.data.user?.name),
         body: cleanBody(comment.data.body),
-        sourceCreatedAt: sourceTime(comment.data.createdAt, clock()),
+        sourceCreatedAt: createdAt ?? clock(),
+        sourceUpdatedAt: parsedTime(comment.data.updatedAt),
       });
       if (result.status === "stored") {
         return respond(200, { status: "accepted" });

@@ -32,6 +32,7 @@ export interface StubComment {
   userName: string;
   parentId: string | null;
   createdAt?: string;
+  updatedAt?: string;
   payloadExtra?: PayloadExtra;
 }
 
@@ -99,7 +100,7 @@ export function commentWebhookPayload(
     data: {
       id: comment.id,
       createdAt,
-      updatedAt: new Date(timestamp).toISOString(),
+      updatedAt: comment.updatedAt ?? new Date(timestamp).toISOString(),
       body: comment.body,
       issueId: comment.issueId,
       parentId: comment.parentId,
@@ -188,6 +189,7 @@ export const DEFAULT_STUB_TEAMS: StubTeam[] = [
 
 const OPERATIONS: [string, RegExp][] = [
   ["viewer", /\bviewer\s*\{/],
+  ["comment", /\bcomment\s*\(\s*id/],
   ["issueComments", /\bissue\s*\(\s*id/],
   ["issueLabelCreate", /\bissueLabelCreate\s*\(/],
   ["issueLabels", /\bissueLabels\s*\(/],
@@ -205,6 +207,11 @@ class GraphQlFailure extends Error {
   ) {
     super(message);
   }
+}
+
+function nextUpdatedAt(previous: string | undefined): string {
+  const floor = previous ? new Date(previous).getTime() + 1 : 0;
+  return new Date(Math.max(Date.now(), floor)).toISOString();
 }
 
 function asRecord(value: unknown): Record<string, unknown> {
@@ -242,7 +249,8 @@ export function startLinearStub(options: StubOptions = {}): LinearStub {
         userId: input.userId === undefined ? STUB_STAFF_ID : input.userId,
         userName: input.userName ?? STUB_STAFF_NAME,
         parentId: input.parentId ?? null,
-        createdAt: input.createdAt?.toISOString(),
+        createdAt: (input.createdAt ?? new Date()).toISOString(),
+        updatedAt: (input.createdAt ?? new Date()).toISOString(),
         payloadExtra: input.payloadExtra,
       };
       stub.comments.push(comment);
@@ -255,6 +263,7 @@ export function startLinearStub(options: StubOptions = {}): LinearStub {
       const comment = stub.comments.find((c) => c.id === commentId);
       if (!comment) throw new GraphQlFailure("Entity not found: Comment");
       comment.body = body;
+      comment.updatedAt = nextUpdatedAt(comment.updatedAt);
       return emit(comment, "update");
     },
     async removeComment(commentId) {
@@ -455,6 +464,8 @@ export function startLinearStub(options: StubOptions = {}): LinearStub {
         userId: stub.viewerId,
         userName: STUB_VIEWER_NAME,
         parentId,
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
       };
       stub.comments.push(comment);
       void emit(comment);
@@ -462,6 +473,28 @@ export function startLinearStub(options: StubOptions = {}): LinearStub {
     },
     viewer() {
       return { viewer: { id: stub.viewerId } };
+    },
+    comment(vars) {
+      const found = stub.comments.find((c) => c.id === vars.id);
+      if (!found) throw new GraphQlFailure("Entity not found: Comment");
+      const extra = found.payloadExtra?.data ?? {};
+      return {
+        comment: {
+          id: found.id,
+          body: found.body,
+          createdAt: found.createdAt ?? new Date().toISOString(),
+          updatedAt: found.updatedAt ?? new Date().toISOString(),
+          archivedAt: null,
+          issue: { id: found.issueId },
+          parent: found.parentId ? { id: found.parentId } : null,
+          user:
+            found.userId === null
+              ? null
+              : { id: found.userId, name: found.userName, app: false },
+          botActor: extra.botActor ?? null,
+          externalUser: extra.externalUser ?? null,
+        },
+      };
     },
     issueComments(vars, query) {
       const issue = stub.issues.find((i) => i.id === vars.issueId);

@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { HUMAN_TRIAGE_LABEL, humanTriageResult } from "@pw-support/contracts";
 import {
   attachmentsMarker,
+  buildFollowUpParts,
   buildLateAttachmentsComment,
   buildTicket,
   inertText,
@@ -268,15 +269,32 @@ describe("buildTicket", () => {
         { id: "a4", messageId: "m4", filename: "four.txt" },
       ],
     });
-    expect(draft.deliveredMessageIds).toEqual(["m1", "m3"]);
+    expect(draft.deliveredMessageIds).toEqual(["m1"]);
     expect(draft.deliveredAttachmentIds).toEqual(["a1"]);
-    expect(draft.description).toContain("> first\n>\n> third");
+    expect(draft.description).toContain("> first");
+    expect(draft.description).not.toContain("third");
     expect(draft.description).not.toContain("not ready");
     expect(draft.description).not.toContain("zzzz");
     expect(draft.description).toContain(
       "[further messages follow as comments]",
     );
     expect(draft.description).not.toContain("two.txt");
+  });
+
+  test("N2 a not-ready message stops the description so later messages keep their order", () => {
+    const draft = buildTicket({
+      ...base,
+      messages: [
+        { id: "m1", text: "first", ready: true },
+        { id: "m2", text: "second", ready: false },
+        { id: "m3", text: "third", ready: true },
+      ],
+    });
+    expect(draft.deliveredMessageIds).toEqual(["m1"]);
+    expect(draft.description).not.toContain("third");
+    expect(draft.description).toContain(
+      "[further messages follow as comments]",
+    );
   });
 
   test("a first message over the cap is cut and not counted as delivered", () => {
@@ -288,19 +306,66 @@ describe("buildTicket", () => {
     });
     expect(draft.deliveredMessageIds).toEqual([]);
     expect(draft.description).toContain(
-      `[text cut at ${QUOTE_MAX_CHARS} characters]`,
+      `[text cut at ${QUOTE_MAX_CHARS} characters`,
     );
+  });
+
+  test("C5 the rest of a long first message is posted as numbered parts without repeating the head", () => {
+    const text = `${"a".repeat(QUOTE_MAX_CHARS)}${"b".repeat(QUOTE_MAX_CHARS)}${"c".repeat(10)}`;
+    const parts = buildFollowUpParts({
+      messageId: "m1",
+      originChannel: "widget",
+      text,
+      attachmentNames: ["one.txt"],
+      headChars: QUOTE_MAX_CHARS,
+    });
+    expect(parts).toHaveLength(2);
+    expect(parts[0]?.body).toContain("(part 2 of 3)");
+    expect(parts[0]?.body).toContain(`> ${"b".repeat(QUOTE_MAX_CHARS)}`);
+    expect(parts[0]?.body).not.toContain("aaaa");
+    expect(parts[0]?.body).toContain("one.txt");
+    expect(parts[1]?.body).toContain("(part 3 of 3)");
+    expect(parts[1]?.body).toContain(`> ${"c".repeat(10)}`);
+    expect(parts[0]?.marker).toBe("Support message ID: m1 part 2 of 3");
+    expect(parts[1]?.body.endsWith(parts[1]?.marker ?? "?")).toBe(true);
+  });
+
+  test("C5 a follow-up over the cap splits at the cap and a short one keeps the plain marker", () => {
+    const parts = buildFollowUpParts({
+      messageId: "m2",
+      originChannel: "widget",
+      text: "x".repeat(QUOTE_MAX_CHARS + 5),
+      attachmentNames: [],
+    });
+    expect(parts.map((part) => part.marker)).toEqual([
+      "Support message ID: m2 part 1 of 2",
+      "Support message ID: m2 part 2 of 2",
+    ]);
+    const [single] = buildFollowUpParts({
+      messageId: "m3",
+      originChannel: "widget",
+      text: "short",
+      attachmentNames: [],
+      headChars: QUOTE_MAX_CHARS,
+    });
+    expect(single?.marker).toBe("Support message ID: m3");
+    expect(single?.body).toContain("> short");
+  });
+
+  test("C6 the late attachment marker names the exact attachment set", () => {
+    expect(attachmentsMarker(["a", "b"])).toBe(attachmentsMarker(["b", "a"]));
+    expect(attachmentsMarker(["a", "b"])).not.toBe(attachmentsMarker(["a"]));
   });
 
   test("late attachment comments carry the follow-up header and the marker last", () => {
     const comment = buildLateAttachmentsComment({
       originChannel: "widget",
       attachmentNames: ["a`b.log"],
-      marker: attachmentsMarker("att-1"),
+      marker: attachmentsMarker(["att-1"]),
     });
     expect(comment.startsWith("Customer follow-up via widget\n\n")).toBe(true);
     expect(comment).toContain("- `a_b.log`");
-    expect(comment.endsWith("Support attachment ID: att-1")).toBe(true);
+    expect(comment.endsWith(attachmentsMarker(["att-1"]))).toBe(true);
   });
 
   test("a title with markup or newlines becomes one clean line", () => {

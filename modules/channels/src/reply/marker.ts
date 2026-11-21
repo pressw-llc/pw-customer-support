@@ -8,6 +8,7 @@ import { plainStaffText } from "./plain-text";
 export const EXTERNAL_MARKER = "@external";
 export const CONFIRM_COMMAND = "@confirm";
 export const HOLD_WARNING_PREFIX = "Reply held, not sent to the customer.";
+export const HOLD_CANCELLED_PREFIX = "Reply hold cancelled.";
 export const FOLLOW_UP_HEADER_PREFIX = "Customer follow-up via";
 
 export type StaffCommentClass =
@@ -57,7 +58,8 @@ export function isConfirmComment(body: string): boolean {
 export function isSystemComment(body: string): boolean {
   return (
     body.startsWith(FOLLOW_UP_HEADER_PREFIX) ||
-    body.startsWith(HOLD_WARNING_PREFIX)
+    body.startsWith(HOLD_WARNING_PREFIX) ||
+    body.startsWith(HOLD_CANCELLED_PREFIX)
   );
 }
 
@@ -79,4 +81,12 @@ export function buildHoldWarning(input: {
         : "The wording check was unavailable.";
   const hours = Math.round(REPLY_HOLD_TTL_SECONDS / 3600);
   return `${HOLD_WARNING_PREFIX} ${why} Reply \`${CONFIRM_COMMAND}\` in this thread to send it as written. Editing or deleting the comment cancels the hold, so post a new \`${EXTERNAL_MARKER}\` comment instead. The hold expires after ${hours} hours.\n\n${replyMarker(input.replyId)}`;
+}
+
+export function cancelMarker(replyId: string): string {
+  return `Support reply cancel ID: ${replyId}`;
+}
+
+export function buildCancelNotice(replyId: string): string {
+  return `${HOLD_CANCELLED_PREFIX} The comment was edited or deleted, so the held reply will not send. Post a new \`${EXTERNAL_MARKER}\` comment to reply to the customer.\n\n${cancelMarker(replyId)}`;
 }

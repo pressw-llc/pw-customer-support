@@ -27,7 +27,6 @@ import {
   messages as messagesTable,
   persistInboundComment,
   persistInboundMessage,
-  purgeStaleRecords,
   recordAttachment,
   replies,
   resolveExternalReply,
@@ -458,18 +457,18 @@ describe("S3 a confirm answers only the hold it was written for", () => {
 });
 
 describe("S4 released staff text is plain text", () => {
-  test("links, images, tags, and linear urls do not reach the customer", async () => {
+  test("links, images, and linear urls do not reach the customer and angle brackets stay text", async () => {
     const s = await p.scenario();
     await staff(
       s,
       "@external Hi [Ada](https://evil.example/x) ![img](https://uploads.linear.app/a.png) see https://linear.app/acme/issue/A-1 and https://docs.example.com/guide <b>now</b> [s=4]",
     );
     expect((await p.thread(s.who, s.requestId)).messages.at(-1)?.body).toBe(
-      "Hi Ada  see  and https://docs.example.com/guide now [s=4]",
+      "Hi Ada  see  and https://docs.example.com/guide <b>now</b> [s=4]",
     );
     const scored = p.wording as unknown as { calls: string[] };
     expect(scored.calls.at(-1)).toBe(
-      "Hi Ada  see  and https://docs.example.com/guide now [s=4]",
+      "Hi Ada  see  and https://docs.example.com/guide <b>now</b> [s=4]",
     );
   });
 
@@ -527,13 +526,16 @@ describe("S6 a comment before its ticket row is kept for a while", () => {
 
   test("the redelivery sweep attaches a comment whose ticket row came later", async () => {
     const s = await p.scenario();
-    const commentId = crypto.randomUUID();
-    await p.h.db.insert(inboundComments).values({
-      commentId,
+    const late = await p.stub.staffComment({
       issueId: s.issueId,
       body: "@external late attach [s=4]",
-      authorId: STUB_STAFF_ID,
-      authorName: "Ada",
+      deliver: false,
+    });
+    await p.h.db.insert(inboundComments).values({
+      commentId: late.comment.id,
+      issueId: s.issueId,
+      body: "",
+      refetchRequired: true,
       requestId: null,
     });
     expect(await resolveOrphanComments(p.h.db)).toEqual({
@@ -546,7 +548,7 @@ describe("S6 a comment before its ticket row is kept for a while", () => {
     );
   });
 
-  test("it is marked ignored and blanked once the window passes, never guessing a request", async () => {
+  test("it is deleted once the window passes, never guessing a request", async () => {
     const ghost: StubComment = {
       id: crypto.randomUUID(),
       issueId: `issue-ghost-${crypto.randomUUID()}`,
@@ -568,16 +570,6 @@ describe("S6 a comment before its ticket row is kept for a while", () => {
     const late = new Date(Date.now() + 601_000);
     const resolution = await resolveOrphanComments(p.h.db, { now: late });
     expect(resolution.ignored).toBeGreaterThanOrEqual(1);
-    expect(await find()).toMatchObject({
-      status: "processed",
-      disposition: "ignored:unknown_issue",
-      body: "",
-      requestId: null,
-    });
-    const purged = await purgeStaleRecords(p.h.db, {
-      now: new Date(Date.now() + 8 * 86_400_000),
-    });
-    expect(purged.comments).toBeGreaterThanOrEqual(1);
     expect(await find()).toBeUndefined();
   });
 });
@@ -679,10 +671,18 @@ describe("C2 a follow-up is delivered via the ticket only when it is in the desc
     expect(description).toContain("[further messages follow as comments]");
     await p.drain(submitted.requestId);
     const comments = p.stub.comments.filter((c) => c.issueId === issueId);
-    expect(comments).toHaveLength(1);
+    expect(comments).toHaveLength(2);
     expect(
-      comments[0]?.body.endsWith(`Support message ID: ${big.message.id}`),
+      comments[0]?.body.endsWith(
+        `Support message ID: ${big.message.id} part 1 of 2`,
+      ),
     ).toBe(true);
+    expect(
+      comments[1]?.body.endsWith(
+        `Support message ID: ${big.message.id} part 2 of 2`,
+      ),
+    ).toBe(true);
+    expect(comments.map((c) => c.body).join("")).toContain("y".repeat(1000));
   });
 
   test("an issue adopted by marker marks nothing and the messages flow as comments", async () => {

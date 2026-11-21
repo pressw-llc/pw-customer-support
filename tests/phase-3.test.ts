@@ -896,9 +896,14 @@ describe("confirm without a thread", () => {
     });
     expect(stored.status).toBe("stored");
     const inboundId = stored.status === "stored" ? stored.inbound.id : "";
-    const result = await confirmHeldReply(p.h.db, { inboundId });
+    const result = await confirmHeldReply(p.h.db, {
+      inboundId,
+      sourceBody: "@confirm",
+    });
     expect(result).toEqual({ outcome: "ignored", reason: "no_thread" });
-    expect(await confirmHeldReply(p.h.db, { inboundId })).toBeNull();
+    expect(
+      await confirmHeldReply(p.h.db, { inboundId, sourceBody: "@confirm" }),
+    ).toBeNull();
   });
 });
 

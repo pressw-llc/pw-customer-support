@@ -41,6 +41,19 @@ export interface LinearIssue {
   url: string;
 }
 
+export interface LinearComment {
+  id: string;
+  body: string;
+  issueId: string | null;
+  parentId: string | null;
+  userId: string | null;
+  userName: string | null;
+  automated: boolean;
+  createdAt: string;
+  updatedAt: string;
+  archived: boolean;
+}
+
 export interface CreateIssueInput {
   teamId: string;
   title: string;
@@ -68,6 +81,7 @@ export interface LinearClient {
     issueId: string,
     marker: string,
   ): Promise<{ id: string } | null>;
+  getComment(commentId: string): Promise<LinearComment | null>;
   viewerId(): Promise<string>;
   archiveIssue(issueId: string): Promise<boolean>;
 }
@@ -93,6 +107,27 @@ const issueShape = z.object({
 function lastLine(description: string): string {
   return description.trimEnd().split(/\r?\n/).pop() ?? "";
 }
+
+const commentNode = z.object({
+  id: z.string(),
+  body: z.string(),
+  createdAt: z.string(),
+  updatedAt: z.string(),
+  archivedAt: z.string().nullish(),
+  issue: z.object({ id: z.string() }).nullish(),
+  parent: z.object({ id: z.string() }).nullish(),
+  user: z
+    .object({
+      id: z.string(),
+      name: z.string().nullish(),
+      app: z.boolean().nullish(),
+    })
+    .nullish(),
+  botActor: z.unknown().nullish(),
+  externalUser: z.unknown().nullish(),
+});
+
+const NOT_FOUND = /not found/i;
 
 const labelNode = z.object({ id: z.string(), name: z.string() });
 
@@ -252,6 +287,39 @@ export function createLinearClient(options: LinearClientOptions): LinearClient {
         (node) => lastLine(node.body) === marker,
       );
       return match ? { id: match.id } : null;
+    },
+
+    async getComment(commentId) {
+      let data: { comment: z.infer<typeof commentNode> | null };
+      try {
+        data = await request(
+          "query Comment($id: String!) { comment(id: $id) { id body createdAt updatedAt archivedAt issue { id } parent { id } user { id name app } botActor { id } externalUser { id } } }",
+          { id: commentId },
+          z.object({ comment: commentNode.nullable() }),
+        );
+      } catch (error) {
+        if (error instanceof LinearError && NOT_FOUND.test(error.message)) {
+          return null;
+        }
+        throw error;
+      }
+      const node = data.comment;
+      if (!node) return null;
+      return {
+        id: node.id,
+        body: node.body,
+        issueId: node.issue?.id ?? null,
+        parentId: node.parent?.id ?? null,
+        userId: node.user?.id ?? null,
+        userName: node.user?.name ?? null,
+        automated:
+          node.user?.app === true ||
+          node.botActor != null ||
+          node.externalUser != null,
+        createdAt: node.createdAt,
+        updatedAt: node.updatedAt,
+        archived: node.archivedAt != null,
+      };
     },
 
     async viewerId() {
