@@ -12,21 +12,21 @@ description: Work in the triage module: job claim protocol, Jev filter, sandboxe
 
 ## Layout
 
-| File                     | Role                                                                                               |
-| ------------------------ | -------------------------------------------------------------------------------------------------- |
-| `config.ts`              | `loadTriageConfig(env)`: timing, Jev threshold, extraction caps, agent model                       |
-| `extract.ts`             | Plans each attachment, loads it lazily and one at a time, extracts text. Images pass through. Zip is never read |
-| `extract-core.ts`        | Linear `indexOf` scanners, streaming unzip with entry caps, the PDF page cap                       |
-| `extract-sandbox.ts`, `extract-worker.ts` | Run PDF and Office extraction in a Bun `Worker` with a hard timeout               |
-| `submit.ts`              | `submitResult`: shared submit that sends a wake when an invalid result reopens the job             |
-| `jev.ts`, `filter.ts`    | Jev client and the injection filter with overlapping chunks. Fails closed                          |
-| `agent-runner.ts`        | Managed agent session: environment, stream, interrupt, abort, archive, remote-definition guard     |
-| `process.ts`             | After a cloud claim: extract, filter, agent, validate, submit                                      |
-| `worker.ts`              | `handleWake`, `sweepOnce`, `startSweeper`, lease heartbeat                                         |
-| `runtime.ts`             | Builds the worker deps from the environment                                                        |
-| `testing/`               | Harness, fake Jev, fake agent, generated files. Import from `@pw-support/triage/testing`           |
-| `agents/support-triage/` | `defineAgent` definition and `sync.ts`                                                             |
-| `corpus/`                | Injection and benign payloads for the live Jev test                                                |
+| File                                      | Role                                                                                                            |
+| ----------------------------------------- | --------------------------------------------------------------------------------------------------------------- |
+| `config.ts`                               | `loadTriageConfig(env)`: timing, Jev threshold, extraction caps, agent model                                    |
+| `extract.ts`                              | Plans each attachment, loads it lazily and one at a time, extracts text. Images pass through. Zip is never read |
+| `extract-core.ts`                         | Linear `indexOf` scanners, streaming unzip with entry caps, the PDF page cap                                    |
+| `extract-sandbox.ts`, `extract-worker.ts` | Run PDF and Office extraction in a Bun `Worker` with a hard timeout                                             |
+| `submit.ts`                               | `submitResult`: shared submit that sends a wake when an invalid result reopens the job                          |
+| `jev.ts`, `filter.ts`                     | Jev client and the injection filter with overlapping chunks. Fails closed                                       |
+| `agent-runner.ts`                         | Managed agent session: environment, stream, interrupt, abort, archive, remote-definition guard                  |
+| `process.ts`                              | After a cloud claim: extract, filter, agent, validate, submit                                                   |
+| `worker.ts`                               | `handleWake`, `sweepOnce`, `startSweeper`, lease heartbeat                                                      |
+| `runtime.ts`                              | Builds the worker deps from the environment                                                                     |
+| `testing/`                                | Harness, fake Jev, fake agent, generated files. Import from `@pw-support/triage/testing`                        |
+| `agents/support-triage/`                  | `defineAgent` definition and `sync.ts`                                                                          |
+| `corpus/`                                 | Injection and benign payloads for the live Jev test                                                             |
 
 ## Rules
 

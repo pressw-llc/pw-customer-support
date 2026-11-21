@@ -12,15 +12,15 @@ description: Work in the channels module: the adapter contract, the event dispat
 
 ## Layout
 
-| File                     | Role                                                                                                                               |
-| ------------------------ | ---------------------------------------------------------------------------------------------------------------------------------- |
-| `dispatcher.ts`          | Reads `support.events` by `seq` with a durable cursor per adapter. Delivers through a transport. Advances the cursor after success. Each tick also redelivers |
-| `linear/client.ts`       | GraphQL client, `SecretsProvider`, `envSecrets`                                                                                    |
-| `linear/ticket.ts`       | Builds the ticket. Model text is inert, customer text appears only in the quote block, the marker is the last line                 |
-| `linear/adapter.ts`      | Creates exactly one ticket per request under an advisory lock                                                                      |
-| `poller.ts`              | SQS poller that calls a Lambda-shaped handler                                                                                      |
-| `runtime.ts`             | Builds the adapter runtime from the environment                                                                                    |
-| `testing/`               | In-memory Linear GraphQL server and fixtures. Import from `@pw-support/channels/testing`                                           |
+| File                | Role                                                                                                                                                          |
+| ------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `dispatcher.ts`     | Reads `support.events` by `seq` with a durable cursor per adapter. Delivers through a transport. Advances the cursor after success. Each tick also redelivers |
+| `linear/client.ts`  | GraphQL client, `SecretsProvider`, `envSecrets`                                                                                                               |
+| `linear/ticket.ts`  | Builds the ticket. Model text is inert, customer text appears only in the quote block, the marker is the last line                                            |
+| `linear/adapter.ts` | Creates exactly one ticket per request under an advisory lock                                                                                                 |
+| `poller.ts`         | SQS poller that calls a Lambda-shaped handler                                                                                                                 |
+| `runtime.ts`        | Builds the adapter runtime from the environment                                                                                                               |
+| `testing/`          | In-memory Linear GraphQL server and fixtures. Import from `@pw-support/channels/testing`                                                                      |
 
 ## Rules
 
