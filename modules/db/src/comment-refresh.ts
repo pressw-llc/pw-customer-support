@@ -1,4 +1,4 @@
-import { and, eq, gt, isNull, lte, or, sql } from "drizzle-orm";
+import { and, eq, gt, lte, sql } from "drizzle-orm";
 import { inTransaction, type SupportExecutor } from "./client";
 import {
   cancelHeldReplyFor,
@@ -46,10 +46,11 @@ export async function commentNeedsRefresh(
   return row !== undefined;
 }
 
-export async function listHeldNeedingRefresh(
+export async function listHeldInThread(
   db: SupportExecutor,
   requestId: string,
   threadRootId: string,
+  now: Date,
 ): Promise<InboundCommentRow[]> {
   const rows = await db
     .select({ inbound: inboundComments })
@@ -58,22 +59,12 @@ export async function listHeldNeedingRefresh(
       inboundComments,
       eq(inboundComments.id, replies.inboundCommentId),
     )
-    .innerJoin(
-      commentChanges,
-      and(
-        eq(commentChanges.provider, inboundComments.provider),
-        eq(commentChanges.commentId, inboundComments.commentId),
-      ),
-    )
     .where(
       and(
         eq(replies.requestId, requestId),
         eq(replies.threadRootId, threadRootId),
         eq(replies.status, "held"),
-        or(
-          isNull(inboundComments.sourceUpdatedAt),
-          gt(commentChanges.updatedAt, inboundComments.sourceUpdatedAt),
-        ),
+        gt(replies.expiresAt, now),
       ),
     );
   return rows.map((row) => row.inbound);
@@ -139,6 +130,15 @@ export async function applyFetchedComment(
       return { status: "issue_mismatch" };
     }
     await clearChanges(fetched.updatedAt);
+    const [newer] = await tx
+      .select({ commentId: commentChanges.commentId })
+      .from(commentChanges)
+      .where(
+        and(
+          eq(commentChanges.provider, PROVIDER),
+          eq(commentChanges.commentId, inbound.commentId),
+        ),
+      );
     if (inbound.status === "pending") {
       await tx
         .update(inboundComments)
@@ -149,12 +149,15 @@ export async function applyFetchedComment(
           parentCommentId: fetched.parentCommentId,
           sourceCreatedAt: fetched.createdAt,
           sourceUpdatedAt: fetched.updatedAt,
-          refetchRequired: false,
+          refetchRequired: newer !== undefined,
         })
         .where(eq(inboundComments.id, inbound.id));
       return { status: "refreshed" };
     }
-    const edited = fetched.body !== inbound.body;
+    const edited =
+      fetched.body !== inbound.body ||
+      (inbound.sourceUpdatedAt !== null &&
+        fetched.updatedAt.getTime() !== inbound.sourceUpdatedAt.getTime());
     await tx
       .update(inboundComments)
       .set({ body: fetched.body, sourceUpdatedAt: fetched.updatedAt })

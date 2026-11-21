@@ -219,6 +219,7 @@ export type CommentChangeResult =
   | { status: "unknown_comment" }
   | { status: "unchanged" }
   | { status: "stale" }
+  | { status: "refetch_required" }
   | { status: "updated" }
   | { status: "removed" }
   | { status: "cancelled"; reply: ReplyRow };
@@ -264,7 +265,10 @@ export async function applyCommentChange(
       return { status: "duplicate_delivery" };
     }
     await lockComment(tx, input.commentId);
-    const updatedAt = input.updatedAt ?? new Date();
+    const receivedAt = new Date();
+    const updatedAt = input.updatedAt ?? receivedAt;
+    const untimedUpdate =
+      input.action === "update" && input.updatedAt === undefined;
     const [inbound] = await tx
       .select()
       .from(inboundComments)
@@ -276,6 +280,7 @@ export async function applyCommentChange(
       )
       .for("update");
     if (!inbound) {
+      if (untimedUpdate) return { status: "unknown_comment" };
       await recordChange(tx, {
         commentId: input.commentId,
         action: input.action,
@@ -313,13 +318,26 @@ export async function applyCommentChange(
         ? { status: "cancelled", reply: cancelled }
         : { status: "unchanged" };
     }
+    if (untimedUpdate) {
+      await tx
+        .update(inboundComments)
+        .set({ refetchRequired: true })
+        .where(eq(inboundComments.id, inbound.id));
+      return { status: "refetch_required" };
+    }
     const stored = inbound.sourceUpdatedAt;
     if (stored && updatedAt.getTime() <= stored.getTime()) {
       return { status: "stale" };
     }
-    if (inbound.refetchRequired || input.body === undefined) {
-      return { status: "unchanged" };
+    if (inbound.refetchRequired) {
+      await recordChange(tx, {
+        commentId: input.commentId,
+        action: "update",
+        updatedAt,
+      });
+      return { status: "refetch_required" };
     }
+    if (input.body === undefined) return { status: "unchanged" };
     const edited = input.body !== inbound.body;
     await tx
       .update(inboundComments)

@@ -131,7 +131,15 @@ const commentNode = z.object({
   externalUser: z.unknown().nullish(),
 });
 
-const NOT_FOUND = /not found/i;
+const NOT_FOUND = /entity not found/i;
+const DENIED =
+  /authenticat|unauthori[sz]ed|forbidden|permission|access denied|do not have access|invalid api key/i;
+
+function isDenied(error: LinearError): boolean {
+  return (
+    error.status === 401 || error.status === 403 || DENIED.test(error.message)
+  );
+}
 
 const labelNode = z.object({ id: z.string(), name: z.string() });
 
@@ -302,8 +310,14 @@ export function createLinearClient(options: LinearClientOptions): LinearClient {
           z.object({ comment: commentNode.nullable() }),
         );
       } catch (error) {
-        if (error instanceof LinearError && NOT_FOUND.test(error.message)) {
-          return null;
+        if (error instanceof LinearError) {
+          if (isDenied(error)) {
+            console.error(
+              `[linear] getComment ${commentId} was refused (HTTP ${error.status ?? "unknown"}): check the Linear API key and its access; the comment is not treated as removed`,
+            );
+            throw error;
+          }
+          if (NOT_FOUND.test(error.message)) return null;
         }
         throw error;
       }

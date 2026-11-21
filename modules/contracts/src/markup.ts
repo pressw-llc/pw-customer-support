@@ -3,6 +3,34 @@ const BLOCK_NAMES = ["script", "style"] as const;
 const KEPT_CONTROL = new Set([0x09, 0x0a, 0x0d]);
 const WHITESPACE = /\s/;
 
+const BOOLEAN_ATTRIBUTES: ReadonlySet<string> = new Set([
+  "allowfullscreen",
+  "async",
+  "autofocus",
+  "autoplay",
+  "checked",
+  "controls",
+  "default",
+  "defer",
+  "disabled",
+  "formnovalidate",
+  "hidden",
+  "inert",
+  "ismap",
+  "itemscope",
+  "loop",
+  "multiple",
+  "muted",
+  "nomodule",
+  "novalidate",
+  "open",
+  "playsinline",
+  "readonly",
+  "required",
+  "reversed",
+  "selected",
+]);
+
 const KNOWN_ELEMENTS: ReadonlySet<string> = new Set([
   "a",
   "abbr",
@@ -297,18 +325,109 @@ function isTagDelimiter(char: string): boolean {
   return char === ">" || char === "/" || WHITESPACE.test(char);
 }
 
-function elementNameAt(text: string, index: number): string | null {
+function isNameChar(code: number): boolean {
+  return (
+    isAsciiLetter(code) ||
+    isAsciiDigit(code) ||
+    code === 0x2d ||
+    code === 0x2e ||
+    code === 0x5f
+  );
+}
+
+interface ElementName {
+  name: string;
+  end: number;
+  custom: boolean;
+}
+
+function elementNameAt(text: string, index: number): ElementName | null {
   if (!isAsciiLetter(text.charCodeAt(index))) return null;
   let end = index + 1;
-  while (end < text.length) {
-    const code = text.charCodeAt(end);
-    if (!isAsciiLetter(code) && !isAsciiDigit(code)) break;
-    end++;
-  }
+  while (end < text.length && isNameChar(text.charCodeAt(end))) end++;
   const next = text.charAt(end);
   if (next === "" || !isTagDelimiter(next)) return null;
   const name = text.slice(index, end).toLowerCase();
-  return KNOWN_ELEMENTS.has(name) ? name : null;
+  if (KNOWN_ELEMENTS.has(name)) return { name, end, custom: false };
+  return name.includes("-") ? { name, end, custom: true } : null;
+}
+
+type TagScan =
+  | { kind: "tag"; end: number; valued: boolean }
+  | { kind: "reject" };
+
+const REJECT: TagScan = { kind: "reject" };
+
+function skipWhitespace(text: string, from: number): number {
+  let cursor = from;
+  while (cursor < text.length && WHITESPACE.test(text.charAt(cursor))) cursor++;
+  return cursor;
+}
+
+function readAttributeName(text: string, from: number): number {
+  let cursor = from;
+  while (cursor < text.length) {
+    const char = text.charAt(cursor);
+    if (isTagDelimiter(char) || char === "=") return cursor;
+    if (char === "<" || char === '"' || char === "'") return -1;
+    cursor++;
+  }
+  return cursor;
+}
+
+function readAttributeValue(text: string, from: number): number {
+  const quote = text.charAt(from);
+  if (quote === '"' || quote === "'") {
+    const close = text.indexOf(quote, from + 1);
+    return close === -1 ? -1 : close + 1;
+  }
+  let cursor = from;
+  while (cursor < text.length) {
+    const char = text.charAt(cursor);
+    if (char === ">" || WHITESPACE.test(char)) return cursor;
+    if (char === "<") return -1;
+    cursor++;
+  }
+  return cursor;
+}
+
+function scanTag(text: string, nameEnd: number): TagScan {
+  let cursor = nameEnd;
+  let valued = false;
+  for (;;) {
+    while (
+      cursor < text.length &&
+      (text[cursor] === "/" || WHITESPACE.test(text.charAt(cursor)))
+    ) {
+      cursor++;
+    }
+    const char = text.charAt(cursor);
+    if (char === "") return REJECT;
+    if (char === ">") return { kind: "tag", end: cursor + 1, valued };
+    if (char === "<" || char === "=" || char === '"' || char === "'") {
+      return REJECT;
+    }
+    const nameEndAt = readAttributeName(text, cursor);
+    if (nameEndAt === -1) return REJECT;
+    const attribute = text.slice(cursor, nameEndAt).toLowerCase();
+    const afterName = skipWhitespace(text, nameEndAt);
+    if (text.charAt(afterName) === "=") {
+      const valueStart = skipWhitespace(text, afterName + 1);
+      if (valueStart >= text.length) return REJECT;
+      const valueEnd = readAttributeValue(text, valueStart);
+      if (valueEnd === -1) return REJECT;
+      valued = true;
+      cursor = valueEnd;
+    } else {
+      if (!BOOLEAN_ATTRIBUTES.has(attribute)) return REJECT;
+      cursor = nameEndAt;
+    }
+  }
+}
+
+function isHtmlTag(element: ElementName, closing: boolean, scan: TagScan) {
+  if (scan.kind !== "tag") return false;
+  return !element.custom || closing || scan.valued;
 }
 
 function tagNameLength(text: string, index: number): number {
@@ -419,20 +538,30 @@ function stripTags(text: string): string {
   let cursor = 0;
   let from = 0;
   let nextClose = -2;
+  const closeAfter = (index: number): number => {
+    if (nextClose !== -1 && nextClose < index) {
+      nextClose = text.indexOf(">", index);
+    }
+    return nextClose;
+  };
   for (;;) {
     const open = text.indexOf("<", from);
     if (open === -1) break;
-    const first = text[open + 1] === "/" ? open + 2 : open + 1;
-    const name = elementNameAt(text, first);
-    if (!name && tagNameLength(text, first) === 0) {
-      from = open + 1;
-      continue;
-    }
-    if (nextClose !== -1 && nextClose < first) {
-      nextClose = text.indexOf(">", first);
-    }
-    if (nextClose === -1) {
-      if (name === "script" || name === "style") {
+    const closing = text[open + 1] === "/";
+    const first = closing ? open + 2 : open + 1;
+    const element = elementNameAt(text, first);
+    if (element) {
+      const scan = scanTag(text, element.end);
+      if (isHtmlTag(element, closing, scan) && scan.kind === "tag") {
+        out.push(text.slice(cursor, open));
+        cursor = scan.end;
+        from = cursor;
+        continue;
+      }
+      if (
+        (element.name === "script" || element.name === "style") &&
+        closeAfter(first) === -1
+      ) {
         out.push(text.slice(cursor, open));
         cursor = lineEnd(text, open);
         from = cursor;
@@ -441,8 +570,17 @@ function stripTags(text: string): string {
       from = open + 1;
       continue;
     }
+    if (tagNameLength(text, first) === 0) {
+      from = open + 1;
+      continue;
+    }
+    const close = closeAfter(first);
+    if (close === -1) {
+      from = open + 1;
+      continue;
+    }
     out.push(text.slice(cursor, open));
-    cursor = nextClose + 1;
+    cursor = close + 1;
     from = cursor;
   }
   out.push(text.slice(cursor));

@@ -238,6 +238,48 @@ describe("checkMessage", () => {
   });
 });
 
+describe("H4 a tag must be well formed before it is removed", () => {
+  test.each([
+    ["a comparison with a known name", "a<b and c>d"],
+    ["a comparison with two spaced words", "if x<y then a>b"],
+    ["prose after an element name", "x <i think so> y"],
+    ["a numeric comparison", "1<2 and 3>2"],
+    ["an unquoted opener inside the tag", "<b a=1 <c>"],
+    ["an unterminated tag with a value", "<img src=x onerror=alert(1)//"],
+    ["a custom placeholder with no attributes", "<your-token> and <api-key>"],
+    ["an address in angle brackets", "mail <john-doe@acme.test> today"],
+  ])("keeps %s verbatim and does not flag it", (_label, raw) => {
+    expect(checkMessage(raw)).toEqual({
+      sanitized: raw,
+      flagged: false,
+      reasons: [],
+    });
+  });
+
+  test.each([
+    ["a quoted greater-than inside an attribute", '<b class="a>b">x</b>', "x"],
+    ["an unquoted event handler", "<b onclick=alert(1)>x", "x"],
+    ["a boolean attribute", "<input disabled>y", "y"],
+    ["a self closing element", "a<br/>b<br />c", "abc"],
+    [
+      "a custom element with an event handler",
+      '<x-a onmouseover="alert(1)">hover</x-a>',
+      "hover",
+    ],
+    ["a custom element with a value", "<my-card data-x=1>t</my-card>", "t"],
+    ["a quoted angle bracket in a value", '<a title="<b>">k</a>', "k"],
+    [
+      "markup after an unclosed quote",
+      '<b a="x <img src=x onerror=1>y',
+      '<b a="x y',
+    ],
+  ])("removes and flags %s", (_label, raw, expected) => {
+    const verdict = checkMessage(raw);
+    expect(verdict.sanitized).toBe(expected);
+    expect(verdict.reasons).toContain("markup");
+  });
+});
+
 describe("markup stripping runs in linear time", () => {
   const inputs: [string, string][] = [
     ["unclosed anchors", "<a".repeat(500_000)],
@@ -253,6 +295,11 @@ describe("markup stripping runs in linear time", () => {
       "<script></script ".repeat(60_000),
     ],
     ["angle brackets only", "<".repeat(1_000_000)],
+    ["unclosed single quotes", "<b a='".repeat(150_000)],
+    ["alternating quote kinds", `<b a='x<b a="y`.repeat(70_000)],
+    ["custom elements with open values", "<x-a b=".repeat(140_000)],
+    ["open values and spaces", "<b a=1 ".repeat(140_000)],
+    ["long quoted spans", `<b a="${"<i ".repeat(160_000)}`],
   ];
 
   test.each(inputs)("stripMarkup finishes quickly on %s", (_label, raw) => {

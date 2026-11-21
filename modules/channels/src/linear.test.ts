@@ -1,4 +1,4 @@
-import { afterAll, beforeAll, describe, expect, test } from "bun:test";
+import { afterAll, beforeAll, describe, expect, spyOn, test } from "bun:test";
 import {
   CreateQueueCommand,
   DeleteQueueCommand,
@@ -44,6 +44,77 @@ beforeAll(async () => {
 
 afterAll(async () => {
   await h.close();
+});
+
+describe("H5 getComment tells a removed comment from a refused request", () => {
+  const KEY = "lin_api_secret_value_123";
+  function clientAnswering(status: number, body: unknown) {
+    return createLinearClient({
+      secrets: { get: async () => KEY },
+      fetcher: (async () =>
+        new Response(typeof body === "string" ? body : JSON.stringify(body), {
+          status,
+        })) as unknown as typeof fetch,
+    });
+  }
+
+  test("a definite entity-not-found answer means removed", async () => {
+    const client = clientAnswering(200, {
+      errors: [{ message: "Entity not found: Comment - Could not find" }],
+    });
+    expect(await client.getComment("c-1")).toBeNull();
+    const empty = clientAnswering(200, { data: { comment: null } });
+    expect(await empty.getComment("c-1")).toBeNull();
+  });
+
+  test("an authentication error throws and logs one clear line with no key", async () => {
+    const log = spyOn(console, "error").mockImplementation(() => {});
+    try {
+      const client = clientAnswering(401, {
+        errors: [{ message: "Authentication required, not authenticated" }],
+      });
+      await expect(client.getComment("c-2")).rejects.toThrow(/Authentication/);
+      expect(log).toHaveBeenCalledTimes(1);
+      const line = String(log.mock.calls[0]?.[0]);
+      expect(line).toContain("c-2");
+      expect(line).toContain("HTTP 401");
+      expect(line).not.toContain(KEY);
+    } finally {
+      log.mockRestore();
+    }
+  });
+
+  test("a permission error, even worded as not found elsewhere, throws", async () => {
+    const log = spyOn(console, "error").mockImplementation(() => {});
+    try {
+      const forbidden = clientAnswering(200, {
+        errors: [
+          { message: "You do not have permission to view this comment" },
+        ],
+      });
+      await expect(forbidden.getComment("c-3")).rejects.toThrow(/permission/);
+      const raw403 = clientAnswering(403, "<html>Forbidden</html>");
+      await expect(raw403.getComment("c-3")).rejects.toThrow(LinearError);
+      expect(log).toHaveBeenCalledTimes(2);
+    } finally {
+      log.mockRestore();
+    }
+  });
+
+  test("other failures throw without being treated as removed", async () => {
+    const log = spyOn(console, "error").mockImplementation(() => {});
+    try {
+      const vague = clientAnswering(200, {
+        errors: [{ message: "The thing you asked for was not found nearby" }],
+      });
+      await expect(vague.getComment("c-4")).rejects.toThrow(LinearError);
+      const outage = clientAnswering(502, "bad gateway");
+      await expect(outage.getComment("c-4")).rejects.toThrow(LinearError);
+      expect(log).not.toHaveBeenCalled();
+    } finally {
+      log.mockRestore();
+    }
+  });
 });
 
 describe("linear client against the stub", () => {
