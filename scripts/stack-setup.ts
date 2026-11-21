@@ -10,6 +10,7 @@ import {
 } from "@aws-sdk/client-sqs";
 import {
   RESOURCE_NAMES,
+  resolveStackEnv,
   TRIAGE_WAKE_MAX_RECEIVES,
 } from "@pw-support/contracts";
 
@@ -22,9 +23,8 @@ export interface StackConfig {
 }
 
 export function stackConfig(env: NodeJS.ProcessEnv = process.env): StackConfig {
-  const port = env.SUPPORT_LOCALSTACK_PORT ?? "4577";
   return {
-    endpoint: env.AWS_ENDPOINT_URL ?? `http://127.0.0.1:${port}`,
+    endpoint: resolveStackEnv(env).awsEndpointUrl,
     region: env.AWS_REGION ?? "us-east-1",
     bucket: env.ATTACHMENTS_BUCKET ?? RESOURCE_NAMES.attachmentsBucket,
     wakeQueue: env.TRIAGE_WAKE_QUEUE ?? RESOURCE_NAMES.triageWakeQueue,

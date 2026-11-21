@@ -16,30 +16,30 @@ bun run db:migrate
 bun run check
 ```
 
-The stack runs Postgres on `127.0.0.1:5447` and LocalStack on `127.0.0.1:4577`. `bun run env sync` creates `.env.local` from `.env.example`. Every script still runs on built-in defaults against the local stack without it.
+The stack runs Postgres on `127.0.0.1:5447` and LocalStack on `127.0.0.1:4577`. `bun run env sync` creates `.env.local` from `.env.example`. Every script still runs on built-in defaults against the local stack without it. `bun run stack:up` and `bun run stack:down` pass the ports from `.env.local` to Docker Compose.
 
 ## Environment
 
 `.env.example` is the committed template. Put real values in `.env.local`, which is gitignored. Manage both files with `bun run env` and the `env-files` skill. Do not edit them by hand.
 
-| Variable                                     | Default                                             | Purpose                              |
-| -------------------------------------------- | --------------------------------------------------- | ------------------------------------ |
-| `SUPPORT_POSTGRES_PORT`                      | `5447`                                              | Host port for Postgres               |
-| `SUPPORT_LOCALSTACK_PORT`                    | `4577`                                              | Host port for LocalStack             |
-| `DATABASE_URL`                               | `postgres://support:support@127.0.0.1:5447/support` | Postgres connection string           |
-| `AWS_REGION`                                 | `us-east-1`                                         | AWS region for the SDK clients       |
-| `AWS_ENDPOINT_URL`                           | `http://127.0.0.1:4577`                             | AWS endpoint, LocalStack locally     |
-| `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY` | `test`                                              | Local credentials for LocalStack     |
-| `ATTACHMENTS_BUCKET`                         | `pw-support-attachments`                            | S3 bucket for attachments            |
-| `TRIAGE_WAKE_QUEUE`                          | `pw-support-triage-wake`                            | SQS queue that wakes triage          |
-| `TRIAGE_WAKE_DLQ`                            | `pw-support-triage-wake-dlq`                        | Dead-letter queue for the wake queue |
-| `API_PORT`                                   | `8787`                                              | Port for the Hono API server         |
-| `ANTHROPIC_API_KEY`                          | blank, secret                                       | Anthropic API key                    |
-| `TYPESAFE_API_KEY`                           | blank, secret                                       | TypeSafe key for the Jev filter      |
-| `LINEAR_API_KEY`                             | blank, secret                                       | Linear API key                       |
-| `LINEAR_WEBHOOK_SECRET`                      | blank, secret                                       | Linear webhook signing secret        |
-| `COGNITO_ISSUER`                             | blank                                               | Cognito token issuer URL             |
-| `COGNITO_AUDIENCE`                           | blank                                               | Cognito token audience               |
+| Variable                                     | Default                                | Purpose                               |
+| -------------------------------------------- | -------------------------------------- | ------------------------------------- |
+| `SUPPORT_POSTGRES_PORT`                      | `5447`                                 | Host port for Postgres                |
+| `SUPPORT_LOCALSTACK_PORT`                    | `4577`                                 | Host port for LocalStack              |
+| `DATABASE_URL`                               | derived from `SUPPORT_POSTGRES_PORT`   | Optional override of the Postgres URL |
+| `AWS_REGION`                                 | `us-east-1`                            | AWS region for the SDK clients        |
+| `AWS_ENDPOINT_URL`                           | derived from `SUPPORT_LOCALSTACK_PORT` | Optional override of the AWS endpoint |
+| `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY` | `test`                                 | Local credentials for LocalStack      |
+| `ATTACHMENTS_BUCKET`                         | `pw-support-attachments`               | S3 bucket for attachments             |
+| `TRIAGE_WAKE_QUEUE`                          | `pw-support-triage-wake`               | SQS queue that wakes triage           |
+| `TRIAGE_WAKE_DLQ`                            | `pw-support-triage-wake-dlq`           | Dead-letter queue for the wake queue  |
+| `API_PORT`                                   | `8787`                                 | Port for the Hono API server          |
+| `ANTHROPIC_API_KEY`                          | blank, secret                          | Anthropic API key                     |
+| `TYPESAFE_API_KEY`                           | blank, secret                          | TypeSafe key for the Jev filter       |
+| `LINEAR_API_KEY`                             | blank, secret                          | Linear API key                        |
+| `LINEAR_WEBHOOK_SECRET`                      | blank, secret                          | Linear webhook signing secret         |
+| `COGNITO_ISSUER`                             | blank                                  | Cognito token issuer URL              |
+| `COGNITO_AUDIENCE`                           | blank                                  | Cognito token audience                |
 
 ## Commands
 
