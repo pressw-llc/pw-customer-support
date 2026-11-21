@@ -14,5 +14,5 @@ PASS A9 many parallel claims on one job yield exactly one winner
 PASS A9 a laptop and a cloud claim race to one winner
 PASS A10 three unclaimed jobs wait 60, 30, 15 seconds and a laptop claim resets to 60
 PASS A11 an expired laptop lease lets the cloud claim at once and a live lease blocks it
-PASS A8 a completed request becomes exactly one ticket in the project's team
+PASS A8 a completed request becomes exactly one ticket in the project&apos;s team
 junit failures: 0
