@@ -1,4 +1,5 @@
 ---
+
 name: infra-module
 description: Work in the infra module: the AWS CDK stack. Use when you add or change cloud resources or the secrets prefix.
 ---

@@ -1,4 +1,5 @@
 ---
+
 name: plugin-module
 description: Work in the plugin module: the Claude Code plugin for laptop triage. Use when you build subscriptions, the claim flow, or the headless runner.
 ---

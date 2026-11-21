@@ -1,0 +1,18 @@
+#!/bin/sh
+subject=$(head -n 1 "$1")
+
+case "$subject" in
+  Merge\ * | Revert\ *) exit 0 ;;
+esac
+
+pattern='^(feat|fix|docs|style|refactor|perf|test|build|ci|chore)(\([a-z0-9._/-]+\))?!?: .+'
+if ! printf '%s\n' "$subject" | grep -Eq "$pattern"; then
+  echo "commit-msg: subject must follow conventional commits: type(scope): summary" >&2
+  echo "types: feat fix docs style refactor perf test build ci chore" >&2
+  exit 1
+fi
+
+if [ "${#subject}" -gt 72 ]; then
+  echo "commit-msg: subject is longer than 72 characters" >&2
+  exit 1
+fi

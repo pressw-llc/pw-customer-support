@@ -1,4 +1,5 @@
 ---
+
 name: db-module
 description: Work in the db module: Postgres schema, hand-written migrations, the migration runner, and the append-only event stream. Use when you add a table, write a migration, or append events.
 ---

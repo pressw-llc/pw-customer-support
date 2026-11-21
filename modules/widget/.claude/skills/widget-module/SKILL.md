@@ -1,4 +1,5 @@
 ---
+
 name: widget-module
 description: Work in the widget module: the React support widget that client apps embed. Use when you build the widget, its Shadow DOM shell, or its API client.
 ---

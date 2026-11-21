@@ -1,4 +1,5 @@
 ---
+
 name: channels-module
 description: Work in the channels module: channel adapters that react to stream events. Use when you build the Linear adapter or the adapter contract.
 ---

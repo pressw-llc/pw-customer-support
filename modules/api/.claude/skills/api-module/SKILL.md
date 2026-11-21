@@ -1,4 +1,5 @@
 ---
+
 name: api-module
 description: Work in the api module: the Hono HTTP server on Bun. Use when you add intake, admin, webhook, or MCP routes.
 ---
