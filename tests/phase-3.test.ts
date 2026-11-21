@@ -6,13 +6,13 @@ import {
   createLinearAdapter,
   HOLD_WARNING_PREFIX,
   messageMarker,
-  signLinearWebhook,
 } from "@pw-support/channels";
 import {
   deliverCommentWebhook,
   STUB_STAFF_ID,
   STUB_VIEWER_ID,
   type StubComment,
+  signLinearWebhook,
 } from "@pw-support/channels/testing";
 import {
   REPLY_HOLD_TTL_SECONDS,
@@ -209,7 +209,12 @@ describe("A15 the wording gate holds, flags, or sends", () => {
     );
     expect(warning?.userId).toBe(STUB_VIEWER_ID);
     expect(warning?.body).toBe(
-      buildHoldWarning({ reason: "wording_low", score: 1.9, maxChars: 10_000 }),
+      buildHoldWarning({
+        reason: "wording_low",
+        score: 1.9,
+        maxChars: 10_000,
+        replyId: reply?.id as string,
+      }),
     );
     expect(warning?.body.startsWith(HOLD_WARNING_PREFIX)).toBe(true);
     expect(warning?.body).toContain("1.9 out of 5");
@@ -232,7 +237,6 @@ describe("A15 the wording gate holds, flags, or sends", () => {
 
     await staff(s, "@confirm", { parentId: "some-other-thread" });
     expect(bodiesOf(await p.thread(s.who, s.requestId))).toHaveLength(1);
-
     await staff(s, "@confirm");
     expect(bodiesOf(await p.thread(s.who, s.requestId))).toHaveLength(1);
 
@@ -752,15 +756,15 @@ describe("webhook security", () => {
     expect(invalidUtf8.status).toBe(400);
   });
 
-  test("a comment on an unknown issue is ignored", async () => {
+  test("a comment on an issue without a ticket waits unattached", async () => {
     const s = await p.scenario();
     const result = await send({ issueId: "issue-not-ours" });
     expect(result.delivery.status).toBe(200);
-    expect(result.delivery.body).toContain("unknown_issue");
+    expect(result.delivery.body).toContain("awaiting_ticket");
     expect(await p.inboundFor(s.requestId)).toHaveLength(0);
   });
 
-  test("other event types and comment updates are ignored", async () => {
+  test("other event types and updates of unknown comments are ignored", async () => {
     const s = await p.scenario();
     const comment = {
       id: crypto.randomUUID(),
@@ -797,12 +801,10 @@ describe("webhook security", () => {
     expect(await p.inboundFor(s.requestId)).toHaveLength(0);
   });
 
-  test("a comment by the integration itself is stored and then ignored", async () => {
+  test("a comment by the key owner is a real staff comment unless it is a system comment", async () => {
     const s = await p.scenario();
-    const own = await send(s, {}, "@external pretend to be a staff reply");
+    const own = await send(s, {}, "@external staff reply by the key owner");
     expect(own.delivery.status).toBe(200);
-    const raw = await p.inboundFor(s.requestId);
-    expect(raw).toHaveLength(1);
     const viewerComment: StubComment = {
       ...own.comment,
       id: crypto.randomUUID(),
@@ -812,12 +814,33 @@ describe("webhook security", () => {
       { url: p.webhookUrl, secret: WEBHOOK_SECRET },
       viewerComment,
     );
+    const system: StubComment = {
+      ...viewerComment,
+      id: crypto.randomUUID(),
+      body: buildHoldWarning({
+        reason: "too_long",
+        score: 0,
+        maxChars: 9,
+        replyId: crypto.randomUUID(),
+      }),
+    };
+    await deliverCommentWebhook(
+      { url: p.webhookUrl, secret: WEBHOOK_SECRET },
+      system,
+    );
     await p.drain(s.requestId);
     const rows = await p.inboundFor(s.requestId);
-    const byViewer = rows.find((row) => row.commentId === viewerComment.id);
-    expect(byViewer?.disposition).toBe("own_comment");
-    expect(await p.repliesFor(s.requestId)).toHaveLength(1);
-    expect(bodiesOf(await p.thread(s.who, s.requestId))).toHaveLength(2);
+    expect(
+      rows.find((row) => row.commentId === viewerComment.id)?.disposition,
+    ).toBe("sent");
+    expect(rows.find((row) => row.commentId === system.id)?.disposition).toBe(
+      "own_comment",
+    );
+    expect(bodiesOf(await p.thread(s.who, s.requestId))).toEqual([
+      "Where is my invoice?",
+      "staff reply by the key owner",
+      "staff reply by the key owner",
+    ]);
   });
 
   test("a missing secret fails closed and stores nothing", async () => {
@@ -869,6 +892,7 @@ describe("confirm without a thread", () => {
       authorId: STUB_STAFF_ID,
       authorName: "Ada",
       body: "@confirm",
+      sourceCreatedAt: new Date(),
     });
     expect(stored.status).toBe("stored");
     const inboundId = stored.status === "stored" ? stored.inbound.id : "";
