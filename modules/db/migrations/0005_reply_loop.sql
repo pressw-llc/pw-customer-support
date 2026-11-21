@@ -35,6 +35,8 @@ CREATE TABLE IF NOT EXISTS support.inbound_comments (
   disposition text,
   message_id uuid REFERENCES support.messages (id) ON DELETE SET NULL,
   source_created_at timestamptz NOT NULL DEFAULT now(),
+  source_updated_at timestamptz,
+  refetch_required boolean NOT NULL DEFAULT false,
   delivery_attempts integer NOT NULL DEFAULT 0,
   last_enqueued_at timestamptz,
   created_at timestamptz NOT NULL DEFAULT now(),
@@ -54,6 +56,31 @@ CREATE INDEX IF NOT EXISTS inbound_comments_orphan_idx
 CREATE INDEX IF NOT EXISTS inbound_comments_thread_idx
   ON support.inbound_comments (request_id, parent_comment_id);
 
+CREATE TABLE IF NOT EXISTS support.comment_changes (
+  provider text NOT NULL DEFAULT 'linear',
+  comment_id text NOT NULL,
+  action text NOT NULL,
+  updated_at timestamptz NOT NULL,
+  recorded_at timestamptz NOT NULL DEFAULT now(),
+  PRIMARY KEY (provider, comment_id),
+  CONSTRAINT comment_changes_action_ck CHECK (action IN ('update', 'remove'))
+);
+
+CREATE INDEX IF NOT EXISTS comment_changes_recorded_idx
+  ON support.comment_changes (recorded_at);
+
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_constraint
+    WHERE conname = 'tickets_linear_issue_uq'
+      AND conrelid = 'support.tickets'::regclass
+  ) THEN
+    ALTER TABLE support.tickets
+      ADD CONSTRAINT tickets_linear_issue_uq UNIQUE (linear_issue_id);
+  END IF;
+END $$;
+
 CREATE TABLE IF NOT EXISTS support.replies (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   request_id uuid NOT NULL REFERENCES support.requests (id) ON DELETE CASCADE,
@@ -70,6 +97,7 @@ CREATE TABLE IF NOT EXISTS support.replies (
   message_id uuid REFERENCES support.messages (id) ON DELETE CASCADE,
   confirmed_by text,
   warning_comment_id text,
+  cancel_notice_comment_id text,
   held_at timestamptz,
   expires_at timestamptz,
   sent_at timestamptz,

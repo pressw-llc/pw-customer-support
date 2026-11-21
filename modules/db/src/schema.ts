@@ -265,7 +265,9 @@ export const tickets = support.table("tickets", {
     .references(() => requests.id, { onDelete: "cascade" })
     .unique("tickets_request_uq"),
   provider: text("provider").notNull().default("linear"),
-  linearIssueId: text("linear_issue_id").notNull(),
+  linearIssueId: text("linear_issue_id")
+    .notNull()
+    .unique("tickets_linear_issue_uq"),
   identifier: text("identifier").notNull(),
   url: text("url").notNull(),
   createdAt: createdAt(),
@@ -311,12 +313,28 @@ export const inboundComments = support.table(
     sourceCreatedAt: timestamp("source_created_at", { withTimezone: true })
       .notNull()
       .defaultNow(),
+    sourceUpdatedAt: timestamp("source_updated_at", { withTimezone: true }),
+    refetchRequired: boolean("refetch_required").notNull().default(false),
     deliveryAttempts: integer("delivery_attempts").notNull().default(0),
     lastEnqueuedAt: timestamp("last_enqueued_at", { withTimezone: true }),
     createdAt: createdAt(),
     processedAt: timestamp("processed_at", { withTimezone: true }),
   },
   (t) => [unique("inbound_comments_comment_uq").on(t.provider, t.commentId)],
+);
+
+export const commentChanges = support.table(
+  "comment_changes",
+  {
+    provider: text("provider").notNull().default("linear"),
+    commentId: text("comment_id").notNull(),
+    action: text("action").notNull(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull(),
+    recordedAt: timestamp("recorded_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (t) => [primaryKey({ columns: [t.provider, t.commentId] })],
 );
 
 export const replies = support.table(
@@ -344,6 +362,7 @@ export const replies = support.table(
     }),
     confirmedBy: text("confirmed_by"),
     warningCommentId: text("warning_comment_id"),
+    cancelNoticeCommentId: text("cancel_notice_comment_id"),
     heldAt: timestamp("held_at", { withTimezone: true }),
     expiresAt: timestamp("expires_at", { withTimezone: true }),
     sentAt: timestamp("sent_at", { withTimezone: true }),

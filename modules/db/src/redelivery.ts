@@ -15,7 +15,13 @@ import {
   findTicketByLinearIssue,
   type RequestRecord,
 } from "./replies";
-import { inboundComments, replies, tickets, webhookDeliveries } from "./schema";
+import {
+  commentChanges,
+  inboundComments,
+  replies,
+  tickets,
+  webhookDeliveries,
+} from "./schema";
 
 const FOLLOW_UP_LOCK_ID = 7_340_003;
 const INBOUND_LOCK_ID = 7_340_004;
@@ -171,11 +177,12 @@ export async function attachOrphanComments(
   for (const orphan of orphans) {
     await tx
       .update(inboundComments)
-      .set({ requestId: request.id })
+      .set({ requestId: request.id, refetchRequired: true })
       .where(eq(inboundComments.id, orphan.id));
     await appendCommentReceived(tx, request, {
       ...orphan,
       requestId: request.id,
+      refetchRequired: true,
     });
   }
   return orphans.length;
@@ -210,13 +217,7 @@ export async function resolveOrphanComments(
   }
   const cutoff = new Date(now.getTime() - ORPHAN_COMMENT_TTL_SECONDS * 1000);
   const expired = await db
-    .update(inboundComments)
-    .set({
-      status: "processed",
-      disposition: "ignored:unknown_issue",
-      body: "",
-      processedAt: now,
-    })
+    .delete(inboundComments)
     .where(
       and(
         eq(inboundComments.status, "pending"),
@@ -249,7 +250,7 @@ export async function expireHeldReplies(
 export async function purgeStaleRecords(
   db: SupportExecutor,
   options: { now?: Date } = {},
-): Promise<{ deliveries: number; comments: number }> {
+): Promise<{ deliveries: number; comments: number; changes: number }> {
   const now = options.now ?? new Date();
   const cutoff = new Date(now.getTime() - WEBHOOK_RETENTION_SECONDS * 1000);
   const deliveries = await db
@@ -266,5 +267,13 @@ export async function purgeStaleRecords(
       ),
     )
     .returning({ id: inboundComments.id });
-  return { deliveries: deliveries.length, comments: comments.length };
+  const changes = await db
+    .delete(commentChanges)
+    .where(lte(commentChanges.recordedAt, cutoff))
+    .returning({ id: commentChanges.commentId });
+  return {
+    deliveries: deliveries.length,
+    comments: comments.length,
+    changes: changes.length,
+  };
 }

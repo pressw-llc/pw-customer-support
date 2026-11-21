@@ -25,6 +25,7 @@ import { inTransaction, type SupportExecutor, type SupportTx } from "./client";
 import { appendEvent } from "./events";
 import {
   attachments,
+  commentChanges,
   inboundComments,
   judgments,
   messageDeliveries,
@@ -70,11 +71,13 @@ export interface InboundCommentInput {
   authorName: string | null;
   body: string;
   sourceCreatedAt: Date;
+  sourceUpdatedAt?: Date | null;
 }
 
 export type InboundCommentResult =
   | { status: "stored"; inbound: InboundCommentRow }
   | { status: "awaiting_ticket"; inbound: InboundCommentRow }
+  | { status: "superseded" }
   | { status: "duplicate_delivery" }
   | { status: "duplicate_comment" };
 
@@ -90,6 +93,63 @@ async function insertDelivery(
   return rows.length > 0;
 }
 
+async function lockComment(tx: SupportTx, commentId: string): Promise<void> {
+  await tx.execute(
+    sql`SELECT pg_advisory_xact_lock(hashtextextended(${`${PROVIDER}:${commentId}`}, 19))`,
+  );
+}
+
+type CommentChangeRow = typeof commentChanges.$inferSelect;
+
+async function recordChange(
+  tx: SupportTx,
+  input: { commentId: string; action: "update" | "remove"; updatedAt: Date },
+): Promise<void> {
+  await tx
+    .insert(commentChanges)
+    .values({
+      provider: PROVIDER,
+      commentId: input.commentId,
+      action: input.action,
+      updatedAt: input.updatedAt,
+    })
+    .onConflictDoUpdate({
+      target: [commentChanges.provider, commentChanges.commentId],
+      set: {
+        action: sql`CASE WHEN ${commentChanges.action} = 'remove' OR EXCLUDED.action = 'remove' THEN 'remove' ELSE 'update' END`,
+        updatedAt: sql`GREATEST(${commentChanges.updatedAt}, EXCLUDED.updated_at)`,
+        recordedAt: sql`now()`,
+      },
+    });
+}
+
+async function changeFor(
+  tx: SupportTx,
+  commentId: string,
+): Promise<CommentChangeRow | null> {
+  const [row] = await tx
+    .select()
+    .from(commentChanges)
+    .where(
+      and(
+        eq(commentChanges.provider, PROVIDER),
+        eq(commentChanges.commentId, commentId),
+      ),
+    );
+  return row ?? null;
+}
+
+function supersedes(
+  change: CommentChangeRow,
+  sourceUpdatedAt: Date | null,
+): boolean {
+  return (
+    change.action === "remove" ||
+    sourceUpdatedAt === null ||
+    change.updatedAt.getTime() > sourceUpdatedAt.getTime()
+  );
+}
+
 export async function persistInboundComment(
   db: SupportExecutor,
   input: InboundCommentInput,
@@ -98,7 +158,13 @@ export async function persistInboundComment(
     if (!(await insertDelivery(tx, input.deliveryId))) {
       return { status: "duplicate_delivery" };
     }
+    await lockComment(tx, input.commentId);
+    const sourceUpdatedAt = input.sourceUpdatedAt ?? null;
+    const change = await changeFor(tx, input.commentId);
+    const superseded = change ? supersedes(change, sourceUpdatedAt) : false;
+    if (change?.action === "remove") return { status: "superseded" };
     const found = await findTicketByLinearIssue(tx, input.issueId);
+    const trusted = found !== null && !superseded;
     const [inbound] = await tx
       .insert(inboundComments)
       .values({
@@ -106,10 +172,12 @@ export async function persistInboundComment(
         commentId: input.commentId,
         issueId: input.issueId,
         parentCommentId: input.parentCommentId,
-        authorId: input.authorId,
-        authorName: input.authorName,
-        body: input.body,
+        authorId: trusted ? input.authorId : null,
+        authorName: trusted ? input.authorName : null,
+        body: trusted ? input.body : "",
         sourceCreatedAt: input.sourceCreatedAt,
+        sourceUpdatedAt: trusted ? sourceUpdatedAt : null,
+        refetchRequired: !trusted,
         requestId: found?.request.id ?? null,
       })
       .onConflictDoNothing()
@@ -143,15 +211,49 @@ export interface CommentChangeInput {
   commentId: string;
   action: "update" | "remove";
   body?: string;
+  updatedAt?: Date;
 }
 
 export type CommentChangeResult =
   | { status: "duplicate_delivery" }
   | { status: "unknown_comment" }
   | { status: "unchanged" }
+  | { status: "stale" }
   | { status: "updated" }
   | { status: "removed" }
   | { status: "cancelled"; reply: ReplyRow };
+
+export async function cancelHeldReplyFor(
+  tx: SupportTx,
+  inbound: InboundCommentRow,
+  reason: ReplyCancelReason,
+): Promise<ReplyRow | null> {
+  const [held] = await tx
+    .select()
+    .from(replies)
+    .where(
+      and(eq(replies.inboundCommentId, inbound.id), eq(replies.status, "held")),
+    )
+    .for("update");
+  if (!held || !inbound.requestId) return null;
+  const [cancelled] = await tx
+    .update(replies)
+    .set({ status: "cancelled", cancelReason: reason })
+    .where(eq(replies.id, held.id))
+    .returning();
+  const request = await requestFor(tx, inbound.requestId);
+  await appendEvent(tx, {
+    type: "reply.cancelled",
+    channelKey: request.channelKey,
+    requestId: request.id,
+    payload: {
+      replyId: held.id,
+      inboundCommentId: inbound.id,
+      reason,
+    },
+  });
+  return required(cancelled);
+}
 
 export async function applyCommentChange(
   db: SupportExecutor,
@@ -161,6 +263,8 @@ export async function applyCommentChange(
     if (!(await insertDelivery(tx, input.deliveryId))) {
       return { status: "duplicate_delivery" };
     }
+    await lockComment(tx, input.commentId);
+    const updatedAt = input.updatedAt ?? new Date();
     const [inbound] = await tx
       .select()
       .from(inboundComments)
@@ -171,63 +275,62 @@ export async function applyCommentChange(
         ),
       )
       .for("update");
-    if (!inbound) return { status: "unknown_comment" };
-    const edited =
-      input.action === "update" &&
-      input.body !== undefined &&
-      input.body !== inbound.body;
-    if (input.action === "update" && !edited) return { status: "unchanged" };
-    if (inbound.status === "pending") {
-      if (input.action === "remove") {
+    if (!inbound) {
+      await recordChange(tx, {
+        commentId: input.commentId,
+        action: input.action,
+        updatedAt,
+      });
+      return { status: "unknown_comment" };
+    }
+    if (input.action === "remove") {
+      if (inbound.status === "pending") {
+        if (!inbound.requestId) {
+          await tx
+            .delete(inboundComments)
+            .where(eq(inboundComments.id, inbound.id));
+          await recordChange(tx, {
+            commentId: input.commentId,
+            action: "remove",
+            updatedAt,
+          });
+          return { status: "removed" };
+        }
         await tx
           .update(inboundComments)
           .set({
             status: "processed",
-            disposition: inbound.requestId
-              ? "removed"
-              : "ignored:unknown_issue",
-            body: inbound.requestId ? inbound.body : "",
+            disposition: "removed",
+            body: "",
+            refetchRequired: false,
             processedAt: sql`now()`,
           })
           .where(eq(inboundComments.id, inbound.id));
         return { status: "removed" };
       }
-      await tx
-        .update(inboundComments)
-        .set({ body: input.body })
-        .where(eq(inboundComments.id, inbound.id));
-      return { status: "updated" };
+      const cancelled = await cancelHeldReplyFor(tx, inbound, "removed");
+      return cancelled
+        ? { status: "cancelled", reply: cancelled }
+        : { status: "unchanged" };
     }
-    const [held] = await tx
-      .select()
-      .from(replies)
-      .where(
-        and(
-          eq(replies.inboundCommentId, inbound.id),
-          eq(replies.status, "held"),
-        ),
-      )
-      .for("update");
-    if (!held || !inbound.requestId) return { status: "unchanged" };
-    const reason: ReplyCancelReason =
-      input.action === "remove" ? "removed" : "edited";
-    const [cancelled] = await tx
-      .update(replies)
-      .set({ status: "cancelled", cancelReason: reason })
-      .where(eq(replies.id, held.id))
-      .returning();
-    const request = await requestFor(tx, inbound.requestId);
-    await appendEvent(tx, {
-      type: "reply.cancelled",
-      channelKey: request.channelKey,
-      requestId: request.id,
-      payload: {
-        replyId: held.id,
-        inboundCommentId: inbound.id,
-        reason,
-      },
-    });
-    return { status: "cancelled", reply: required(cancelled) };
+    const stored = inbound.sourceUpdatedAt;
+    if (stored && updatedAt.getTime() <= stored.getTime()) {
+      return { status: "stale" };
+    }
+    if (inbound.refetchRequired || input.body === undefined) {
+      return { status: "unchanged" };
+    }
+    const edited = input.body !== inbound.body;
+    await tx
+      .update(inboundComments)
+      .set({ body: input.body, sourceUpdatedAt: updatedAt })
+      .where(eq(inboundComments.id, inbound.id));
+    if (!edited) return { status: "unchanged" };
+    if (inbound.status === "pending") return { status: "updated" };
+    const cancelled = await cancelHeldReplyFor(tx, inbound, "edited");
+    return cancelled
+      ? { status: "cancelled", reply: cancelled }
+      : { status: "unchanged" };
   });
 }
 
@@ -266,7 +369,12 @@ export async function isRecordedOwnComment(
   const [warning] = await db
     .select({ id: replies.id })
     .from(replies)
-    .where(eq(replies.warningCommentId, commentId))
+    .where(
+      or(
+        eq(replies.warningCommentId, commentId),
+        eq(replies.cancelNoticeCommentId, commentId),
+      ),
+    )
     .limit(1);
   return warning !== undefined;
 }
@@ -282,6 +390,7 @@ async function lockPending(
       and(
         eq(inboundComments.id, inboundId),
         eq(inboundComments.status, "pending"),
+        eq(inboundComments.refetchRequired, false),
       ),
     )
     .for("update");
@@ -517,11 +626,11 @@ export type ConfirmOutcome =
 
 export async function confirmHeldReply(
   db: SupportExecutor,
-  input: { inboundId: string; now?: Date },
+  input: { inboundId: string; sourceBody: string; now?: Date },
 ): Promise<ConfirmOutcome | null> {
   return inTransaction(db, async (tx) => {
     const inbound = await lockPending(tx, input.inboundId);
-    if (!inbound) return null;
+    if (!inbound || inbound.body !== input.sourceBody) return null;
     const now = input.now ?? new Date();
     const ignore = async (reason: string): Promise<ConfirmOutcome> => {
       await markProcessed(tx, inbound.id, `confirm_ignored:${reason}`);
@@ -693,6 +802,35 @@ export async function lockReplyNeedingWarning(
     )
     .for("update");
   return row ?? null;
+}
+
+export async function lockReplyNeedingCancelNotice(
+  tx: SupportTx,
+  replyId: string,
+): Promise<ReplyRow | null> {
+  const [row] = await tx
+    .select()
+    .from(replies)
+    .where(
+      and(
+        eq(replies.id, replyId),
+        eq(replies.status, "cancelled"),
+        isNull(replies.cancelNoticeCommentId),
+      ),
+    )
+    .for("update");
+  return row ?? null;
+}
+
+export async function recordCancelNotice(
+  db: SupportExecutor,
+  replyId: string,
+  commentId: string,
+): Promise<void> {
+  await db
+    .update(replies)
+    .set({ cancelNoticeCommentId: commentId })
+    .where(and(eq(replies.id, replyId), isNull(replies.cancelNoticeCommentId)));
 }
 
 export interface FlaggedReply {

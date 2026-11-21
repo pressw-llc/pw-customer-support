@@ -1,4 +1,5 @@
 export * from "./client";
+export * from "./comment-refresh";
 export * from "./events";
 export * from "./intake";
 export * from "./migrate";
