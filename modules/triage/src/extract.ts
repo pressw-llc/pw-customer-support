@@ -1,19 +1,37 @@
 import { attachmentKindFor } from "@pw-support/contracts";
-import { unzipSync } from "fflate";
-import { extractText, getDocumentProxy } from "unpdf";
+import {
+  DEFAULT_MAX_PDF_PAGES,
+  type ExtractFormat,
+  type ExtractRequest,
+} from "./extract-core";
+import {
+  DEFAULT_EXTRACT_TIMEOUT_MS,
+  runExtractorIsolated,
+} from "./extract-sandbox";
+
+export * from "./extract-core";
+export * from "./extract-sandbox";
 
 export interface ExtractLimits {
   maxCharsPerFile: number;
   maxCharsTotal: number;
   maxImages: number;
   maxImageBytes: number;
+  timeoutMs?: number;
+  maxPdfPages?: number;
 }
 
 export interface AttachmentInput {
   id: string;
   filename: string;
   contentType: string;
-  bytes: Uint8Array;
+  sizeBytes?: number;
+  bytes?: Uint8Array;
+  load?: () => Promise<Uint8Array>;
+}
+
+export interface ExtractOptions {
+  workerUrl?: URL;
 }
 
 export type ExtractedItem =
@@ -34,36 +52,29 @@ export type ExtractedItem =
     }
   | { kind: "skipped"; id: string; filename: string; reason: string };
 
-const MAX_UNZIPPED_BYTES = 40 * 1024 * 1024;
-
-const ENTITIES: Record<string, string> = {
-  amp: "&",
-  lt: "<",
-  gt: ">",
-  quot: '"',
-  apos: "'",
+const OFFICE_FORMATS: Record<string, ExtractFormat> = {
+  "application/vnd.openxmlformats-officedocument.wordprocessingml.document":
+    "docx",
+  "application/vnd.openxmlformats-officedocument.presentationml.presentation":
+    "pptx",
+  "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet": "xlsx",
 };
 
-function decodeEntities(value: string): string {
-  return value.replace(
-    /&(#x[0-9a-f]+|#\d+|[a-z]+);/gi,
-    (match, body: string) => {
-      if (body.startsWith("#x")) {
-        return safeCodePoint(Number.parseInt(body.slice(2), 16), match);
-      }
-      if (body.startsWith("#")) {
-        return safeCodePoint(Number.parseInt(body.slice(1), 10), match);
-      }
-      return ENTITIES[body.toLowerCase()] ?? match;
-    },
-  );
-}
+const IMAGE_FORMATS: Record<string, "png" | "jpeg" | "gif" | "webp"> = {
+  "image/png": "png",
+  "image/jpeg": "jpeg",
+  "image/gif": "gif",
+  "image/webp": "webp",
+};
 
-function safeCodePoint(code: number, fallback: string): string {
-  return Number.isInteger(code) && code > 0 && code <= 0x10ffff
-    ? String.fromCodePoint(code)
-    : fallback;
-}
+type Plan =
+  | { action: "skip"; reason: string }
+  | {
+      action: "image";
+      mediaType: string;
+      format: "png" | "jpeg" | "gif" | "webp";
+    }
+  | { action: "document"; format: ExtractFormat | "text" };
 
 function cleanText(value: string): string {
   return Array.from(value)
@@ -78,115 +89,6 @@ function cleanText(value: string): string {
     .trim();
 }
 
-function textRuns(xml: string, tag: string): string[] {
-  const pattern = new RegExp(`<${tag}(?:\\s[^>]*)?>([\\s\\S]*?)</${tag}>`, "g");
-  return Array.from(xml.matchAll(pattern), (match) =>
-    decodeEntities(match[1] ?? ""),
-  );
-}
-
-function unzipEntries(
-  bytes: Uint8Array,
-  accept: (name: string) => boolean,
-): Record<string, string> {
-  let total = 0;
-  const files = unzipSync(bytes, {
-    filter: (file) => {
-      if (!accept(file.name)) return false;
-      total += file.originalSize;
-      return total <= MAX_UNZIPPED_BYTES;
-    },
-  });
-  const decoder = new TextDecoder();
-  return Object.fromEntries(
-    Object.entries(files).map(([name, data]) => [name, decoder.decode(data)]),
-  );
-}
-
-function numericOrder(a: string, b: string): number {
-  const num = (name: string) => Number(name.match(/(\d+)\.xml$/)?.[1] ?? 0);
-  return num(a) - num(b);
-}
-
-export function extractDocx(bytes: Uint8Array): string {
-  const entries = unzipEntries(bytes, (name) => name === "word/document.xml");
-  const xml = entries["word/document.xml"] ?? "";
-  const paragraphs = xml
-    .split(/<\/w:p>/)
-    .map((paragraph) => textRuns(paragraph, "w:t").join(""));
-  return paragraphs.join("\n");
-}
-
-export function extractPptx(bytes: Uint8Array): string {
-  const entries = unzipEntries(bytes, (name) =>
-    /^ppt\/slides\/slide\d+\.xml$/.test(name),
-  );
-  return Object.keys(entries)
-    .sort(numericOrder)
-    .map((name) => textRuns(entries[name] ?? "", "a:t").join("\n"))
-    .join("\n\n");
-}
-
-export function extractXlsx(bytes: Uint8Array): string {
-  const entries = unzipEntries(
-    bytes,
-    (name) =>
-      name === "xl/sharedStrings.xml" ||
-      /^xl\/worksheets\/sheet\d+\.xml$/.test(name),
-  );
-  const shared = (entries["xl/sharedStrings.xml"] ?? "")
-    .split(/<\/si>/)
-    .slice(0, -1)
-    .map((item) => textRuns(item, "t").join(""));
-  const sheets = Object.keys(entries)
-    .filter((name) => name.startsWith("xl/worksheets/"))
-    .sort(numericOrder);
-  return sheets
-    .map((name) => {
-      const rows = (entries[name] ?? "").split(/<\/row>/).slice(0, -1);
-      return rows
-        .map((row) =>
-          Array.from(
-            row.matchAll(/<c\b([^>]*?)(?:\/>|>([\s\S]*?)<\/c>)/g),
-            (cell) => {
-              const attributes = cell[1] ?? "";
-              const inner = cell[2] ?? "";
-              const inline = textRuns(inner, "t").join("");
-              if (inline) return inline;
-              const value = textRuns(inner, "v")[0] ?? "";
-              return /\bt="s"/.test(attributes)
-                ? (shared[Number(value)] ?? "")
-                : value;
-            },
-          ).join("\t"),
-        )
-        .join("\n");
-    })
-    .join("\n\n");
-}
-
-export async function extractPdf(bytes: Uint8Array): Promise<string> {
-  const pdf = await getDocumentProxy(new Uint8Array(bytes));
-  const { text } = await extractText(pdf, { mergePages: true });
-  return text;
-}
-
-const OFFICE_EXTRACTORS: Record<string, (bytes: Uint8Array) => string> = {
-  "application/vnd.openxmlformats-officedocument.wordprocessingml.document":
-    extractDocx,
-  "application/vnd.openxmlformats-officedocument.presentationml.presentation":
-    extractPptx,
-  "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet":
-    extractXlsx,
-};
-
-const IMAGE_FORMATS: Record<string, "png" | "jpeg" | "gif" | "webp"> = {
-  "image/png": "png",
-  "image/jpeg": "jpeg",
-  "image/gif": "gif",
-  "image/webp": "webp",
-};
-
 function capped(
   text: string,
   max: number,
@@ -196,52 +98,114 @@ function capped(
     : { text, truncated: false };
 }
 
-async function extractOne(
+function planFor(
   input: AttachmentInput,
   limits: ExtractLimits,
   imagesSoFar: number,
-): Promise<ExtractedItem> {
-  const { id, filename } = input;
+): Plan {
   const contentType =
     input.contentType.split(";")[0]?.trim().toLowerCase() ?? "";
   const kind = attachmentKindFor(contentType);
+  const office = OFFICE_FORMATS[contentType];
+  if (kind === "zip" && !office) {
+    return { action: "skip", reason: "archive_not_extracted" };
+  }
+  if (kind === "image") {
+    const format = IMAGE_FORMATS[contentType];
+    if (!format) return { action: "skip", reason: "image_format_unsupported" };
+    const size = input.sizeBytes ?? input.bytes?.byteLength ?? 0;
+    if (size > limits.maxImageBytes) {
+      return { action: "skip", reason: "image_too_large" };
+    }
+    if (imagesSoFar >= limits.maxImages) {
+      return { action: "skip", reason: "image_limit" };
+    }
+    return { action: "image", mediaType: contentType, format };
+  }
+  if (kind === "pdf") return { action: "document", format: "pdf" };
+  if (office) return { action: "document", format: office };
+  if (kind === "office") {
+    return { action: "skip", reason: "legacy_office_not_supported" };
+  }
+  if (kind !== null) return { action: "document", format: "text" };
+  return { action: "skip", reason: "type_not_supported" };
+}
+
+async function bytesOf(input: AttachmentInput): Promise<Uint8Array> {
+  if (input.bytes) return input.bytes;
+  if (input.load) return input.load();
+  throw new Error("attachment has neither bytes nor a loader");
+}
+
+async function rawTextOf(
+  format: ExtractFormat | "text",
+  bytes: Uint8Array,
+  limits: ExtractLimits,
+  options: ExtractOptions,
+): Promise<{ raw: string } | { reason: string }> {
+  const max = limits.maxCharsPerFile;
+  if (format === "text") {
+    const head = bytes.subarray(0, (max + 1) * 4);
+    return { raw: new TextDecoder().decode(head) };
+  }
+  const request: ExtractRequest = {
+    format,
+    bytes,
+    maxChars: max,
+    maxPdfPages: limits.maxPdfPages ?? DEFAULT_MAX_PDF_PAGES,
+  };
+  const result = await runExtractorIsolated(request, {
+    timeoutMs: limits.timeoutMs ?? DEFAULT_EXTRACT_TIMEOUT_MS,
+    workerUrl: options.workerUrl,
+  });
+  if (result.ok) return { raw: result.text };
+  return {
+    reason:
+      result.reason === "timeout" ? "extraction_timeout" : "extraction_failed",
+  };
+}
+
+async function extractOne(
+  input: AttachmentInput,
+  plan: Exclude<Plan, { action: "skip" }>,
+  limits: ExtractLimits,
+  options: ExtractOptions,
+): Promise<ExtractedItem> {
+  const { id, filename } = input;
   const skipped = (reason: string): ExtractedItem => ({
     kind: "skipped",
     id,
     filename,
     reason,
   });
-  if (kind === "zip" && !(contentType in OFFICE_EXTRACTORS)) {
-    return skipped("archive_not_extracted");
-  }
-  if (kind === "image") {
-    const format = IMAGE_FORMATS[contentType];
-    if (!format) return skipped("image_format_unsupported");
-    if (input.bytes.byteLength > limits.maxImageBytes) {
-      return skipped("image_too_large");
+  try {
+    const bytes = await bytesOf(input);
+    if (plan.action === "image") {
+      if (bytes.byteLength > limits.maxImageBytes) {
+        return skipped("image_too_large");
+      }
+      return {
+        kind: "image",
+        id,
+        filename,
+        mediaType: plan.mediaType,
+        format: plan.format,
+        base64: Buffer.from(bytes).toString("base64"),
+      };
     }
-    if (imagesSoFar >= limits.maxImages) return skipped("image_limit");
+    const extracted = await rawTextOf(plan.format, bytes, limits, options);
+    if ("reason" in extracted) return skipped(extracted.reason);
+    const max = limits.maxCharsPerFile;
+    const cleaned = cleanText(extracted.raw.slice(0, max + 1));
+    if (cleaned === "") return skipped("no_text_found");
+    const fit = capped(cleaned, max);
     return {
-      kind: "image",
+      kind: "document",
       id,
       filename,
-      mediaType: contentType,
-      format,
-      base64: Buffer.from(input.bytes).toString("base64"),
+      text: fit.text,
+      truncated: fit.truncated || extracted.raw.length > max,
     };
-  }
-  try {
-    let raw: string | null = null;
-    if (kind === "pdf") raw = await extractPdf(input.bytes);
-    else if (contentType in OFFICE_EXTRACTORS) {
-      raw = OFFICE_EXTRACTORS[contentType]?.(input.bytes) ?? null;
-    } else if (kind === "office") return skipped("legacy_office_not_supported");
-    else if (kind !== null) raw = new TextDecoder().decode(input.bytes);
-    if (raw === null) return skipped("type_not_supported");
-    const cleaned = cleanText(raw);
-    if (cleaned === "") return skipped("no_text_found");
-    const { text, truncated } = capped(cleaned, limits.maxCharsPerFile);
-    return { kind: "document", id, filename, text, truncated };
   } catch {
     return skipped("extraction_failed");
   }
@@ -250,23 +214,30 @@ async function extractOne(
 export async function extractAttachments(
   inputs: AttachmentInput[],
   limits: ExtractLimits,
+  options: ExtractOptions = {},
 ): Promise<ExtractedItem[]> {
   const items: ExtractedItem[] = [];
   let remaining = limits.maxCharsTotal;
   let images = 0;
   for (const input of inputs) {
-    const item = await extractOne(input, limits, images);
+    const { id, filename } = input;
+    const plan = planFor(input, limits, images);
+    if (plan.action === "skip") {
+      items.push({ kind: "skipped", id, filename, reason: plan.reason });
+      continue;
+    }
+    if (plan.action === "document" && remaining <= 0) {
+      items.push({
+        kind: "skipped",
+        id,
+        filename,
+        reason: "text_budget_exhausted",
+      });
+      continue;
+    }
+    const item = await extractOne(input, plan, limits, options);
     if (item.kind === "image") images += 1;
     if (item.kind === "document") {
-      if (remaining <= 0) {
-        items.push({
-          kind: "skipped",
-          id: item.id,
-          filename: item.filename,
-          reason: "text_budget_exhausted",
-        });
-        continue;
-      }
       const fit = capped(item.text, remaining);
       remaining -= fit.text.length;
       items.push({

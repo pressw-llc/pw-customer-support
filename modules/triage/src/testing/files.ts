@@ -69,14 +69,26 @@ function pdfEscape(value: string): string {
 }
 
 export function makePdf(lines: string[]): Uint8Array {
-  const content = `BT /F1 12 Tf 72 720 Td 16 TL ${lines
-    .map((line) => `(${pdfEscape(line)}) Tj T*`)
-    .join(" ")} ET`;
+  return makePdfPages([lines]);
+}
+
+export function makePdfPages(pages: string[][]): Uint8Array {
+  const contents = pages.map(
+    (lines) =>
+      `BT /F1 12 Tf 72 720 Td 16 TL ${lines
+        .map((line) => `(${pdfEscape(line)}) Tj T*`)
+        .join(" ")} ET`,
+  );
+  const firstPage = 3;
+  const fontId = firstPage + pages.length * 2;
+  const kids = pages.map((_, index) => `${firstPage + index * 2} 0 R`);
   const objects = [
     "<</Type/Catalog/Pages 2 0 R>>",
-    "<</Type/Pages/Kids[3 0 R]/Count 1>>",
-    "<</Type/Page/Parent 2 0 R/MediaBox[0 0 612 792]/Contents 4 0 R/Resources<</Font<</F1 5 0 R>>>>>>",
-    `<</Length ${content.length}>>\nstream\n${content}\nendstream`,
+    `<</Type/Pages/Kids[${kids.join(" ")}]/Count ${pages.length}>>`,
+    ...contents.flatMap((content, index) => [
+      `<</Type/Page/Parent 2 0 R/MediaBox[0 0 612 792]/Contents ${firstPage + index * 2 + 1} 0 R/Resources<</Font<</F1 ${fontId} 0 R>>>>>>`,
+      `<</Length ${content.length}>>\nstream\n${content}\nendstream`,
+    ]),
     "<</Type/Font/Subtype/Type1/BaseFont/Helvetica>>",
   ];
   let out = "%PDF-1.4\n";
