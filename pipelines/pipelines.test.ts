@@ -15,8 +15,8 @@ import {
   runPoller,
   setAdapterRuntime,
   sqsTransport,
-  startLinearStub,
 } from "@pw-support/channels";
+import { startLinearStub } from "@pw-support/channels/testing";
 import {
   advanceEventCursor,
   findTicketByRequest,
@@ -24,11 +24,11 @@ import {
   maxEventSeq,
   requestHasEvent,
 } from "@pw-support/db";
+import { setWorkerRuntime } from "@pw-support/triage";
 import {
   createTriageHarness,
-  setWorkerRuntime,
   type TriageHarness,
-} from "@pw-support/triage";
+} from "@pw-support/triage/testing";
 import { handler as deliver } from "./linear-outbound/lambda-entries/deliver";
 import linearPipeline from "./linear-outbound/pipeline.config";
 import { runTriageWorker } from "./support-triage/fargate-entries/worker";

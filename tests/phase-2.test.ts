@@ -1,20 +1,17 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
-import {
-  createAdapterRuntime,
-  type LinearStub,
-  startLinearStub,
-} from "@pw-support/channels";
+import { createAdapterRuntime } from "@pw-support/channels";
+import { type LinearStub, startLinearStub } from "@pw-support/channels/testing";
 import { events, findTicketByRequest, getEventBySeq } from "@pw-support/db";
+import { handleWake } from "@pw-support/triage";
 import {
   createTriageHarness,
   fakeAgent,
   fakeJev,
-  handleWake,
   makePdf,
   makePng,
   type TriageHarness,
   VALID_AGENT_REPLY,
-} from "@pw-support/triage";
+} from "@pw-support/triage/testing";
 import { and, eq } from "drizzle-orm";
 
 let stub: LinearStub;

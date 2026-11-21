@@ -12,7 +12,7 @@ import {
   syncAgent,
 } from "@pressw-llc/managed-agents";
 import { createSqsClient, resolveQueueUrl } from "@pw-support/api";
-import { type LinearStub, startLinearStub } from "@pw-support/channels";
+import { type LinearStub, startLinearStub } from "@pw-support/channels/testing";
 import { hashCustomerId, loadTimingConfig } from "@pw-support/contracts";
 import {
   advanceEventCursor,

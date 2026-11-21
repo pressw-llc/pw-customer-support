@@ -22,8 +22,17 @@ describe("findViolations", () => {
       "@pressw-llc/support-react/src/index",
       "@pw-support/db/src/internal",
       "@pw-support/db/src/internal",
+      "@pw-support/db/undeclared",
     ]);
     expect(violations.every((v) => v.line > 0)).toBe(true);
+  });
+
+  test("a declared exports subpath is allowed, an undeclared or src subpath is not", () => {
+    const violations = findViolations(join(fixtures, "boundary-violations"));
+    const specifiers = violations.map((v) => v.specifier);
+    expect(specifiers).not.toContain("@pw-support/db/testing");
+    expect(specifiers).toContain("@pw-support/db/undeclared");
+    expect(specifiers).toContain("@pw-support/db/src/internal");
   });
 
   test("accepts entrypoint imports and imports inside one module", () => {
@@ -53,7 +62,7 @@ describe("main", () => {
     const errors = spyOn(console, "error").mockImplementation(() => {});
     const code = main(["--root", join(fixtures, "boundary-violations")]);
     expect(code).toBe(1);
-    expect(errors.mock.calls.length).toBe(6);
+    expect(errors.mock.calls.length).toBe(7);
     errors.mockRestore();
   });
 

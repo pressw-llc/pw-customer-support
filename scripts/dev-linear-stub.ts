@@ -1,4 +1,4 @@
-import { startLinearStub } from "@pw-support/channels";
+import { startLinearStub } from "@pw-support/channels/testing";
 
 const port = Number(process.env.LINEAR_STUB_PORT || 4590);
 const stub = startLinearStub({ port });

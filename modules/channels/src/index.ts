@@ -11,4 +11,3 @@ export * from "./linear/client";
 export * from "./linear/ticket";
 export * from "./poller";
 export * from "./runtime";
-export * from "./testing/linear-stub";
