@@ -22,7 +22,9 @@ import {
   maxEventSeq,
   recordJudgments,
   setProjectLinearTeam,
+  ticketDeliveries,
 } from "@pw-support/db";
+import { eq } from "drizzle-orm";
 import { createDispatcher, directTransport, sqsTransport } from "./dispatcher";
 import { createLinearClient, envSecrets, LinearError } from "./linear/client";
 import { pollOnce } from "./poller";
@@ -791,5 +793,21 @@ describe("C2 redelivery of completed jobs without a ticket", () => {
     expect(again.map((event) => event.requestId)).not.toContain(
       done.request.id,
     );
+  });
+
+  test("a request with thousands of failed deliveries still redelivers at the capped backoff", async () => {
+    const done = await h.completedRequest({ human: true });
+    h.clock.advance(TICKET_REDELIVERY_BASE_SECONDS + 1);
+    await claimTicketRedeliveries(h.db, { now: h.clock.now(), limit: 500 });
+    await h.db
+      .update(ticketDeliveries)
+      .set({ deliveryAttempts: 5000 })
+      .where(eq(ticketDeliveries.requestId, done.request.id));
+    h.clock.advance(TICKET_REDELIVERY_MAX_SECONDS + 1);
+    const due = await claimTicketRedeliveries(h.db, {
+      now: h.clock.now(),
+      limit: 500,
+    });
+    expect(due.map((event) => event.requestId)).toContain(done.request.id);
   });
 });

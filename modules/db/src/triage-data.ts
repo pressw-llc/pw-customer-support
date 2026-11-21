@@ -220,7 +220,7 @@ export async function claimTicketRedeliveries(
           )
           AND COALESCE(d.last_enqueued_at, e.created_at)
             <= ${nowTs}::timestamptz - make_interval(
-              secs => LEAST(${max}::double precision, ${base}::double precision * power(2, COALESCE(d.delivery_attempts, 0)))
+              secs => LEAST(${max}::double precision, ${base}::double precision * power(2, LEAST(COALESCE(d.delivery_attempts, 0), 20)))
             )
         ORDER BY e.seq
         LIMIT ${limit}
