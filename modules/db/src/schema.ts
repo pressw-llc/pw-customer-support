@@ -2,6 +2,7 @@ import { sql } from "drizzle-orm";
 import {
   bigint,
   boolean,
+  foreignKey,
   index,
   jsonb,
   pgSchema,
@@ -54,7 +55,10 @@ export const customers = support.table(
     hashedId: text("hashed_id").notNull(),
     createdAt: createdAt(),
   },
-  (t) => [unique("customers_project_hashed_uq").on(t.projectId, t.hashedId)],
+  (t) => [
+    unique("customers_project_hashed_uq").on(t.projectId, t.hashedId),
+    unique("customers_project_id_uq").on(t.projectId, t.id),
+  ],
 );
 
 export const requests = support.table(
@@ -77,6 +81,11 @@ export const requests = support.table(
   (t) => [
     index("requests_project_created_idx").on(t.projectId, t.createdAt),
     index("requests_customer_idx").on(t.customerId),
+    foreignKey({
+      name: "requests_customer_project_fk",
+      columns: [t.projectId, t.customerId],
+      foreignColumns: [customers.projectId, customers.id],
+    }).onDelete("cascade"),
   ],
 );
 
