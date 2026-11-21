@@ -62,7 +62,17 @@ function defangLinks(value: string): string {
     .replace(/\bwww\./gi, `www${ZERO_WIDTH_SPACE}.`);
 }
 
-const MARKDOWN_CONTROL = /[\\[\]()#*_~|<>`!]/g;
+const MARKDOWN_CONTROL = /[\\[\]()#*_~|<>`!&]/g;
+
+const TITLE_STRIPPED = /[\\[\]#*_~|<>`!&]/g;
+
+function plainTitle(value: string): string {
+  return value
+    .replace(/\s+/g, " ")
+    .replace(TITLE_STRIPPED, "")
+    .replace(/(support\s+request\s+id)\s*:/gi, `$1${ZERO_WIDTH_SPACE}:`)
+    .trim();
+}
 
 function inertLine(line: string): string {
   return line
@@ -75,15 +85,13 @@ function inertLine(line: string): string {
 
 export function inertText(value: string, singleLine = false): string {
   const cleaned = defangLinks(stripMarkup(value));
-  const lines = singleLine
-    ? [cleaned.replace(/\s+/g, " ")]
-    : cleaned.split("\n");
-  return lines.map(inertLine).join("\n").trim();
+  if (singleLine) return plainTitle(cleaned);
+  return cleaned.split("\n").map(inertLine).join("\n").trim();
 }
 
 export function quoteCustomerText(text: string): string {
   const cleaned = defangLinks(stripMarkup(text))
-    .replace(/[[\]]/g, "\\$&")
+    .replace(/[[\]&]/g, "\\$&")
     .trim();
   const capped =
     cleaned.length > QUOTE_MAX_CHARS

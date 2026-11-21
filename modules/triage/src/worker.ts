@@ -116,27 +116,27 @@ export async function sweepOnce(deps: WorkerDeps): Promise<WakeOutcome[]> {
 export function startSweeper(
   deps: WorkerDeps,
   signal: AbortSignal,
+  sweep: (deps: WorkerDeps) => Promise<unknown> = sweepOnce,
 ): Promise<void> {
-  return new Promise((resolve) => {
-    let running = false;
-    const tick = async () => {
-      if (running) return;
-      running = true;
-      try {
-        await sweepOnce(deps);
-      } catch (error) {
-        deps.log?.("sweep failed", {
-          error: error instanceof Error ? error.message : String(error),
+  return new Promise<void>((resolve) => {
+    let inflight: Promise<unknown> | undefined;
+    const tick = () => {
+      if (inflight) return;
+      inflight = sweep(deps)
+        .catch((error) => {
+          deps.log?.("sweep failed", {
+            error: error instanceof Error ? error.message : String(error),
+          });
+        })
+        .finally(() => {
+          inflight = undefined;
         });
-      } finally {
-        running = false;
-      }
     };
-    void tick();
+    tick();
     const timer = setInterval(tick, deps.config.sweepIntervalMs);
     signal.addEventListener("abort", () => {
       clearInterval(timer);
-      resolve();
+      void Promise.allSettled([inflight]).then(() => resolve());
     });
   });
 }

@@ -187,6 +187,7 @@ export async function requestHasEvent(
 export interface RedeliveryOptions {
   now?: Date;
   limit?: number;
+  requestId?: string;
   baseSeconds?: number;
   maxSeconds?: number;
 }
@@ -201,6 +202,9 @@ export async function claimTicketRedeliveries(
   const base = options.baseSeconds ?? TICKET_REDELIVERY_BASE_SECONDS;
   const max = options.maxSeconds ?? TICKET_REDELIVERY_MAX_SECONDS;
   const limit = options.limit ?? 50;
+  const requestFilter = options.requestId
+    ? sql`AND e.request_id = ${options.requestId}`
+    : sql``;
   return inTransaction(db, async (tx) => {
     await tx.execute(sql`SELECT pg_advisory_xact_lock(${REDELIVERY_LOCK_ID})`);
     const rows = await tx.execute<Record<string, unknown>>(sql`
@@ -210,6 +214,7 @@ export async function claimTicketRedeliveries(
         LEFT JOIN support.ticket_deliveries d ON d.request_id = e.request_id
         WHERE e.type = 'triage.result.accepted'
           AND e.request_id IS NOT NULL
+          ${requestFilter}
           AND NOT EXISTS (
             SELECT 1 FROM support.tickets t WHERE t.request_id = e.request_id
           )

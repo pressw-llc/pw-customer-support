@@ -319,6 +319,8 @@ describe("worker runtime", () => {
   });
 });
 
+const SAFE_AGENT = { version: 7, tools: [], mcp_servers: [], skills: [] };
+
 function agentClient(agent: Record<string, unknown> | Error) {
   const retrieved: string[] = [];
   const client = {
@@ -339,12 +341,11 @@ function agentClient(agent: Record<string, unknown> | Error) {
 
 describe("remote agent verification (S10)", () => {
   test("reports tools, MCP servers, and skills on the remote agent", () => {
-    expect(
-      agentDefinitionProblems({ tools: [], mcp_servers: [], skills: [] }),
-    ).toEqual([]);
-    expect(agentDefinitionProblems({})).toEqual([]);
+    const clean = { version: 3, tools: [], mcp_servers: [], skills: [] };
+    expect(agentDefinitionProblems(clean)).toEqual([]);
     expect(
       agentDefinitionProblems({
+        version: 3,
         tools: [{}],
         mcp_servers: [{}],
         skills: [{}],
@@ -352,11 +353,35 @@ describe("remote agent verification (S10)", () => {
     ).toEqual(["agent has tools", "agent has MCP servers", "agent has skills"]);
   });
 
+  test.each([
+    ["tools", "agent tools is unreadable"],
+    ["mcp_servers", "agent mcp_servers is unreadable"],
+    ["skills", "agent skills is unreadable"],
+    ["version", "agent version is unreadable"],
+  ])("a missing or malformed %s fails closed", (field, message) => {
+    const clean: Record<string, unknown> = {
+      version: 3,
+      tools: [],
+      mcp_servers: [],
+      skills: [],
+    };
+    delete clean[field];
+    expect(agentDefinitionProblems(clean)).toEqual([message]);
+    clean[field] = null;
+    expect(agentDefinitionProblems(clean)).toEqual([message]);
+    clean[field] = "none";
+    expect(agentDefinitionProblems(clean)).toEqual([message]);
+  });
+
   test("the verifier retrieves the agent once and caches the result", async () => {
-    const { client, retrieved } = agentClient({ tools: [{ type: "bash" }] });
+    const { client, retrieved } = agentClient({
+      ...SAFE_AGENT,
+      tools: [{ type: "bash" }],
+    });
     const verifier = createAgentVerifier({ agentId: "agent_x", client });
-    expect(await verifier.verify()).toEqual(["agent has tools"]);
-    expect(await verifier.verify()).toEqual(["agent has tools"]);
+    const unsafe = { problems: ["agent has tools"], version: undefined };
+    expect(await verifier.verify()).toEqual(unsafe);
+    expect(await verifier.verify()).toEqual(unsafe);
     expect(retrieved).toEqual(["agent_x"]);
   });
 
@@ -369,7 +394,7 @@ describe("remote agent verification (S10)", () => {
             retrieve: async () => {
               calls += 1;
               if (calls === 1) throw new Error("network");
-              return { tools: [], mcp_servers: [], skills: [] };
+              return SAFE_AGENT;
             },
           },
         },
@@ -377,15 +402,11 @@ describe("remote agent verification (S10)", () => {
     } as unknown as ManagedAgentsClient;
     const verifier = createAgentVerifier({ agentId: "agent_x", client });
     await expect(verifier.verify()).rejects.toThrow(/network/);
-    expect(await verifier.verify()).toEqual([]);
+    expect(await verifier.verify()).toEqual({ problems: [], version: 7 });
   });
 
   test("the runtime logs one clear error for a drifted agent and runs nothing", async () => {
-    const { client } = agentClient({
-      tools: [{}],
-      mcp_servers: [],
-      skills: [],
-    });
+    const { client } = agentClient({ ...SAFE_AGENT, tools: [{}] });
     const runtime = createWorkerRuntime(
       { TRIAGE_AGENT_ID: "agent_x" },
       { lockPath: "/nonexistent/agent.lock.json", agentClient: client },

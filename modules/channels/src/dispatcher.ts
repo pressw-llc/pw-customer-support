@@ -108,22 +108,19 @@ export function createDispatcher(options: DispatcherOptions) {
   }
 
   function run(intervalMs: number, signal: AbortSignal): Promise<void> {
-    return new Promise((resolve) => {
-      let running = false;
-      const loop = async () => {
-        if (running) return;
-        running = true;
-        try {
-          await tick();
-        } finally {
-          running = false;
-        }
+    return new Promise<void>((resolve) => {
+      let inflight: Promise<unknown> | undefined;
+      const loop = () => {
+        if (inflight) return;
+        inflight = tick().finally(() => {
+          inflight = undefined;
+        });
       };
-      void loop();
+      loop();
       const timer = setInterval(loop, intervalMs);
       signal.addEventListener("abort", () => {
         clearInterval(timer);
-        resolve();
+        void Promise.allSettled([inflight]).then(() => resolve());
       });
     });
   }

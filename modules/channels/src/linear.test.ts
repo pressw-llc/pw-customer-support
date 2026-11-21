@@ -568,6 +568,47 @@ describe("dispatcher", () => {
     expect(seen).toBe(1);
   });
 
+  test("run waits for the in-flight tick before resolving on abort", async () => {
+    const name = `test-${crypto.randomUUID().slice(0, 8)}`;
+    await advanceEventCursor(h.db, name, await maxEventSeq(h.db));
+    const done = await h.completedRequest();
+    let started = false;
+    let finished = false;
+    let release: () => void = () => {};
+    const dispatcher = createDispatcher({
+      db: h.db,
+      adapters: [
+        {
+          ...adapterNamed(name),
+          subscribes: [] as const,
+          redeliver: async () => [done.event],
+        } as never,
+      ],
+      transport: {
+        async deliver() {
+          started = true;
+          await new Promise<void>((resolve) => {
+            release = resolve;
+          });
+          finished = true;
+        },
+      },
+    });
+    const controller = new AbortController();
+    const running = dispatcher.run(1000, controller.signal);
+    while (!started) await new Promise((resolve) => setTimeout(resolve, 5));
+    controller.abort();
+    let resolved = false;
+    void running.then(() => {
+      resolved = true;
+    });
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    expect(resolved).toBe(false);
+    release();
+    await running;
+    expect(finished).toBe(true);
+  });
+
   test("redelivered events go through the transport without moving the cursor", async () => {
     const name = `test-${crypto.randomUUID().slice(0, 8)}`;
     const done = await h.completedRequest();
@@ -682,13 +723,8 @@ describe("C2 redelivery of completed jobs without a ticket", () => {
     return {
       ...h.adapter,
       name,
-      redeliver: async () =>
-        (
-          await claimTicketRedeliveries(h.db, {
-            now: h.clock.now(),
-            limit: 500,
-          })
-        ).filter((event) => event.requestId === requestId),
+      redeliver: () =>
+        claimTicketRedeliveries(h.db, { now: h.clock.now(), requestId }),
     };
   }
 
@@ -783,12 +819,12 @@ describe("C2 redelivery of completed jobs without a ticket", () => {
     h.clock.advance(TICKET_REDELIVERY_BASE_SECONDS + 1);
     const due = await claimTicketRedeliveries(h.db, {
       now: h.clock.now(),
-      limit: 500,
+      requestId: done.request.id,
     });
     expect(due.map((event) => event.requestId)).toContain(done.request.id);
     const again = await claimTicketRedeliveries(h.db, {
       now: h.clock.now(),
-      limit: 500,
+      requestId: done.request.id,
     });
     expect(again.map((event) => event.requestId)).not.toContain(
       done.request.id,
@@ -798,7 +834,10 @@ describe("C2 redelivery of completed jobs without a ticket", () => {
   test("a request with thousands of failed deliveries still redelivers at the capped backoff", async () => {
     const done = await h.completedRequest({ human: true });
     h.clock.advance(TICKET_REDELIVERY_BASE_SECONDS + 1);
-    await claimTicketRedeliveries(h.db, { now: h.clock.now(), limit: 500 });
+    await claimTicketRedeliveries(h.db, {
+      now: h.clock.now(),
+      requestId: done.request.id,
+    });
     await h.db
       .update(ticketDeliveries)
       .set({ deliveryAttempts: 5000 })
@@ -806,8 +845,26 @@ describe("C2 redelivery of completed jobs without a ticket", () => {
     h.clock.advance(TICKET_REDELIVERY_MAX_SECONDS + 1);
     const due = await claimTicketRedeliveries(h.db, {
       now: h.clock.now(),
-      limit: 500,
+      requestId: done.request.id,
     });
     expect(due.map((event) => event.requestId)).toContain(done.request.id);
+  });
+
+  test("a request filter claims and marks only that request", async () => {
+    const first = await h.completedRequest({ human: true });
+    const second = await h.completedRequest({ human: true });
+    h.clock.advance(TICKET_REDELIVERY_BASE_SECONDS + 1);
+    const claimed = await claimTicketRedeliveries(h.db, {
+      now: h.clock.now(),
+      requestId: first.request.id,
+    });
+    expect(claimed.map((event) => event.requestId)).toEqual([first.request.id]);
+    const rest = await claimTicketRedeliveries(h.db, {
+      now: h.clock.now(),
+      limit: 500,
+    });
+    const ids = rest.map((event) => event.requestId);
+    expect(ids).toContain(second.request.id);
+    expect(ids).not.toContain(first.request.id);
   });
 });

@@ -197,7 +197,26 @@ describe("buildTicket", () => {
     });
     expect(draft.title).not.toContain("\n");
     expect(draft.title).not.toContain("://");
-    expect(draft.title).not.toMatch(/(^|[^\\])[[\]()#*]/);
+    expect(draft.title).not.toMatch(/[[\]#*\\]/);
+  });
+
+  test("a title is plain text: parentheses stay and control characters drop", () => {
+    const draft = buildTicket({
+      ...base,
+      result: { ...VALID_RESULT, title: "Login (SSO) *fails* #1_a" },
+    });
+    expect(draft.title).toBe("Login (SSO) fails 1a");
+  });
+
+  test("entity-encoded links stay inert in the summary and the quote", () => {
+    const hostile = "see https&#58;//x.example and www&#46;x.example";
+    const summary = inertText(hostile);
+    expect(summary).toContain("\\&\\#58;");
+    expect(summary).toContain("\\&\\#46;");
+    const quoted = quoteCustomerText(hostile);
+    expect(quoted).toContain("\\&#58;");
+    expect(quoted).toContain("\\&#46;");
+    expect(quoted).not.toMatch(/(^|[^\\])&#/);
   });
 
   test("inertText escapes control characters per line", () => {

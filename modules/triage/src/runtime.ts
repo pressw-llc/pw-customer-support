@@ -113,7 +113,7 @@ export function createWorkerRuntime(
     async verifyAgent(): Promise<string[]> {
       if (!verifier) return [];
       try {
-        const problems = await verifier.verify();
+        const { problems } = await verifier.verify();
         if (problems.length > 0) {
           deps.log?.(
             "remote agent definition is unsafe; every job goes to human triage",

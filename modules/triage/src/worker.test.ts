@@ -131,6 +131,33 @@ describe("A3 recovery without a wake", () => {
     await running;
   });
 
+  test("abort waits for the in-flight sweep before resolving", async () => {
+    const controller = new AbortController();
+    let release: () => void = () => {};
+    let started = false;
+    let finished = false;
+    const slowSweep = async () => {
+      started = true;
+      await new Promise<void>((resolve) => {
+        release = resolve;
+      });
+      finished = true;
+      return [];
+    };
+    const running = startSweeper(h.deps, controller.signal, slowSweep);
+    while (!started) await new Promise((resolve) => setTimeout(resolve, 5));
+    controller.abort();
+    let resolved = false;
+    void running.then(() => {
+      resolved = true;
+    });
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    expect(resolved).toBe(false);
+    release();
+    await running;
+    expect(finished).toBe(true);
+  });
+
   test("a sweep error is logged and does not stop the loop", async () => {
     const logs: string[] = [];
     const controller = new AbortController();
@@ -851,7 +878,7 @@ describe("review fixes", () => {
     const inner = fakeAgent();
     const harness = await createTriageHarness({
       agent: guardAgentRunner(inner, {
-        verify: async () => ["agent has tools"],
+        verify: async () => ({ problems: ["agent has tools"] }),
       }),
     });
     try {
@@ -863,7 +890,9 @@ describe("review fixes", () => {
       });
       expect(inner.calls).toHaveLength(0);
       await expect(
-        guardAgentRunner(inner, { verify: async () => ["x"] }).run({
+        guardAgentRunner(inner, {
+          verify: async () => ({ problems: ["x"] }),
+        }).run({
           requestText: "x",
           images: [],
           documents: [],

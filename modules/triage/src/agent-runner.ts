@@ -27,6 +27,7 @@ export interface AgentRunResult {
 export interface AgentRunHooks {
   onSession?: (sessionId: string) => Promise<void> | void;
   signal?: AbortSignal;
+  agentVersion?: number;
 }
 
 export class AgentAbortedError extends Error {
@@ -147,7 +148,17 @@ export function createManagedAgentRunner(
       let sessionId: string | undefined;
       try {
         const session = await createSession(
-          { agent: options.agentId, environment_id: environment.id },
+          {
+            agent:
+              hooks?.agentVersion === undefined
+                ? options.agentId
+                : {
+                    type: "agent",
+                    id: options.agentId,
+                    version: hooks.agentVersion,
+                  },
+            environment_id: environment.id,
+          },
           client,
         );
         sessionId = session.id;
@@ -234,40 +245,60 @@ export function createManagedAgentRunner(
 }
 
 export interface AgentDefinitionShape {
-  tools?: unknown[] | null;
-  mcp_servers?: unknown[] | null;
-  skills?: unknown[] | null;
+  version?: unknown;
+  tools?: unknown;
+  mcp_servers?: unknown;
+  skills?: unknown;
 }
+
+const DEFINITION_LISTS = [
+  ["tools", "agent has tools"],
+  ["mcp_servers", "agent has MCP servers"],
+  ["skills", "agent has skills"],
+] as const;
 
 export function agentDefinitionProblems(agent: AgentDefinitionShape): string[] {
   const problems: string[] = [];
-  if ((agent.tools?.length ?? 0) > 0) problems.push("agent has tools");
-  if ((agent.mcp_servers?.length ?? 0) > 0) {
-    problems.push("agent has MCP servers");
+  for (const [field, message] of DEFINITION_LISTS) {
+    const value = agent[field];
+    if (!Array.isArray(value)) problems.push(`agent ${field} is unreadable`);
+    else if (value.length > 0) problems.push(message);
   }
-  if ((agent.skills?.length ?? 0) > 0) problems.push("agent has skills");
+  const version = agent.version;
+  if (!Number.isInteger(version) || (version as number) < 1) {
+    problems.push("agent version is unreadable");
+  }
   return problems;
 }
 
+export interface VerifiedAgent {
+  problems: string[];
+  version?: number;
+}
+
 export interface AgentVerifier {
-  verify(): Promise<string[]>;
+  verify(): Promise<VerifiedAgent>;
 }
 
 export function createAgentVerifier(options: {
   agentId: string;
   client?: ManagedAgentsClient;
 }): AgentVerifier {
-  let cached: Promise<string[]> | undefined;
+  let cached: Promise<VerifiedAgent> | undefined;
   return {
     verify() {
       cached ??= (async () => {
         const client = options.client ?? (await createClient());
-        return agentDefinitionProblems(
-          (await retrieveAgent(
-            options.agentId,
-            client,
-          )) as AgentDefinitionShape,
-        );
+        const agent = (await retrieveAgent(
+          options.agentId,
+          client,
+        )) as AgentDefinitionShape;
+        const problems = agentDefinitionProblems(agent);
+        return {
+          problems,
+          version:
+            problems.length === 0 ? (agent.version as number) : undefined,
+        };
       })().catch((error) => {
         cached = undefined;
         throw error;
@@ -283,9 +314,9 @@ export function guardAgentRunner(
 ): AgentRunner {
   return {
     async run(input, hooks) {
-      const problems = await verifier.verify();
+      const { problems, version } = await verifier.verify();
       if (problems.length > 0) throw new AgentDefinitionUnsafeError(problems);
-      return inner.run(input, hooks);
+      return inner.run(input, { ...hooks, agentVersion: version });
     },
   };
 }

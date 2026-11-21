@@ -5,6 +5,7 @@ import {
   type AgentInput,
   buildUserContent,
   createManagedAgentRunner,
+  guardAgentRunner,
 } from "./agent-runner";
 
 type Event = Record<string, unknown>;
@@ -158,6 +159,36 @@ describe("createManagedAgentRunner", () => {
     );
     expect(log.archivedSessions).toEqual(["sesn_1"]);
     expect(log.archivedEnvironments).toEqual(["env_1"]);
+  });
+
+  test("a pinned agent version is passed to the session", async () => {
+    const { client, log } = fakeClient({
+      events: [{ type: "session.status_idle" }],
+    });
+    await createManagedAgentRunner({
+      agentId: "agent_1",
+      timeoutMs: 5000,
+      client,
+    }).run(input, { agentVersion: 4 });
+    expect(log.sessions[0]).toEqual({
+      agent: { type: "agent", id: "agent_1", version: 4 },
+      environment_id: "env_1",
+    });
+  });
+
+  test("the guard runs the version the verifier checked", async () => {
+    const { client, log } = fakeClient({
+      events: [{ type: "session.status_idle" }],
+    });
+    const runner = guardAgentRunner(
+      createManagedAgentRunner({ agentId: "agent_1", timeoutMs: 5000, client }),
+      { verify: async () => ({ problems: [], version: 9 }) },
+    );
+    await runner.run(input);
+    expect(log.sessions[0]).toEqual({
+      agent: { type: "agent", id: "agent_1", version: 9 },
+      environment_id: "env_1",
+    });
   });
 
   test("ignores child thread idles and returns on the primary thread idle", async () => {
