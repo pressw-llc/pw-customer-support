@@ -22,6 +22,7 @@ export interface Tenant {
 }
 
 export interface HarnessOptions {
+  config?: Partial<ApiConfig>;
   rateLimit?: Partial<ApiConfig["rateLimit"]>;
   maxBodyBytes?: number;
   deps?: Partial<AppDeps>;
@@ -30,9 +31,14 @@ export interface HarnessOptions {
 export async function createHarness(options: HarnessOptions = {}) {
   await migrate();
   const db: SupportDb = createDb();
-  const base = loadConfig({});
+  const base = loadConfig({
+    SUPPORT_LOCALSTACK_PORT: process.env.SUPPORT_LOCALSTACK_PORT,
+    SUPPORT_OIDC_PORT: process.env.SUPPORT_OIDC_PORT,
+    AWS_ENDPOINT_URL: process.env.AWS_ENDPOINT_URL,
+  });
   const config: ApiConfig = {
     ...base,
+    ...options.config,
     maxBodyBytes: options.maxBodyBytes ?? base.maxBodyBytes,
     rateLimit: { ...base.rateLimit, ...options.rateLimit },
   };

@@ -631,7 +631,7 @@ describe("dispatcher", () => {
 });
 
 describe("SQS delivery", () => {
-  const env = resolveStackEnv({});
+  const env = resolveStackEnv();
   const sqs = new SQSClient({
     endpoint: env.awsEndpointUrl,
     region: "us-east-1",

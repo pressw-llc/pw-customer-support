@@ -19,7 +19,7 @@ import {
 } from "./secrets";
 
 const db = createDb();
-const client = createSecretsManagerClient({});
+const client = createSecretsManagerClient();
 const writer = createSecretWriter(client);
 const scope = `t-${crypto.randomUUID().slice(0, 8)}`;
 const actor = { sub: "staff", email: "ada@pressw.test", name: null };

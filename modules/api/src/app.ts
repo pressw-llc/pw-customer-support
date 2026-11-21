@@ -1,4 +1,10 @@
 import {
+  createSecretsManagerClient,
+  createSecretWriter,
+  type ManagedSecrets,
+  type SecretWriter,
+} from "@pw-support/channels";
+import {
   SUPPORT_KEY_HEADER,
   SUPPORT_USER_HEADER,
   type TriageTiming,
@@ -8,6 +14,8 @@ import type { SupportDb } from "@pw-support/db";
 import { Hono } from "hono";
 import { bodyLimit } from "hono/body-limit";
 import { cors } from "hono/cors";
+import { adminRoutes } from "./admin";
+import { createTokenValidator, type TokenValidator } from "./auth";
 import type { ApiConfig } from "./config";
 import {
   type Checks,
@@ -26,6 +34,9 @@ export interface AppDeps {
   config: ApiConfig;
   checks?: Checks;
   wake?: WakeSender;
+  validator?: TokenValidator;
+  secretWriter?: SecretWriter;
+  secrets?: Pick<ManagedSecrets, "invalidate">;
   timing?: TriageTiming;
   now?: () => Date;
 }
@@ -141,6 +152,26 @@ export function createApp(deps: AppDeps): Hono {
     rateLimit(deps.db, deps.config.rateLimit),
   );
   app.route("/v1", intakeRoutes(service));
+
+  const validator =
+    deps.validator ??
+    createTokenValidator(deps.config.auth, {
+      onReject: (reason) => {
+        if (reason === "not_configured") console.error("[auth] not configured");
+      },
+    });
+  app.route(
+    "/admin",
+    adminRoutes({
+      db: deps.db,
+      storage: deps.storage,
+      config: deps.config,
+      validator,
+      secretWriter:
+        deps.secretWriter ?? createSecretWriter(createSecretsManagerClient()),
+      secrets: deps.secrets,
+    }),
+  );
 
   app.onError((error, c) => {
     if (error instanceof ProcessingError) {

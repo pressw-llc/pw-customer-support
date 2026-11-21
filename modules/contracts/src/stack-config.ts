@@ -1,6 +1,7 @@
 export const DEFAULT_POSTGRES_PORT = "5447";
 export const DEFAULT_LOCALSTACK_PORT = "4577";
 export const DEFAULT_OIDC_PORT = "4599";
+export const DEFAULT_ADMIN_DEV_PORT = "5183";
 export const LOCAL_OIDC_ISSUER_ID = "support";
 export const LOCAL_OIDC_CLIENT_ID = "pw-support-admin";
 

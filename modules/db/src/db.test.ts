@@ -401,6 +401,7 @@ describe("migrate on an empty database", () => {
         "customers",
         "event_cursors",
         "events",
+        "integrations",
         "judgments",
         "messages",
         "project_keys",
