@@ -395,12 +395,14 @@ describe("migrate on an empty database", () => {
       await probe.end();
       expect(pipeline).toHaveLength(1);
       expect(tables.map((t) => t.table_name)).toEqual([
+        "attachment_rejections",
         "attachments",
         "customers",
         "events",
         "messages",
         "project_keys",
         "projects",
+        "rate_limits",
         "requests",
         "schema_migrations",
       ]);

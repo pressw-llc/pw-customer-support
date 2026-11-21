@@ -1,6 +1,2 @@
-import type { ModuleInfo } from "@pw-support/contracts";
-
-export const supportWidget: ModuleInfo = {
-  name: "widget",
-  owns: ["renders the support widget"],
-};
+export { SupportWidget } from "./SupportWidget";
+export type { SupportWidgetProps } from "./types";

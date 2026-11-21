@@ -2,6 +2,7 @@ export * from "./attachments";
 export * from "./channel-key";
 export * from "./events";
 export * from "./identity";
+export * from "./intake";
 export * from "./message";
 export * from "./module-info";
 export * from "./resources";

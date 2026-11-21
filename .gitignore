@@ -11,3 +11,4 @@ dist
 coverage
 cdk.out
 .env.local
+e2e/artifacts

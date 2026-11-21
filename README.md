@@ -12,6 +12,7 @@ Install Bun 1.3, Docker, and set `GITHUB_TOKEN` to a token with `read:packages`.
 bun install
 bun run env sync
 bun run stack:up
+bun run stack:setup
 bun run db:migrate
 bun run check
 ```
@@ -22,42 +23,106 @@ The stack runs Postgres on `127.0.0.1:5447` and LocalStack on `127.0.0.1:4577`. 
 
 `.env.example` is the committed template. Put real values in `.env.local`, which is gitignored. Manage both files with `bun run env` and the `env-files` skill. Do not edit them by hand. `bun run env set` writes a blank to `.env.example` for a key whose name contains `KEY`, `SECRET`, `TOKEN`, `PASSWORD`, `PRIVATE`, or `CREDENTIAL`, and for any value read from `--stdin`. Pass `--not-secret` to publish a dummy value, as with the LocalStack credentials.
 
-| Variable                                     | Default                                | Purpose                               |
-| -------------------------------------------- | -------------------------------------- | ------------------------------------- |
-| `SUPPORT_POSTGRES_PORT`                      | `5447`                                 | Host port for Postgres                |
-| `SUPPORT_LOCALSTACK_PORT`                    | `4577`                                 | Host port for LocalStack              |
-| `DATABASE_URL`                               | derived from `SUPPORT_POSTGRES_PORT`   | Optional override of the Postgres URL |
-| `AWS_REGION`                                 | `us-east-1`                            | AWS region for the SDK clients        |
-| `AWS_ENDPOINT_URL`                           | derived from `SUPPORT_LOCALSTACK_PORT` | Optional override of the AWS endpoint |
-| `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY` | `test`                                 | Local credentials for LocalStack      |
-| `ATTACHMENTS_BUCKET`                         | `pw-support-attachments`               | S3 bucket for attachments             |
-| `TRIAGE_WAKE_QUEUE`                          | `pw-support-triage-wake`               | SQS queue that wakes triage           |
-| `TRIAGE_WAKE_DLQ`                            | `pw-support-triage-wake-dlq`           | Dead-letter queue for the wake queue  |
-| `API_PORT`                                   | `8787`                                 | Port for the Hono API server          |
-| `ANTHROPIC_API_KEY`                          | blank, secret                          | Anthropic API key                     |
-| `TYPESAFE_API_KEY`                           | blank, secret                          | TypeSafe key for the Jev filter       |
-| `LINEAR_API_KEY`                             | blank, secret                          | Linear API key                        |
-| `LINEAR_WEBHOOK_SECRET`                      | blank, secret                          | Linear webhook signing secret         |
-| `COGNITO_ISSUER`                             | blank                                  | Cognito token issuer URL              |
-| `COGNITO_AUDIENCE`                           | blank                                  | Cognito token audience                |
+| Variable                                     | Default                                | Purpose                                        |
+| -------------------------------------------- | -------------------------------------- | ---------------------------------------------- |
+| `SUPPORT_POSTGRES_PORT`                      | `5447`                                 | Host port for Postgres                         |
+| `SUPPORT_LOCALSTACK_PORT`                    | `4577`                                 | Host port for LocalStack                       |
+| `DATABASE_URL`                               | derived from `SUPPORT_POSTGRES_PORT`   | Optional override of the Postgres URL          |
+| `AWS_REGION`                                 | `us-east-1`                            | AWS region for the SDK clients                 |
+| `AWS_ENDPOINT_URL`                           | derived from `SUPPORT_LOCALSTACK_PORT` | Optional override of the AWS endpoint          |
+| `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY` | `test`                                 | Local credentials for LocalStack               |
+| `ATTACHMENTS_BUCKET`                         | `pw-support-attachments`               | S3 bucket for attachments                      |
+| `TRIAGE_WAKE_QUEUE`                          | `pw-support-triage-wake`               | SQS queue that wakes triage                    |
+| `TRIAGE_WAKE_DLQ`                            | `pw-support-triage-wake-dlq`           | Dead-letter queue for the wake queue           |
+| `API_PORT`                                   | `8787`                                 | Port for the Hono API server                   |
+| `ANTHROPIC_API_KEY`                          | blank, secret                          | Anthropic API key                              |
+| `TYPESAFE_API_KEY`                           | blank, secret                          | TypeSafe key for the Jev filter                |
+| `LINEAR_API_KEY`                             | blank, secret                          | Linear API key                                 |
+| `LINEAR_WEBHOOK_SECRET`                      | blank, secret                          | Linear webhook signing secret                  |
+| `COGNITO_ISSUER`                             | blank                                  | Cognito token issuer URL                       |
+| `COGNITO_AUDIENCE`                           | blank                                  | Cognito token audience                         |
+| `NODE_ENV`                                   | unset                                  | `production` turns off the LocalStack defaults |
+| `RATE_LIMIT_WINDOW_SECONDS`                  | `60`                                   | Rate limit window length                       |
+| `RATE_LIMIT_PER_KEY`                         | `600`                                  | Requests per window for one project key        |
+| `RATE_LIMIT_PER_USER`                        | `120`                                  | Requests per window for one hashed ID          |
+| `MAX_REQUEST_BYTES`                          | 251 MiB                                | Request body cap before a 413                  |
+| `SEED_CLIENT_SLUG`                           | `acme`                                 | `seed:dev` client slug                         |
+| `SEED_PROJECT_SLUG`                          | `portal`                               | `seed:dev` project slug                        |
+| `SEED_PROJECT_KEY`                           | random, blank in the template          | `seed:dev` key for a new project               |
+| `SUPPORT_API_URL`                            | `http://localhost:8787`                | Widget build-time default API URL              |
+| `VITE_SUPPORT_PROJECT_KEY`                   | blank                                  | Example app project key                        |
+| `VITE_SUPPORT_USER_EMAIL`                    | blank                                  | Example app signed-in email                    |
+| `VITE_SUPPORT_API_URL`                       | blank, widget default                  | Example app API URL                            |
+
+## Run the widget locally
+
+Start the stack, seed a demo project, then start the API and the example host app in two terminals.
+
+```bash
+bun run stack:up && bun run stack:setup
+bun run seed:dev
+bun run dev:api
+```
+
+`seed:dev` prints the project key for `acme/portal`. It is idempotent and prints the same key on every run. Pass the key to the example app and start it.
+
+```bash
+bun run build
+VITE_SUPPORT_PROJECT_KEY=<printed key> \
+VITE_SUPPORT_USER_EMAIL=ada@acme.test \
+VITE_SUPPORT_API_URL=http://127.0.0.1:8787 \
+bun run dev:example
+```
+
+Open the printed Vite URL. The host app uses one import and two props:
+
+```tsx
+import { SupportWidget } from "@pressw-llc/support-react";
+
+<SupportWidget projectKey="pk_..." userEmail="ada@acme.test" />;
+```
+
+Script-tag use loads `dist/support-widget.global.js` and calls `window.PressWSupport.mount(element, { projectKey, userEmail, apiUrl })`.
 
 ## Commands
 
-| Command                         | Action                                                         |
-| ------------------------------- | -------------------------------------------------------------- |
-| `bun run check`                 | Run install, lint, typecheck, stack, test, and synth in order  |
-| `bun run check --skip-install`  | Run the same stages without the install                        |
-| `bun run lint`                  | Run Biome and the module boundary check                        |
-| `bun run typecheck`             | Run `tsc --noEmit` in every module                             |
-| `bun test`                      | Run all tests                                                  |
-| `bun test path/to/file.test.ts` | Run one test file                                              |
-| `bun run stack:up`              | Start Postgres and LocalStack                                  |
-| `bun run stack:down`            | Stop the stack and delete its volumes                          |
-| `bun run db:migrate`            | Apply the SQL migrations to `DATABASE_URL`                     |
-| `bun run env <command>`         | Manage `.env.example` and `.env.local` without printing values |
-| `bun run synth`                 | Run `cdk synth` with no AWS credentials                        |
+| Command                         | Action                                                                    |
+| ------------------------------- | ------------------------------------------------------------------------- |
+| `bun run check`                 | Run install, lint, build, typecheck, stack, test, e2e, and synth in order |
+| `bun run check --skip-install`  | Run the same stages without the install                                   |
+| `bun run lint`                  | Run Biome and the module boundary check                                   |
+| `bun run build`                 | Build the widget into `modules/widget/dist`                               |
+| `bun run typecheck`             | Run `tsc --noEmit` in every module, the example app, and e2e              |
+| `bun run test`                  | Run root tests, then the widget tests under happy-dom                     |
+| `bun test path/to/file.test.ts` | Run one root test file                                                    |
+| `bun run e2e`                   | Run the Playwright suite. It starts the API and the example app           |
+| `bun run stack:up`              | Start Postgres and LocalStack                                             |
+| `bun run stack:setup`           | Create the S3 bucket and SQS queues in LocalStack                         |
+| `bun run stack:down`            | Stop the stack and delete its volumes                                     |
+| `bun run env <command>`         | Manage `.env.example` and `.env.local` without printing values            |
+| `bun run db:migrate`            | Apply the SQL migrations to `DATABASE_URL`                                |
+| `bun run seed:dev`              | Create the demo project and print its project key                         |
+| `bun run dev:api`               | Migrate, set up the stack, and start the API on `API_PORT`                |
+| `bun run dev:example`           | Start the example host app with Vite                                      |
+| `bun run synth`                 | Run `cdk synth` with no AWS credentials                                   |
 
-`bun run check` leaves the stack running. Run `bun run stack:down` to stop it.
+`bun run check` leaves the stack running. Run `bun run stack:down` to stop it. The e2e stage installs Chromium when it is missing. Screenshots land in `e2e/artifacts`.
+
+## Intake API
+
+Every `/v1` route needs the header `X-Support-Key` with the project key and `X-Support-User` with the lowercase hex `SHA-256(email + key)`. CORS allows any origin. An unknown or revoked key returns 401.
+
+| Route                            | Action                                                |
+| -------------------------------- | ----------------------------------------------------- |
+| `POST /v1/requests`              | Multipart `text` and up to 10 `files`. Returns 201    |
+| `GET /v1/requests`               | List the customer's requests with previews and unread |
+| `GET /v1/requests/:id`           | Read the thread. Internal messages never appear       |
+| `POST /v1/requests/:id/messages` | Send a follow-up with the same checks                 |
+| `POST /v1/requests/:id/read`     | Mark the thread read                                  |
+| `GET /v1/attachments/:id`        | Stream a stored attachment                            |
+| `GET /health`                    | Return `{ "status": "ok" }`                           |
+
+The API commits the request, the first message, and a `request.created` event before it runs any static check. A message with markup or over 10,000 characters stays stored and gets `body_flagged`. An attachment is accepted by magic bytes, not by name. Each rejected file returns a reason: `too_many_files`, `too_large`, `empty`, `executable`, `video`, `type_not_allowed`, or `storage_failed`. Rate limits use fixed windows in Postgres per project key and per hashed ID, and return 429 with `Retry-After`.
 
 ## Modules
 
@@ -72,6 +137,8 @@ The stack runs Postgres on `127.0.0.1:5447` and LocalStack on `127.0.0.1:4577`. 
 | `modules/channels`  | Channel adapters                          |
 | `modules/plugin`    | Claude Code plugin for laptop triage      |
 | `modules/infra`     | AWS CDK stack                             |
+
+`examples/host-app` is a fresh Vite React app that embeds the widget. `e2e` holds the Playwright suite.
 
 A module imports another module only through `@pw-support/contracts` or the other module's package name. `bun run lint` rejects deep imports.
 

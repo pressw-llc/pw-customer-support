@@ -1,0 +1,14 @@
+PASS HEALTH: GET /health answered on port 50679
+PASS SETUP: two fresh projects with distinct keys
+PASS B-SUBMIT: project B submit returns 201 (got 201)
+PASS B-SUBMIT-ATTACHMENT: project B submit stored one attachment
+PASS B-LIST: project B list returns 200 and contains its request (got 200)
+PASS B-ATTACHMENT: project B fetches its attachment with 200 (got 200)
+PASS A17-LIST: A17 key A with hash B lists zero requests and no B text (got status 200, 0 requests)
+PASS A17-THREAD: A17 key A cannot read B's thread (404) (got 404)
+PASS A17-FOLLOWUP: A17 key A cannot post a follow-up to B's request (404) (got 404)
+PASS A17-READ: A17 key A cannot mark B's thread read (404) (got 404)
+PASS A17-ATTACHMENT: A17 key A cannot fetch B's attachment (404) (got 404)
+PASS AUTH-UNKNOWN-KEY: unknown key returns 401 (got 401)
+PASS CLEANUP: removed the two smoke projects
+SMOKE PASSED

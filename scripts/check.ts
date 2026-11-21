@@ -10,6 +10,7 @@ const skipInstall = process.argv.includes("--skip-install");
 const stages: Stage[] = [
   { name: "install", commands: [["bun", "install", "--frozen-lockfile"]] },
   { name: "lint", commands: [["bun", "run", "lint"]] },
+  { name: "build", commands: [["bun", "run", "build"]] },
   { name: "typecheck", commands: [["bun", "run", "typecheck"]] },
   {
     name: "stack",
@@ -20,6 +21,13 @@ const stages: Stage[] = [
     ],
   },
   { name: "test", commands: [["bun", "run", "test"]] },
+  {
+    name: "e2e",
+    commands: [
+      ["bun", "scripts/ensure-chromium.ts"],
+      ["bun", "run", "e2e"],
+    ],
+  },
   { name: "synth", commands: [["bun", "run", "synth"]] },
 ].filter((stage) => !(skipInstall && stage.name === "install"));
 
