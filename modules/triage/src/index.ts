@@ -18,4 +18,6 @@ export * from "./jev";
 export * from "./parse";
 export * from "./process";
 export * from "./runtime";
+export * from "./testing/files";
+export * from "./testing/harness";
 export * from "./worker";
