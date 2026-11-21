@@ -1,3 +1,4 @@
+import { resolveStackEnv } from "@pw-support/contracts";
 import { drizzle } from "drizzle-orm/postgres-js";
 import postgres from "postgres";
 import * as schema from "./schema";
@@ -6,18 +7,15 @@ export type SupportDb = ReturnType<typeof drizzle<typeof schema>>;
 type SupportTx = Parameters<Parameters<SupportDb["transaction"]>[0]>[0];
 export type SupportExecutor = SupportDb | SupportTx;
 
-const DEFAULT_POSTGRES_PORT = "5447";
-
 export function localDatabaseUrl(env: NodeJS.ProcessEnv = process.env): string {
-  const port = env.SUPPORT_POSTGRES_PORT ?? DEFAULT_POSTGRES_PORT;
-  return `postgres://support:support@127.0.0.1:${port}/support`;
+  return resolveStackEnv({ ...env, DATABASE_URL: undefined }).databaseUrl;
 }
 
 export function resolveDatabaseUrl(
   url?: string,
   env: NodeJS.ProcessEnv = process.env,
 ): string {
-  return url ?? env.DATABASE_URL ?? localDatabaseUrl(env);
+  return url ?? resolveStackEnv(env).databaseUrl;
 }
 
 export function createDb(url?: string): SupportDb {

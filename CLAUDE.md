@@ -19,7 +19,7 @@ bun run typecheck                   # tsc across modules, example app, and e2e
 bun run test                        # root tests, then widget tests under happy-dom
 bun test modules/db/src/db.test.ts  # single root test file
 bun run e2e                         # Playwright, starts the API and the example app
-bun run stack:up                    # Postgres 5447, LocalStack 4577
+bun run stack:up                    # Postgres and LocalStack, ports from .env.local
 bun run stack:setup                 # S3 bucket and SQS queues in LocalStack
 bun run stack:down
 bun run db:migrate
@@ -27,9 +27,12 @@ bun run seed:dev                    # demo project acme/portal, prints its key
 bun run dev:api                     # API on API_PORT, default 8787
 bun run dev:example                 # Vite host app with the widget
 bun run synth                       # cdk synth, no AWS credentials needed
+bun run env set NAME[=VALUE]        # manage .env.example and .env.local
 ```
 
 `bun run check` leaves the Compose stack running. Integration tests use the real Compose Postgres and LocalStack, so start the stack before `bun run test`. Run widget tests from `modules/widget`, because its `bunfig.toml` preloads happy-dom. `bun run build` must run before the example app typecheck and e2e, because both read `modules/widget/dist`. `bun install` needs `GITHUB_TOKEN` with `read:packages` for the `@pressw-llc` packages.
+
+Manage `.env.example` and `.env.local` only through `bun run env`, as the `env-files` skill describes. Never read or hand-edit them.
 
 ## Architecture
 
@@ -39,7 +42,7 @@ A Bun workspace with nine modules under `modules/*`. Packages are `@pw-support/<
 - `db` also exports the query functions the API uses: `persistInboundRequest`, `persistInboundMessage`, `listCustomerRequests`, `getCustomerThread`, `getCustomerAttachment`, `markThreadRead`, `findProjectByKey`, `ensureProject`, and `hitRateLimit`. Every customer query takes a project and customer scope.
 - `api` serves a Hono app on Bun. Routes in `app.ts` call `intake-service.ts`. `file-type.ts` and `message-checks.ts` hold the pure static checks. `middleware.ts` holds identity and rate limiting. `storage.ts` wraps S3.
 - `widget` builds `@pressw-llc/support-react`: a Shadow DOM React widget plus a global browser bundle. It bundles `@pw-support/contracts` for the hash helper and keeps its own types.
-- `triage` pins `@pressw-llc/pipeline` and `@pressw-llc/managed-agents` to exact versions.
+- `triage` is a shell. Phase 2 adds `@pressw-llc/pipeline` and `@pressw-llc/managed-agents` at exact versions.
 - `infra` defines the CDK stack in `us-east-1`.
 - `admin`, `channels`, and `plugin` are shells until their phases land.
 - `examples/host-app` is a stock Vite React app that embeds the widget. `e2e` runs Playwright against it and the API.

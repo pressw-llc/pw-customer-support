@@ -36,10 +36,15 @@ If specialist agents do not exist yet, scaffold them first via `pw-agents-create
 `defineCoordinator` is a typed wrapper around `defineAgent` that enforces the roster cap and that `multiagent.type === "coordinator"`. Put it in `agents/<coordinator-name>/agent.ts`:
 
 ```typescript
+import { fileURLToPath } from "node:url";
 import { defineCoordinator, readAgentLock } from "@pressw-llc/managed-agents";
 
-const reviewerLock = readAgentLock("../code-reviewer/agent.lock.json");
-const testerLock = readAgentLock("../test-writer/agent.lock.json");
+const reviewerLock = readAgentLock(
+  fileURLToPath(new URL("../code-reviewer/agent.lock.json", import.meta.url)),
+);
+const testerLock = readAgentLock(
+  fileURLToPath(new URL("../test-writer/agent.lock.json", import.meta.url)),
+);
 if (!reviewerLock || !testerLock) {
   throw new Error("publish the specialist agents before defining the coordinator");
 }

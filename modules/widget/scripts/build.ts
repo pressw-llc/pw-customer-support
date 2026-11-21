@@ -3,7 +3,7 @@ import { join } from "node:path";
 
 const root = join(import.meta.dir, "..");
 const dist = join(root, "dist");
-const apiUrl = process.env.SUPPORT_API_URL ?? "http://localhost:8787";
+const apiUrl = process.env.SUPPORT_API_URL || "http://localhost:8787";
 const define = { __SUPPORT_API_URL__: JSON.stringify(apiUrl) };
 
 function assertBuilt(result: Awaited<ReturnType<typeof Bun.build>>) {

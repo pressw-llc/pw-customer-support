@@ -40,6 +40,23 @@ bun run stack:down
 
 `bun run check` leaves the stack running.
 
+## Vendored skills
+
+The `pw-pipeline-*` and `pw-agents-*` skills are upstream copies. Do not edit them.
+
+They describe the pipelines repository's own ports and compose file. This repository uses Postgres on 5447 and LocalStack on 4577 through the root `docker-compose.yml`.
+
+This repository carries two local patches. `pw-agents-multiagent/SKILL.md` resolves the specialist `agent.lock.json` paths from the module directory instead of the working directory. `pw-agents-sessions/SKILL.md` skips child-thread idle events in the custom session loop.
+
+A `skills install --force` refresh overwrites both patches until upstream ships the fix. Re-apply or check them after each refresh.
+
+Refresh the copies with the upstream install commands. Phase 2 adds both packages to `modules/triage` first.
+
+```bash
+bunx pw-pipeline skills install --force
+bunx pw-managed-agents skills install --force
+```
+
 ## Plans
 
 Plans live in `docs/plans/customer-support-v1/`. `PRD.md` holds the locked decisions and the acceptance criteria. `PLAN.md` holds the phases. Start work with `/delivery-loop:scope <branch>`.
@@ -48,4 +65,5 @@ Plans live in `docs/plans/customer-support-v1/`. `PRD.md` holds the locked decis
 
 - Keep client names, client data, and real keys out of this public repository. Use `acme` in fixtures.
 - Never commit `.env.local`.
+- Manage `.env.example` and `.env.local` through `bun run env`. The `env-files` skill describes it.
 - Use the pipelines and managed-agents skills in this directory when you touch `triage`.

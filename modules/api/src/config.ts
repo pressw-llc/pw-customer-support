@@ -1,4 +1,8 @@
-import { ATTACHMENT_LIMITS, RESOURCE_NAMES } from "@pw-support/contracts";
+import {
+  ATTACHMENT_LIMITS,
+  RESOURCE_NAMES,
+  resolveStackEnv,
+} from "@pw-support/contracts";
 
 export interface ApiConfig {
   port: number;
@@ -17,7 +21,6 @@ export interface ApiConfig {
 }
 
 const DEFAULT_PORT = 8787;
-const DEFAULT_LOCALSTACK_PORT = "4577";
 const BODY_OVERHEAD_BYTES = 1024 * 1024;
 
 function positiveInt(value: string | undefined, fallback: number): number {
@@ -27,7 +30,7 @@ function positiveInt(value: string | undefined, fallback: number): number {
 
 export function loadConfig(env: NodeJS.ProcessEnv = process.env): ApiConfig {
   const local = env.NODE_ENV !== "production";
-  const localEndpoint = `http://127.0.0.1:${env.SUPPORT_LOCALSTACK_PORT ?? DEFAULT_LOCALSTACK_PORT}`;
+  const stack = resolveStackEnv(env);
   const accessKeyId = env.AWS_ACCESS_KEY_ID ?? (local ? "test" : undefined);
   const secretAccessKey =
     env.AWS_SECRET_ACCESS_KEY ?? (local ? "test" : undefined);
@@ -46,7 +49,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): ApiConfig {
     },
     s3: {
       region: env.AWS_REGION ?? "us-east-1",
-      endpoint: env.AWS_ENDPOINT_URL ?? (local ? localEndpoint : undefined),
+      endpoint: local ? stack.awsEndpointUrl : env.AWS_ENDPOINT_URL,
       credentials:
         accessKeyId && secretAccessKey
           ? { accessKeyId, secretAccessKey }

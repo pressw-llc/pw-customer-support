@@ -151,10 +151,10 @@ for await (const event of stream as AsyncIterable<SessionEvent>) {
     }
   } else if (isEventType(event, "agent.tool_use")) {
     process.stderr.write(`[tool_use ${event.name}]\n`);
-  } else if (
-    isEventType(event, "session.status_idle") ||
-    isEventType(event, "session.thread_status_idle")
-  ) {
+  } else if (isEventType(event, "session.status_idle")) {
+    break;
+  } else if (isEventType(event, "session.thread_status_idle")) {
+    if (event.parent_thread_id) continue;
     break;
   } else if (isEventType(event, "session.error")) {
     throw new Error(`session error`);
