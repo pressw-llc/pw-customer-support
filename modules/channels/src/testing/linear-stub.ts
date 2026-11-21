@@ -124,7 +124,10 @@ export function startLinearStub(options: StubOptions = {}): LinearStub {
     return `${t.key}-${next}`;
   }
 
-  const handlers: Record<string, (vars: Record<string, unknown>) => unknown> = {
+  const handlers: Record<
+    string,
+    (vars: Record<string, unknown>, query: string) => unknown
+  > = {
     team(vars) {
       const found = teams.find((t) => t.id === vars.id || t.key === vars.id);
       return { team: found ?? null };
@@ -159,19 +162,30 @@ export function startLinearStub(options: StubOptions = {}): LinearStub {
         },
       };
     },
-    issues(vars) {
+    issues(vars, query) {
       const teamId = vars.teamId;
       const marker = String(vars.marker ?? "");
+      const operator = /description:\s*\{\s*(\w+)\s*:/.exec(query)?.[1];
+      const first = Number(/first:\s*(\d+)/.exec(query)?.[1] ?? 50);
+      const matches = (description: string) =>
+        operator === "endsWith"
+          ? description.endsWith(marker)
+          : description.includes(marker);
       const nodes = stub.issues
         .filter(
           (i) =>
             i.teamId === teamId &&
             !i.archived &&
             marker !== "" &&
-            i.description.includes(marker),
+            matches(i.description),
         )
-        .slice(0, 1)
-        .map(({ id, identifier, url }) => ({ id, identifier, url }));
+        .slice(0, first)
+        .map(({ id, identifier, url, description }) => ({
+          id,
+          identifier,
+          url,
+          description,
+        }));
       return { issues: { nodes } };
     },
     issueCreate(vars) {
@@ -293,7 +307,7 @@ export function startLinearStub(options: StubOptions = {}): LinearStub {
         );
       }
       try {
-        return Response.json({ data: handler(variables) });
+        return Response.json({ data: handler(variables, query) });
       } catch (error) {
         if (error instanceof GraphQlFailure) {
           return Response.json(

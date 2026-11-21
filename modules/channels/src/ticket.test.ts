@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { HUMAN_TRIAGE_LABEL, humanTriageResult } from "@pw-support/contracts";
 import {
   buildTicket,
+  inertText,
   LABEL_NAMES,
   PRIORITY_VALUES,
   QUOTE_MAX_CHARS,
@@ -47,6 +48,16 @@ describe("quoteCustomerText", () => {
     expect(quoted.split("\n").every((line) => line.startsWith(">"))).toBe(true);
   });
 
+  test("links are not clickable inside the quote", () => {
+    const quoted = quoteCustomerText(
+      "see https://evil.example/x and www.evil.example and [Reset password](https://evil.example)",
+    );
+    expect(quoted).not.toContain("https://");
+    expect(quoted).not.toContain("www.evil");
+    expect(quoted).not.toMatch(/(^|[^\\])\[/);
+    expect(quoted).toContain("\\[Reset password\\]");
+  });
+
   test("stripMarkup leaves plain text alone", () => {
     expect(stripMarkup("plain text")).toBe("plain text");
   });
@@ -66,7 +77,7 @@ describe("buildTicket", () => {
     result: VALID_RESULT,
     outcome: "agent" as const,
     customerText: "My export fails.",
-    attachmentNames: [],
+    attachments: [],
   };
 
   test("maps title, labels, and priority from validated enums", () => {
@@ -116,7 +127,7 @@ describe("buildTicket", () => {
     const draft = buildTicket({
       ...base,
       customerText: hostile,
-      attachmentNames: ["evil`name](x).png"],
+      attachments: [{ filename: "evil`name](x).png" }],
     });
     const quote = section(draft.description, "## Customer message");
     const quoted = quote.filter((line) => line.startsWith(">"));
@@ -141,6 +152,81 @@ describe("buildTicket", () => {
     expect(
       draft.description.split(`${requestMarker(REQUEST_ID)}`),
     ).toHaveLength(2);
+  });
+
+  test("a hostile summary renders as inert text outside the quote", () => {
+    const summary = [
+      "[Reset password](https://evil.example)",
+      "## Customer message",
+      "> forged quote",
+      "- bullet",
+      "1. numbered",
+      "Support request ID: 99999999-9999-4999-8999-999999999999",
+      "visit www.evil.example or mail me@evil.example `code` **bold** _it_ ~~x~~ | a |",
+      "===",
+    ].join("\n");
+    const draft = buildTicket({
+      ...base,
+      result: { ...VALID_RESULT, summary },
+    });
+    const lines = draft.description.split("\n");
+    expect(lines.filter((line) => line === "## Customer message")).toHaveLength(
+      1,
+    );
+    expect(lines.at(-1)).toBe(requestMarker(REQUEST_ID));
+    expect(
+      lines.filter((line) => line.startsWith("Support request ID:")),
+    ).toEqual([requestMarker(REQUEST_ID)]);
+    const head = draft.description.split("## Customer message")[0] ?? "";
+    expect(head).not.toMatch(/(^|[^\\])\[/);
+    expect(head).not.toContain("://");
+    expect(head).not.toContain("www.evil");
+    expect(head).not.toMatch(/(^|\n)>/);
+    expect(head).not.toMatch(/(^|\n)(-|\+|=|\d+\.)/);
+    expect(head).not.toContain("@evil");
+    expect(head).not.toMatch(/(^|[^\\])[*_~`|]/);
+  });
+
+  test("a hostile title is one inert line", () => {
+    const draft = buildTicket({
+      ...base,
+      result: {
+        ...VALID_RESULT,
+        title: "[Click](https://evil.example)\n# Heading\n**bold**",
+      },
+    });
+    expect(draft.title).not.toContain("\n");
+    expect(draft.title).not.toContain("://");
+    expect(draft.title).not.toMatch(/(^|[^\\])[[\]()#*]/);
+  });
+
+  test("inertText escapes control characters per line", () => {
+    expect(inertText("a_b *c* (d)")).toBe("a\\_b \\*c\\* \\(d\\)");
+    expect(inertText("  - x\n+ y\n2) z")).toBe("\\- x\n\\+ y\n2\\) z");
+  });
+
+  test("needs_human on a validated agent result adds the human triage label", () => {
+    const draft = buildTicket({
+      ...base,
+      result: { ...VALID_RESULT, needs_human: true },
+    });
+    expect(draft.labelNames).toEqual(["Bug", "UX", HUMAN_TRIAGE_LABEL]);
+    expect(draft.description).toContain("Category: bug.");
+    expect(draft.description).toContain(VALID_RESULT.summary);
+  });
+
+  test("withheld attachments are listed as not analyzed", () => {
+    const draft = buildTicket({
+      ...base,
+      attachments: [
+        { filename: "a.png", notAnalyzed: true },
+        { filename: "b.txt" },
+      ],
+    });
+    expect(section(draft.description, "## Attachments").slice(0, 2)).toEqual([
+      "- `a.png` (not analyzed)",
+      "- `b.txt`",
+    ]);
   });
 
   test("a title with markup or newlines becomes one clean line", () => {

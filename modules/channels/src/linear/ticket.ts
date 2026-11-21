@@ -56,8 +56,35 @@ export function stripMarkup(value: string): string {
     .replace(/@/g, `@${ZERO_WIDTH_SPACE}`);
 }
 
+function defangLinks(value: string): string {
+  return value
+    .replace(/:\/\//g, `:${ZERO_WIDTH_SPACE}//`)
+    .replace(/\bwww\./gi, `www${ZERO_WIDTH_SPACE}.`);
+}
+
+const MARKDOWN_CONTROL = /[\\[\]()#*_~|<>`!]/g;
+
+function inertLine(line: string): string {
+  return line
+    .trim()
+    .replace(MARKDOWN_CONTROL, "\\$&")
+    .replace(/^([-+=])/, "\\$1")
+    .replace(/^(\d+)([.)])/, "$1\\$2")
+    .replace(/(support\s+request\s+id)\s*:/gi, `$1${ZERO_WIDTH_SPACE}:`);
+}
+
+export function inertText(value: string, singleLine = false): string {
+  const cleaned = defangLinks(stripMarkup(value));
+  const lines = singleLine
+    ? [cleaned.replace(/\s+/g, " ")]
+    : cleaned.split("\n");
+  return lines.map(inertLine).join("\n").trim();
+}
+
 export function quoteCustomerText(text: string): string {
-  const cleaned = stripMarkup(text).trim();
+  const cleaned = defangLinks(stripMarkup(text))
+    .replace(/[[\]]/g, "\\$&")
+    .trim();
   const capped =
     cleaned.length > QUOTE_MAX_CHARS
       ? `${cleaned.slice(0, QUOTE_MAX_CHARS)}\n[text cut at ${QUOTE_MAX_CHARS} characters]`
@@ -76,17 +103,18 @@ export function safeFilename(filename: string): string {
   return cleaned === "" ? "file" : cleaned;
 }
 
-function oneLine(value: string): string {
-  return stripMarkup(value).replace(/\s+/g, " ").trim();
-}
-
 export interface TicketInput {
   requestId: string;
   result: TriageResult;
   outcome: TriageOutcome;
   humanTriageReason?: HumanTriageReason;
   customerText: string;
-  attachmentNames: string[];
+  attachments: TicketAttachment[];
+}
+
+export interface TicketAttachment {
+  filename: string;
+  notAnalyzed?: boolean;
 }
 
 export interface TicketDraft {
@@ -100,8 +128,9 @@ export function buildTicket(input: TicketInput): TicketDraft {
   const { result } = input;
   const human = input.outcome === "human_triage";
   const title =
-    oneLine(result.title).slice(0, TITLE_MAX_CHARS) || "Support request";
-  const sections: string[] = [stripMarkup(result.summary).trim()];
+    inertText(result.title.slice(0, TITLE_MAX_CHARS), true) ||
+    "Support request";
+  const sections: string[] = [inertText(result.summary)];
   if (human && input.humanTriageReason) {
     sections.push(`Reason: ${input.humanTriageReason}`);
   } else {
@@ -112,14 +141,19 @@ export function buildTicket(input: TicketInput): TicketDraft {
   sections.push(
     `## Customer message\n${quoteCustomerText(input.customerText)}`,
   );
-  if (input.attachmentNames.length > 0) {
+  if (input.attachments.length > 0) {
     sections.push(
-      `## Attachments\n${input.attachmentNames.map((name) => `- \`${safeFilename(name)}\``).join("\n")}`,
+      `## Attachments\n${input.attachments
+        .map(
+          (file) =>
+            `- \`${safeFilename(file.filename)}\`${file.notAnalyzed ? " (not analyzed)" : ""}`,
+        )
+        .join("\n")}`,
     );
   }
   sections.push(requestMarker(input.requestId));
   const labelNames = result.labels.map((label) => LABEL_NAMES[label]);
-  if (human) labelNames.push(HUMAN_TRIAGE_LABEL);
+  if (human || result.needs_human) labelNames.push(HUMAN_TRIAGE_LABEL);
   return {
     title,
     description: sections.join("\n\n"),

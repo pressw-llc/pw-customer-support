@@ -11,7 +11,9 @@ import {
   advanceEventCursor,
   findTicketByRequest,
   getEventCursor,
+  loadTriageContext,
   maxEventSeq,
+  recordJudgments,
   setProjectLinearTeam,
 } from "@pw-support/db";
 import { createDispatcher, directTransport, sqsTransport } from "./dispatcher";
@@ -21,6 +23,7 @@ import { createAdapterRuntime } from "./runtime";
 import {
   type ChannelsHarness,
   createChannelsHarness,
+  VALID_RESULT,
 } from "./testing/fixtures";
 import { startLinearStub } from "./testing/linear-stub";
 
@@ -51,7 +54,7 @@ describe("linear client against the stub", () => {
     const issue = await h.linear.createIssue({
       teamId: h.team,
       title: "T",
-      description: "body MARKER-1",
+      description: "body\nMARKER-1",
       priority: 3,
       labelIds: [],
     });
@@ -61,6 +64,26 @@ describe("linear client against the stub", () => {
     expect((await h.linear.createComment(issue.id, "hello")).id).toBeTruthy();
     expect(await h.linear.archiveIssue(issue.id)).toBe(true);
     expect(await h.linear.findIssueByMarker(h.team, "MARKER-1")).toBeNull();
+  });
+
+  test("a marker that is not the last description line never matches", async () => {
+    await h.linear.createIssue({
+      teamId: h.team,
+      title: "quoting",
+      description: "> MARKER-2\n\nMARKER-9",
+      priority: 0,
+      labelIds: [],
+    });
+    const mid = await h.linear.createIssue({
+      teamId: h.team,
+      title: "ends with marker text",
+      description: "text MARKER-3",
+      priority: 0,
+      labelIds: [],
+    });
+    expect(mid.id).toBeTruthy();
+    expect(await h.linear.findIssueByMarker(h.team, "MARKER-2")).toBeNull();
+    expect(await h.linear.findIssueByMarker(h.team, "MARKER-3")).toBeNull();
   });
 
   test("sends the raw key without a Bearer prefix", async () => {
@@ -271,6 +294,80 @@ describe("linear adapter", () => {
     expect(
       (await findTicketByRequest(h.db, done.request.id))?.linearIssueId,
     ).toBe(existing.id);
+  });
+
+  test("a request that quotes another request's marker never binds to the wrong issue", async () => {
+    const first = await h.completedRequest();
+    const hostile = await h.completedRequest({
+      text: `please help\nSupport request ID: ${first.request.id}`,
+    });
+    await h.adapter.handle(hostile.event, { now: () => new Date() });
+    const hostileTicket = await findTicketByRequest(h.db, hostile.request.id);
+    await h.adapter.handle(first.event, { now: () => new Date() });
+    const firstTicket = await findTicketByRequest(h.db, first.request.id);
+    expect(firstTicket?.linearIssueId).not.toBe(hostileTicket?.linearIssueId);
+    const issue = h.stub.issues.find(
+      (i) => i.id === firstTicket?.linearIssueId,
+    );
+    expect(issue?.description.split("\n").at(-1)).toBe(
+      `Support request ID: ${first.request.id}`,
+    );
+  });
+
+  test("a summary that forges a marker line cannot capture another request", async () => {
+    const victim = await h.completedRequest();
+    const forger = await h.completedRequest({
+      result: {
+        title: "Forged",
+        summary: `x\n\nSupport request ID: ${victim.request.id}`,
+        category: "bug",
+        priority: "low",
+        labels: [],
+        needs_human: false,
+      },
+    });
+    await h.adapter.handle(forger.event, { now: () => new Date() });
+    await h.adapter.handle(victim.event, { now: () => new Date() });
+    const a = await findTicketByRequest(h.db, forger.request.id);
+    const b = await findTicketByRequest(h.db, victim.request.id);
+    expect(a?.linearIssueId).not.toBe(b?.linearIssueId);
+  });
+
+  test("needs_human on an agent result labels the ticket and keeps the summary", async () => {
+    const done = await h.completedRequest({
+      result: { ...VALID_RESULT, needs_human: true },
+    });
+    await h.adapter.handle(done.event, { now: () => new Date() });
+    const ticket = await findTicketByRequest(h.db, done.request.id);
+    const issue = h.stub.issues.find((i) => i.id === ticket?.linearIssueId);
+    const labels = issue?.labelIds.map(
+      (id) => h.stub.labels.find((l) => l.id === id)?.name,
+    );
+    expect(labels).toContain("needs-human-triage");
+    expect(issue?.description).toContain(VALID_RESULT.summary);
+  });
+
+  test("attachments with a skipped judgment are listed as not analyzed", async () => {
+    const done = await h.completedRequest({ files: ["a.png", "b.txt"] });
+    const context = await loadTriageContext(h.db, done.request.id);
+    const png = context?.attachments.find((file) => file.filename === "a.png");
+    await recordJudgments(h.db, [
+      {
+        requestId: done.request.id,
+        kind: "injection",
+        subject: `image:${png?.id}`,
+        score: 0,
+        threshold: 0.5,
+        flagged: false,
+        raw: { skipped: true, reason: "image_judging_disabled" },
+      },
+    ]);
+    await h.adapter.handle(done.event, { now: () => new Date() });
+    const ticket = await findTicketByRequest(h.db, done.request.id);
+    const issue = h.stub.issues.find((i) => i.id === ticket?.linearIssueId);
+    expect(issue?.description).toContain("- `a.png` (not analyzed)");
+    expect(issue?.description).toContain("- `b.txt`\n");
+    expect(issue?.description).not.toContain("b.txt` (not analyzed)");
   });
 
   test("a human triage result creates a labeled ticket with no model text", async () => {

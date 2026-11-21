@@ -79,6 +79,10 @@ const issueShape = z.object({
   url: z.string(),
 });
 
+function lastLine(description: string): string {
+  return description.trimEnd().split(/\r?\n/).pop() ?? "";
+}
+
 const labelNode = z.object({ id: z.string(), name: z.string() });
 
 export function createLinearClient(options: LinearClientOptions): LinearClient {
@@ -164,11 +168,22 @@ export function createLinearClient(options: LinearClientOptions): LinearClient {
 
     async findIssueByMarker(teamId, marker) {
       const data = await request(
-        "query Issues($teamId: ID!, $marker: String!) { issues(first: 1, filter: { team: { id: { eq: $teamId } }, description: { contains: $marker } }) { nodes { id identifier url } } }",
+        "query Issues($teamId: ID!, $marker: String!) { issues(first: 20, filter: { team: { id: { eq: $teamId } }, description: { endsWith: $marker } }) { nodes { id identifier url description } } }",
         { teamId, marker },
-        z.object({ issues: z.object({ nodes: z.array(issueShape) }) }),
+        z.object({
+          issues: z.object({
+            nodes: z.array(
+              issueShape.extend({ description: z.string().nullable() }),
+            ),
+          }),
+        }),
       );
-      return data.issues.nodes[0] ?? null;
+      const match = data.issues.nodes.find(
+        (node) => lastLine(node.description ?? "") === marker,
+      );
+      return match
+        ? { id: match.id, identifier: match.identifier, url: match.url }
+        : null;
     },
 
     async createIssue(input) {

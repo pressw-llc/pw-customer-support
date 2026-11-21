@@ -13,6 +13,7 @@ import {
   insertTicket,
   inTransaction,
   listBlockedTicketEvents,
+  listJudgments,
   loadTriageContext,
   requestHasEvent,
   type SupportDb,
@@ -79,6 +80,11 @@ export function createLinearAdapter(deps: LinearAdapterDeps): LinearAdapter {
         return { status: "blocked", reason: "no_linear_team" };
       }
       const outcome = triageOutcomeSchema.parse(job.outcome);
+      const withheld = new Set(
+        (await listJudgments(tx, requestId))
+          .filter((row) => row.raw.skipped === true)
+          .map((row) => row.subject),
+      );
       const draft = buildTicket({
         requestId,
         result: stored.result,
@@ -87,7 +93,10 @@ export function createLinearAdapter(deps: LinearAdapterDeps): LinearAdapter {
           | HumanTriageReason
           | undefined,
         customerText: context.messages.map((m) => m.body).join("\n\n"),
-        attachmentNames: context.attachments.map((file) => file.filename),
+        attachments: context.attachments.map((file) => ({
+          filename: file.filename,
+          notAnalyzed: withheld.has(`image:${file.id}`),
+        })),
       });
       const labelIds: string[] = [];
       for (const name of draft.labelNames) {
