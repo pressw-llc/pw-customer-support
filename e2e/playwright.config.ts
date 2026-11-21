@@ -6,8 +6,8 @@ const here = dirname(fileURLToPath(import.meta.url));
 const root = resolve(here, "..");
 
 export const E2E = {
-  apiPort: 8788,
-  appPort: 5174,
+  apiPort: Number(process.env.E2E_API_PORT) || 8788,
+  appPort: Number(process.env.E2E_APP_PORT) || 5174,
   projectKey: "pk_e2e_acme_portal",
   projectSlug: "e2e",
   clientSlug: "acme",

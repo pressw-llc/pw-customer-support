@@ -16,6 +16,7 @@ import {
   type IntakeService,
   ProcessingError,
 } from "./intake-service";
+import { MAX_TEXT_FIELD_BYTES } from "./message-checks";
 import { type IntakeEnv, identify, rateLimit } from "./middleware";
 import type { ObjectStorage } from "./storage";
 
@@ -31,15 +32,29 @@ export interface AppDeps {
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
-async function readInbound(request: Request): Promise<InboundInput | null> {
+type InboundRead =
+  | { ok: true; input: InboundInput }
+  | { ok: false; status: 400 | 413; error: string };
+
+const TEXT_REQUIRED: InboundRead = {
+  ok: false,
+  status: 400,
+  error: "text_required",
+};
+
+async function readInbound(request: Request): Promise<InboundRead> {
   const form = await request.formData().catch(() => null);
-  if (!form) return null;
+  if (!form) return TEXT_REQUIRED;
   const text = form.get("text");
-  if (typeof text !== "string" || text.trim() === "") return null;
+  if (typeof text !== "string") return TEXT_REQUIRED;
+  if (Buffer.byteLength(text) > MAX_TEXT_FIELD_BYTES) {
+    return { ok: false, status: 413, error: "payload_too_large" };
+  }
+  if (text.trim() === "") return TEXT_REQUIRED;
   const files = form
     .getAll("files")
     .filter((value) => typeof value !== "string") as unknown as File[];
-  return { text, files };
+  return { ok: true, input: { text, files } };
 }
 
 function contentDisposition(filename: string): string {
@@ -50,9 +65,9 @@ function intakeRoutes(service: IntakeService) {
   const routes = new Hono<IntakeEnv>();
 
   routes.post("/requests", async (c) => {
-    const input = await readInbound(c.req.raw);
-    if (!input) return c.json({ error: "text_required" }, 400);
-    return c.json(await service.createRequest(c.get("scope"), input), 201);
+    const read = await readInbound(c.req.raw);
+    if (!read.ok) return c.json({ error: read.error }, read.status);
+    return c.json(await service.createRequest(c.get("scope"), read.input), 201);
   });
 
   routes.get("/requests", async (c) =>
@@ -69,10 +84,10 @@ function intakeRoutes(service: IntakeService) {
 
   routes.post("/requests/:id/messages", async (c) => {
     const id = c.req.param("id");
-    const input = await readInbound(c.req.raw);
-    if (!input) return c.json({ error: "text_required" }, 400);
+    const read = await readInbound(c.req.raw);
+    if (!read.ok) return c.json({ error: read.error }, read.status);
     const result = UUID.test(id)
-      ? await service.addMessage(c.get("scope"), id, input)
+      ? await service.addMessage(c.get("scope"), id, read.input)
       : null;
     return result ? c.json(result, 201) : c.json({ error: "not_found" }, 404);
   });

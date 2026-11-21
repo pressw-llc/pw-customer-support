@@ -42,6 +42,7 @@ export interface IntakeResult {
   requestId: string;
   message: ThreadMessage;
   files: FileResult[];
+  truncated?: boolean;
 }
 
 export interface RequestSummary {

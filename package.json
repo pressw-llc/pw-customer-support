@@ -21,6 +21,7 @@
     "stack:down": "bun scripts/stack.ts down",
     "stack:setup": "bun scripts/stack-setup.ts",
     "env": "bun scripts/env.ts",
+    "validate:phase-1": "bun scripts/validate/phase-1-smoke.ts",
     "db:migrate": "bun scripts/db-migrate.ts",
     "seed:dev": "bun scripts/seed-dev.ts",
     "dev:api": "bun scripts/db-migrate.ts && bun scripts/stack-setup.ts && bun modules/api/src/server.ts",
