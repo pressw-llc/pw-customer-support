@@ -8,3 +8,6 @@ export const RESOURCE_NAMES = {
 } as const;
 
 export const TRIAGE_WAKE_MAX_RECEIVES = 5;
+
+export const TRIAGE_WAKE_VISIBILITY_TIMEOUT_SECONDS = 300;
+export const LINEAR_ADAPTER_VISIBILITY_TIMEOUT_SECONDS = 60;

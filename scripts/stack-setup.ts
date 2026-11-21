@@ -6,12 +6,16 @@ import {
 import {
   CreateQueueCommand,
   GetQueueAttributesCommand,
+  GetQueueUrlCommand,
+  SetQueueAttributesCommand,
   SQSClient,
 } from "@aws-sdk/client-sqs";
 import {
+  LINEAR_ADAPTER_VISIBILITY_TIMEOUT_SECONDS,
   RESOURCE_NAMES,
   resolveStackEnv,
   TRIAGE_WAKE_MAX_RECEIVES,
+  TRIAGE_WAKE_VISIBILITY_TIMEOUT_SECONDS,
 } from "@pw-support/contracts";
 
 export interface StackConfig {
@@ -59,39 +63,64 @@ export async function setupStack(config: StackConfig): Promise<void> {
   const s3 = new S3Client({ ...clientConfig(config), forcePathStyle: true });
   const sqs = new SQSClient(clientConfig(config));
   await ensureBucket(s3, config.bucket);
-  await ensureQueueWithDlq(sqs, config.wakeQueue, config.wakeDlq);
+  await ensureQueueWithDlq(
+    sqs,
+    config.wakeQueue,
+    config.wakeDlq,
+    TRIAGE_WAKE_VISIBILITY_TIMEOUT_SECONDS,
+  );
   await ensureQueueWithDlq(
     sqs,
     config.linearAdapterQueue,
     config.linearAdapterDlq,
+    LINEAR_ADAPTER_VISIBILITY_TIMEOUT_SECONDS,
   );
   s3.destroy();
   sqs.destroy();
+}
+
+async function ensureQueue(
+  sqs: SQSClient,
+  name: string,
+  attributes: Record<string, string>,
+): Promise<string> {
+  let url: string | undefined;
+  try {
+    url = (
+      await sqs.send(
+        new CreateQueueCommand({ QueueName: name, Attributes: attributes }),
+      )
+    ).QueueUrl;
+  } catch {
+    url = (await sqs.send(new GetQueueUrlCommand({ QueueName: name })))
+      .QueueUrl;
+  }
+  await sqs.send(
+    new SetQueueAttributesCommand({ QueueUrl: url, Attributes: attributes }),
+  );
+  return url as string;
 }
 
 async function ensureQueueWithDlq(
   sqs: SQSClient,
   queue: string,
   dlq: string,
+  visibilityTimeoutSeconds: number,
 ): Promise<void> {
-  const created = await sqs.send(new CreateQueueCommand({ QueueName: dlq }));
+  const dlqUrl = await ensureQueue(sqs, dlq, {});
   const attributes = await sqs.send(
     new GetQueueAttributesCommand({
-      QueueUrl: created.QueueUrl,
+      QueueUrl: dlqUrl,
       AttributeNames: ["QueueArn"],
     }),
   );
-  await sqs.send(
-    new CreateQueueCommand({
-      QueueName: queue,
-      Attributes: {
-        RedrivePolicy: JSON.stringify({
-          deadLetterTargetArn: attributes.Attributes?.QueueArn,
-          maxReceiveCount: TRIAGE_WAKE_MAX_RECEIVES,
-        }),
-      },
+  await ensureQueue(sqs, queue, {
+    VisibilityTimeout: String(visibilityTimeoutSeconds),
+    RedrivePolicy: JSON.stringify({
+      deadLetterTargetArn: attributes.Attributes?.QueueArn,
+      maxReceiveCount: TRIAGE_WAKE_MAX_RECEIVES,
     }),
-  );
+  });
 }
 
 if (import.meta.main) {

@@ -1,8 +1,10 @@
 import {
+  LINEAR_ADAPTER_VISIBILITY_TIMEOUT_SECONDS,
   RESOURCE_NAMES,
   TRIAGE_WAKE_MAX_RECEIVES,
+  TRIAGE_WAKE_VISIBILITY_TIMEOUT_SECONDS,
 } from "@pw-support/contracts";
-import { RemovalPolicy, Stack, type StackProps } from "aws-cdk-lib";
+import { Duration, RemovalPolicy, Stack, type StackProps } from "aws-cdk-lib";
 import * as s3 from "aws-cdk-lib/aws-s3";
 import * as sqs from "aws-cdk-lib/aws-sqs";
 import type { Construct } from "constructs";
@@ -35,6 +37,9 @@ export class SupportStack extends Stack {
     this.triageWakeQueue = new sqs.Queue(this, "TriageWakeQueue", {
       queueName: RESOURCE_NAMES.triageWakeQueue,
       encryption: sqs.QueueEncryption.SQS_MANAGED,
+      visibilityTimeout: Duration.seconds(
+        TRIAGE_WAKE_VISIBILITY_TIMEOUT_SECONDS,
+      ),
       deadLetterQueue: {
         queue: this.triageWakeDlq,
         maxReceiveCount: TRIAGE_WAKE_MAX_RECEIVES,
@@ -49,6 +54,9 @@ export class SupportStack extends Stack {
     this.linearAdapterQueue = new sqs.Queue(this, "LinearAdapterQueue", {
       queueName: RESOURCE_NAMES.linearAdapterQueue,
       encryption: sqs.QueueEncryption.SQS_MANAGED,
+      visibilityTimeout: Duration.seconds(
+        LINEAR_ADAPTER_VISIBILITY_TIMEOUT_SECONDS,
+      ),
       deadLetterQueue: {
         queue: this.linearAdapterDlq,
         maxReceiveCount: TRIAGE_WAKE_MAX_RECEIVES,

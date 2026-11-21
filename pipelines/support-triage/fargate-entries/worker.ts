@@ -4,11 +4,10 @@ import {
   defaultFargateSqsAdapter,
   fargateMain,
 } from "@pressw-llc/pipeline";
+import { TRIAGE_WAKE_VISIBILITY_TIMEOUT_SECONDS } from "@pw-support/contracts";
 import { getWorkerRuntime, startSweeper } from "@pw-support/triage";
 import pipeline from "../pipeline.config";
 import triage from "../steps/triage/index";
-
-const VISIBILITY_TIMEOUT_SECONDS = 60;
 
 export async function runTriageWorker(options: {
   client: SQSClient;
@@ -29,9 +28,9 @@ export async function runTriageWorker(options: {
         queueUrl: options.queueUrl,
         client: options.client,
         waitTimeSeconds: options.waitTimeSeconds ?? 20,
-        visibilityTimeoutSec: VISIBILITY_TIMEOUT_SECONDS,
+        visibilityTimeoutSec: TRIAGE_WAKE_VISIBILITY_TIMEOUT_SECONDS,
       }),
-      visibilityTimeoutSec: VISIBILITY_TIMEOUT_SECONDS,
+      visibilityTimeoutSec: TRIAGE_WAKE_VISIBILITY_TIMEOUT_SECONDS,
       shutdownSignal: options.signal,
     }),
     startSweeper(runtime.deps, options.signal),

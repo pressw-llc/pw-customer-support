@@ -1,6 +1,15 @@
 import { expect, test } from "bun:test";
 import { HeadBucketCommand, S3Client } from "@aws-sdk/client-s3";
-import { GetQueueUrlCommand, SQSClient } from "@aws-sdk/client-sqs";
+import {
+  GetQueueAttributesCommand,
+  GetQueueUrlCommand,
+  SetQueueAttributesCommand,
+  SQSClient,
+} from "@aws-sdk/client-sqs";
+import {
+  LINEAR_ADAPTER_VISIBILITY_TIMEOUT_SECONDS,
+  TRIAGE_WAKE_VISIBILITY_TIMEOUT_SECONDS,
+} from "@pw-support/contracts";
 import { setupStack, stackConfig } from "./stack-setup";
 
 test("stackConfig falls back to the local defaults", () => {
@@ -53,5 +62,44 @@ test("setupStack creates the bucket and queues and can run twice", async () => {
   expect(wake.QueueUrl).toContain(config.wakeQueue);
   expect(dlq.QueueUrl).toContain(config.wakeDlq);
   s3.destroy();
+  sqs.destroy();
+});
+
+test("setupStack enforces the visibility timeout on queues that already exist", async () => {
+  const config = stackConfig();
+  const sqs = new SQSClient({
+    endpoint: config.endpoint,
+    region: config.region,
+    credentials: { accessKeyId: "test", secretAccessKey: "test" },
+  });
+  const timeoutOf = async (name: string) => {
+    const { QueueUrl } = await sqs.send(
+      new GetQueueUrlCommand({ QueueName: name }),
+    );
+    const attributes = await sqs.send(
+      new GetQueueAttributesCommand({
+        QueueUrl,
+        AttributeNames: ["VisibilityTimeout"],
+      }),
+    );
+    return Number(attributes.Attributes?.VisibilityTimeout);
+  };
+  const { QueueUrl } = await sqs.send(
+    new GetQueueUrlCommand({ QueueName: config.wakeQueue }),
+  );
+  await sqs.send(
+    new SetQueueAttributesCommand({
+      QueueUrl,
+      Attributes: { VisibilityTimeout: "30" },
+    }),
+  );
+  expect(await timeoutOf(config.wakeQueue)).toBe(30);
+  await setupStack(config);
+  expect(await timeoutOf(config.wakeQueue)).toBe(
+    TRIAGE_WAKE_VISIBILITY_TIMEOUT_SECONDS,
+  );
+  expect(await timeoutOf(config.linearAdapterQueue)).toBe(
+    LINEAR_ADAPTER_VISIBILITY_TIMEOUT_SECONDS,
+  );
   sqs.destroy();
 });

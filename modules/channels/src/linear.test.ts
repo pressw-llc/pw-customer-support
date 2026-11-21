@@ -19,7 +19,7 @@ import {
 import { createDispatcher, directTransport, sqsTransport } from "./dispatcher";
 import { createLinearClient, envSecrets, LinearError } from "./linear/client";
 import { pollOnce } from "./poller";
-import { createAdapterRuntime } from "./runtime";
+import { createAdapterRuntime, linearApiUrlFor } from "./runtime";
 import {
   type ChannelsHarness,
   createChannelsHarness,
@@ -244,6 +244,20 @@ describe("linear client against the stub", () => {
       /not configured/,
     );
     await expect(envSecrets({}).get("other")).rejects.toThrow(/not configured/);
+  });
+});
+
+describe("LINEAR_API_URL override", () => {
+  test("S11 is honored outside production and ignored in production", () => {
+    const override = "http://127.0.0.1:4590/graphql";
+    expect(linearApiUrlFor({ LINEAR_API_URL: override })).toBe(override);
+    expect(
+      linearApiUrlFor({ LINEAR_API_URL: override, NODE_ENV: "development" }),
+    ).toBe(override);
+    expect(
+      linearApiUrlFor({ LINEAR_API_URL: override, NODE_ENV: "production" }),
+    ).toBeUndefined();
+    expect(linearApiUrlFor({})).toBeUndefined();
   });
 });
 

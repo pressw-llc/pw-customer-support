@@ -9,6 +9,12 @@ import {
 
 type EnvLike = Record<string, string | undefined>;
 
+export function linearApiUrlFor(env: EnvLike): string | undefined {
+  return env.NODE_ENV === "production"
+    ? undefined
+    : env.LINEAR_API_URL || undefined;
+}
+
 export interface AdapterRuntime {
   db: SupportDb;
   linear: LinearClient;
@@ -22,7 +28,7 @@ export function createAdapterRuntime(
   const db = overrides.db ?? createDb();
   const linear = createLinearClient({
     secrets: overrides.secrets ?? envSecrets(env),
-    apiUrl: env.LINEAR_API_URL || undefined,
+    apiUrl: linearApiUrlFor(env),
   });
   return { db, linear, linearAdapter: createLinearAdapter({ db, linear }) };
 }
