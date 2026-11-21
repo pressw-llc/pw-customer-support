@@ -15,7 +15,24 @@ bun run db:migrate
 bun run check
 ```
 
-The stack runs Postgres on `127.0.0.1:5447` and LocalStack on `127.0.0.1:4577`. Set `SUPPORT_POSTGRES_PORT` or `SUPPORT_LOCALSTACK_PORT` to change them. Copy `.env.example` to `.env.local` to override any other variable. Every script works with the defaults when `.env.local` is absent.
+The stack runs Postgres on `127.0.0.1:5447` and LocalStack on `127.0.0.1:4577`. Every script runs on built-in defaults against the local stack, so no env file is required.
+
+## Environment
+
+Put overrides in `.env.local`, which is gitignored.
+
+| Variable                                  | Default                                           | Purpose                                      |
+| ----------------------------------------- | ------------------------------------------------- | -------------------------------------------- |
+| `SUPPORT_POSTGRES_PORT`                   | `5447`                                            | Host port for Postgres                       |
+| `SUPPORT_LOCALSTACK_PORT`                 | `4577`                                            | Host port for LocalStack                     |
+| `DATABASE_URL`                            | `postgres://support:support@127.0.0.1:5447/support` | Postgres connection string                   |
+| `AWS_REGION`                              | `us-east-1`                                       | AWS region for the SDK clients               |
+| `AWS_ENDPOINT_URL`                        | `http://127.0.0.1:4577`                           | AWS endpoint, LocalStack locally             |
+| `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY` | `test`                                         | Local credentials for LocalStack             |
+| `ATTACHMENTS_BUCKET`                      | `pw-support-attachments`                          | S3 bucket for attachments                    |
+| `TRIAGE_WAKE_QUEUE`                       | `pw-support-triage-wake`                          | SQS queue that wakes triage                  |
+| `TRIAGE_WAKE_DLQ`                         | `pw-support-triage-wake-dlq`                      | Dead-letter queue for the wake queue         |
+| `API_PORT`                                | `8787`                                            | Port for the Hono API server                 |
 
 ## Commands
 
