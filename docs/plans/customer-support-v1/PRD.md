@@ -107,6 +107,7 @@ PressW has no shared intake path for client support requests. V1 gives client de
 | D33 | A message accepts 10 files of 25 MB each: images, PDF, text, logs, CSV, JSON, Office documents, zip. | Video is rejected. Zip content is stored and never extracted for the agent. |
 | D34 | A laptop runs a claimed job in a headless Claude Code subagent whose one tool submits the result. | Triage does not interrupt the engineer's session. |
 | D35 | Admin settings map each client project to one Linear team. The agent picks labels and priority only. | Team routing is deterministic. |
+| D37 | Phases 0 to 5 exit on the local stack. The first AWS deploy happens in Phase 6, after the account exists. | No phase before 6 waits on the account. Every phase keeps `cdk synth` green so the deploy stays ready. |
 | D36 | Admin settings store the severe-request CC list in V1. No V1 code reads the list. | The V2 Slack adapter needs no migration. |
 
 Claim precedence for one triage job, per D13 to D15:
@@ -172,14 +173,15 @@ flowchart TD
 | A19 | An admin route returns 401 without a Cognito token. A telemetry-pool user sees the request list with an acknowledgement timer. | D26, D30 |
 | A20 | The plugin lists, adds, and removes subscriptions and queries request state over MCP. | D27 |
 | A21 | `bun run check` passes locally. The Actions log shows the same command. | D23 |
-| A22 | The stack deploys to the dedicated account from the local deploy script and from Actions. A request submitted to the deployed API reaches Linear. | D22, D28 |
+| A22 | The stack deploys to the dedicated account from the local deploy script and from Actions. A request submitted to the deployed API reaches Linear. | D22, D28, D37 |
 | A23 | `bun install @pressw-llc/support-react` resolves from npmjs and from GitHub Packages. | D6, D29 |
 | A24 | A PR in this repository receives a `pressw-agent` review and no CodeRabbit review. | D24 |
 | A25 | A lint run fails on a cross-module deep import. | D3 |
 | A26 | Each module directory holds at least one skill. The root holds the pipelines skills and a repository skill. | D2 |
 | A27 | A request with a screenshot and a PDF yields a ticket summary that cites content from both. A PDF that holds an injection payload yields a human-triage ticket. | D32, D10 |
 | A28 | A laptop job completes while the engineer's session shows no prompt. The subagent's tool list holds one tool. | D34 |
-| A29 | A saved CC list survives a reload of admin settings. | D36 |
+| A29 | A saved CC list survives a reload of admin settings. | D37 | Phases 0 to 5 exit on the local stack. The first AWS deploy happens in Phase 6, after the account exists. | No phase before 6 waits on the account. Every phase keeps `cdk synth` green so the deploy stays ready. |
+| D36 |
 
 D1, D25 are structural and carry no behavior of their own. A21 and A25 cover them.
 
@@ -187,7 +189,7 @@ D1, D25 are structural and carry no behavior of their own. A21 and A25 cover the
 
 ```mermaid
 flowchart LR
-    P0[0 Foundation] --> G0{{check and deploy pass}}
+    P0[0 Foundation] --> G0{{check and synth pass}}
     G0 --> P1[1 Intake and widget]
     P1 --> G1{{request stored}}
     G1 --> P2[2 Triage to Linear]
@@ -203,7 +205,7 @@ flowchart LR
 
 | Phase | Delivers | Exit | Gate |
 | --- | --- | --- | --- |
-| 0 | Workspace, `contracts`, `db`, Compose stack, check scripts, Actions, CDK skeleton, `.coderabbit.yaml`, root skills | A21, A24, A25 pass. The empty stack deploys to the dedicated account. | PR reviewer |
+| 0 | Workspace, `contracts`, `db`, Compose stack, check scripts, Actions, CDK skeleton, `.coderabbit.yaml`, root skills | A21, A24, A25 pass. `cdk synth` passes locally. | PR reviewer |
 | 1 | Intake API, attachments, static checks, event stream, widget, example host app | A1 to A4 and A17 pass on the local stack. T14 is verified or recorded as unsupported. | PR reviewer, live validation |
 | 2 | Job table, claim protocol, delay and backoff, Jev filter, managed agent, Linear adapter outbound | A5 to A11 and A27 pass against a Linear sandbox team. T15 is verified. | Adversarial review, live validation |
 | 3 | Linear webhook inbound, marker and wording gate, customer follow-up sync, unread indicator | A14 to A16 pass. | Adversarial review, live validation |
@@ -217,7 +219,7 @@ Owner actions that gate a phase exit:
 
 | Action | Gates |
 | --- | --- |
-| Create the dedicated AWS account and grant deploy access | Phase 0 deploy exit |
+| Create the dedicated AWS account and grant deploy access. The account is pending. | Phase 6 |
 | Grant an app client on the telemetry Cognito pool | Phase 4 |
 | Provide a Linear sandbox team and API key, a Jev key, and Anthropic access | Phase 2 |
 | Create the `pressw-llc` npmjs organization and a publish token | Phase 6 |
@@ -245,6 +247,7 @@ Owner actions that gate a phase exit:
 | The telemetry Cognito pool changes or goes down. | D30 isolates the dependency to one token validator. Admin and MCP fail closed. |
 | Lambda steps do not run locally. | T15 is tested in Phase 2. The fallback runs adapters through the in-process runner locally. |
 | A laptop receives customer content. | Subscriptions require a Cognito identity from D27. Claims are recorded per engineer. |
+| The first deploy in Phase 6 exposes gaps between LocalStack and AWS. | D37 keeps `cdk synth` in the check script. The same containers run in both places under D22. |
 | V1 scope is large for a first release. | Phases 4 and 5 run in parallel with 3. Each phase exits on its own criteria. |
 
 ## Accepted Risk
