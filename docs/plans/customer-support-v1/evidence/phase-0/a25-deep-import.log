@@ -1,0 +1,7 @@
+$ biome check . && bun scripts/lint-boundaries.ts
+Checked 85 files in 9ms. No fixes applied.
+./modules/api/src/planted.ts:1 "@pw-support/db/src/client" deep import into another module; use its package entrypoint
+[lint-boundaries] 1 violation(s)
+error: script "lint" exited with code 1
+planted exit=1
+clean exit=0

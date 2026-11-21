@@ -1,0 +1,102 @@
+$ bun scripts/check.ts
+
+[check] install
+bun install v1.3.14 (0d9b296a)
+
+$ git config core.hooksPath .githooks || true
+
+Checked 103 installs across 130 packages (no changes) [36.00ms]
+
+[check] lint
+$ biome check . && bun scripts/lint-boundaries.ts
+Checked 84 files in 11ms. No fixes applied.
+[lint-boundaries] no violations
+
+[check] typecheck
+$ tsc --noEmit && bun run --filter '*' typecheck
+@pw-support/contracts typecheck: Exited with code 0
+@pressw-llc/support-react typecheck: Exited with code 0
+@pw-support/plugin typecheck: Exited with code 0
+@pw-support/admin typecheck: Exited with code 0
+@pw-support/db typecheck: Exited with code 0
+@pw-support/api typecheck: Exited with code 0
+@pw-support/channels typecheck: Exited with code 0
+@pw-support/triage typecheck: Exited with code 0
+@pw-support/infra typecheck: Exited with code 0
+
+[check] stack
+$ docker compose up -d --wait
+ Network pw-support_default Creating 
+ Network pw-support_default Creating 
+ Network pw-support_default Created 
+ Network pw-support_default Created 
+ Container pw-support-postgres-1 Creating 
+ Container pw-support-localstack-1 Creating 
+ Container pw-support-localstack-1 Created 
+ Container pw-support-postgres-1 Created 
+ Container pw-support-postgres-1 Starting 
+ Container pw-support-localstack-1 Starting 
+ Container pw-support-postgres-1 Started 
+ Container pw-support-localstack-1 Started 
+ Container pw-support-localstack-1 Waiting 
+ Container pw-support-postgres-1 Waiting 
+ Container pw-support-postgres-1 Healthy 
+ Container pw-support-localstack-1 Healthy 
+[stack-setup] bucket pw-support-attachments, queues pw-support-triage-wake and pw-support-triage-wake-dlq ready
+$ bun scripts/db-migrate.ts
+[db:migrate] applied 4: pipeline/0000_initial.sql, pipeline/0001_activity_log.sql, pipeline/0002_pipeline_definitions.sql, 0001_support_schema.sql
+
+[check] test
+$ bun test --coverage
+bun test v1.3.14 (0d9b296a)
+----------------------------------------|---------|---------|-------------------
+File                                    | % Funcs | % Lines | Uncovered Line #s
+----------------------------------------|---------|---------|-------------------
+All files                               |   99.65 |   99.57 |
+ modules/admin/src/index.ts             |  100.00 |  100.00 | 
+ modules/api/src/app.ts                 |  100.00 |  100.00 | 
+ modules/channels/src/index.ts          |  100.00 |  100.00 | 
+ modules/contracts/src/attachments.ts   |  100.00 |  100.00 | 
+ modules/contracts/src/channel-key.ts   |  100.00 |  100.00 | 
+ modules/contracts/src/events.ts        |  100.00 |  100.00 | 
+ modules/contracts/src/identity.ts      |  100.00 |  100.00 | 
+ modules/contracts/src/index.ts         |  100.00 |  100.00 | 
+ modules/contracts/src/message.ts       |  100.00 |  100.00 | 
+ modules/contracts/src/module-info.ts   |  100.00 |  100.00 | 
+ modules/contracts/src/resources.ts     |  100.00 |  100.00 | 
+ modules/contracts/src/triage-result.ts |  100.00 |  100.00 | 
+ modules/db/src/client.ts               |  100.00 |  100.00 | 
+ modules/db/src/events.ts               |  100.00 |  100.00 | 
+ modules/db/src/index.ts                |  100.00 |  100.00 | 
+ modules/db/src/migrate.ts              |   91.67 |  100.00 | 
+ modules/db/src/schema.ts               |  100.00 |  100.00 | 
+ modules/infra/src/index.ts             |  100.00 |  100.00 | 
+ modules/infra/src/support-stack.ts     |  100.00 |  100.00 | 
+ modules/plugin/src/index.ts            |  100.00 |  100.00 | 
+ modules/triage/src/index.ts            |  100.00 |  100.00 | 
+ modules/widget/src/index.ts            |  100.00 |  100.00 | 
+ scripts/lint-boundaries.ts             |  100.00 |  100.00 | 
+ scripts/stack-setup.ts                 |  100.00 |   89.66 | 49,83-87
+----------------------------------------|---------|---------|-------------------
+
+ 119 pass
+ 0 fail
+ 222 expect() calls
+Ran 119 tests across 18 files. [929.00ms]
+
+[check] synth
+$ bun run --filter @pw-support/infra synth
+@pw-support/infra synth: AI agent detected
+@pw-support/infra synth: 86 feature flags are not configured. Run 'cdk flags --unstable=flags' to learn more.
+@pw-support/infra synth: Exited with code 0
+
+[check] summary
+stage      status   seconds
+install    pass     0.0
+lint       pass     0.1
+typecheck  pass     2.8
+stack      pass     6.9
+test       pass     1.0
+synth      pass     1.0
+
+[check] PASSED
