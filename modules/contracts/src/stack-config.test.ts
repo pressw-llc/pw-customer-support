@@ -42,6 +42,13 @@ test("an empty string counts as unset", () => {
   expect(stack.awsEndpointUrl).toBe("http://127.0.0.1:4577");
 });
 
+test("the local issuer derives from the oidc port", () => {
+  expect(resolveStackEnv({}).localIssuer).toBe("http://127.0.0.1:4599/support");
+  expect(resolveStackEnv({ SUPPORT_OIDC_PORT: "4594" }).localIssuer).toBe(
+    "http://127.0.0.1:4594/support",
+  );
+});
+
 test("reads process.env when no env is passed", () => {
   expect(resolveStackEnv().postgresPort).toBeTruthy();
 });

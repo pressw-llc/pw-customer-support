@@ -29,6 +29,10 @@ export const projects = support.table(
     projectSlug: text("project_slug").notNull(),
     name: text("name").notNull(),
     linearTeamId: text("linear_team_id"),
+    severeCcEmails: text("severe_cc_emails")
+      .array()
+      .notNull()
+      .default(sql`'{}'`),
     createdAt: createdAt(),
   },
   (t) => [unique("projects_client_project_uq").on(t.clientSlug, t.projectSlug)],
@@ -270,3 +274,17 @@ export const ticketDeliveries = support.table("ticket_deliveries", {
     withTimezone: true,
   }).notNull(),
 });
+
+export const integrations = support.table(
+  "integrations",
+  {
+    scope: text("scope").notNull(),
+    kind: text("kind").notNull(),
+    secretRef: text("secret_ref").notNull(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    updatedBy: text("updated_by").notNull(),
+  },
+  (t) => [primaryKey({ columns: [t.scope, t.kind] })],
+);
