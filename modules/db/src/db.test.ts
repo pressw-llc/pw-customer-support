@@ -398,6 +398,7 @@ describe("migrate on an empty database", () => {
         "attachment_rejections",
         "attachments",
         "channel_delays",
+        "comment_changes",
         "customers",
         "event_cursors",
         "events",
