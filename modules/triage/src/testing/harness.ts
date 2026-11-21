@@ -93,6 +93,7 @@ export interface HarnessOptions {
   agent?: AgentRunner;
   storage?: ObjectStorage;
   env?: Record<string, string>;
+  wake?: WakeSender;
 }
 
 export interface Tenant {
@@ -120,6 +121,7 @@ export async function createTriageHarness(options: HarnessOptions = {}) {
   const wake: WakeSender = {
     async send(jobId, delaySeconds) {
       wakes.push({ jobId, delaySeconds });
+      await options.wake?.send(jobId, delaySeconds);
     },
   };
   const app = createApp({
