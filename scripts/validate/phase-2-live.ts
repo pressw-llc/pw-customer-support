@@ -38,6 +38,10 @@ import {
 import { eq } from "drizzle-orm";
 import { setupStack, stackConfig } from "../stack-setup";
 
+for (const name of ["TYPESAFE_API_KEY", "ANTHROPIC_API_KEY"]) {
+  if (process.env[name]?.trim() === "") delete process.env[name];
+}
+
 const partial = process.argv.includes("--partial");
 const factor = Number(process.env.VALIDATE_TIME_FACTOR || 1);
 const root = join(import.meta.dir, "..", "..");

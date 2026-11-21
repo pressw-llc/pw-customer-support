@@ -64,8 +64,8 @@ The stack runs Postgres on `127.0.0.1:5447` and LocalStack on `127.0.0.1:4577`. 
 | `JEV_INJECTION_THRESHOLD`                    | `0.5`                                  | Score at or above which Jev flags a request    |
 | `JEV_TIMEOUT_MS`                             | `15000`                                | Jev request timeout                            |
 | `JEV_CHUNK_CHARS`                            | `4000`                                 | Characters per Jev judgment                    |
-| `JEV_JUDGE_IMAGES`                           | `1`                                    | Judge images with Jev                          |
-| `LINEAR_API_URL`                             | blank, Linear API                      | Linear GraphQL URL, point it at the stub       |
+| `JEV_JUDGE_IMAGES`                           | `1`                                    | Judge images with Jev. Off sends no image      |
+| `LINEAR_API_URL`                             | blank, Linear API                      | Linear GraphQL URL. Ignored in production      |
 | `LINEAR_TEST_TEAM_ID`                        | blank                                  | Team for the self-skipping live Linear test    |
 | `LINEAR_STUB_PORT`                           | `4590`                                 | Port for `bun run dev:linear-stub`             |
 | `SEED_LINEAR_TEAM_ID`                        | blank                                  | Team id for `bun run seed:settings`            |
@@ -180,31 +180,41 @@ flowchart TD
 
 One atomic `UPDATE ... RETURNING` decides the winner. A laptop may claim an open job at any time. The cloud may claim an open job after `cloud_available_at`. Either may claim a job whose lease expired. A claim sets a fresh token and a lease, and appends `triage.job.claimed`. A takeover also appends `triage.job.lease_expired`.
 
-The delay belongs to the channel `client:project`. A new job waits the current delay. A cloud claim of a job that no laptop claimed halves the delay with integer floor: 60, 30, 15, 7, 3, 1, 0. A laptop claim resets it to 60.
+The delay belongs to the channel `client:project`. A new job waits the current delay. A cloud claim of a job that no laptop claimed halves the delay with integer floor: 60, 30, 15, 7, 3, 1, 0. A laptop claim resets it to 60. The halving is one conditional `UPDATE` that applies only when no reset or halving landed after the job opened, and the reset is one upsert. A burst of jobs opened in one window halves once, and a laptop reset is never overwritten.
 
-`submitTriageResult` takes the live claim token and validates the payload with the contracts schema. A valid result completes the job. An invalid result appends `triage.result.rejected` and reopens the job for the cloud at once. Laptop and cloud claimants use the same function.
+`submitTriageResult` takes the live claim token and validates the payload with the contracts schema. A valid result completes the job. An invalid result appends `triage.result.rejected` and reopens the job for the cloud at once. Laptop and cloud claimants use the same function. The triage entrypoint exports `submitResult(deps, input)`, which wraps it and sends a wake with no delay when an invalid result reopens the job.
 
 A job is claimable only after the API stores the attachments, or after `TRIAGE_INTAKE_GRACE_SECONDS`. This stops a worker from reading files that are not stored yet.
 
 ### Worker
 
-`bun run dev:worker` runs one process with four loops:
+`bun run dev:worker` runs `pipelines/support-triage/fargate-entries/main.ts`, the same entry a Fargate task runs. SIGTERM and SIGINT abort every loop. It runs four loops:
 - The Fargate worker. It uses `@pressw-llc/pipeline` `fargateMain` with the `support-triage` pipeline and one `triage` step on `runtime: "fargate"`. The pipeline runs without a repo, so the engine writes no run rows. The job table owns all state.
-- The sweeper. At start and on an interval it claims open jobs whose delay ended and jobs with expired leases. A job survives a stopped worker and a lost wake message.
-- The dispatcher. It reads `support.events` by `seq` with one durable cursor per adapter in `support.event_cursors`.
+- The sweeper. `runTriageWorker` starts it next to `fargateMain`. At start and on an interval it claims open jobs whose delay ended and jobs with expired leases. A job survives a stopped worker and a lost wake message.
+- The dispatcher. It reads `support.events` by `seq` with one durable cursor per adapter in `support.event_cursors`. Each tick also redelivers completed jobs that have no ticket.
 - The adapter poller. It reads the adapter queue and runs the `linear-outbound` Lambda handler.
 
-On a wake the worker re-sends the wake with the remaining delay when the job is not yet claimable. It re-sends with the remaining lease plus one second when a laptop holds a live lease. It drops the wake when the job is complete.
+On a wake the worker tries the claim first. When the claim loses, it re-sends the wake with the remaining delay when the job is not yet claimable, and with the remaining lease plus one second when a laptop holds a live lease. It drops the wake when the job is complete.
+
+When processing fails for a transient reason, the worker releases the job in one transaction with its `triage.job.released` event and sends a fresh wake after 5, 10, then 20 seconds, capped at 60. Each claim counts as an attempt. A job past `TRIAGE_MAX_ATTEMPTS` completes as human triage with `attempts_exhausted`. A heartbeat extends the lease every third of the lease time. When the extension fails, the worker aborts and archives the agent session and stops processing that job.
+
+The wake and adapter queues set an explicit `VisibilityTimeout`, 300 and 60 seconds, from constants in `@pw-support/contracts`. The local stack setup and the CDK stack apply the same values.
 
 The API sends the wake message with `DelaySeconds`. The pipeline engine sends no delay of its own. The wake body is the pipeline envelope with `input.jobId`.
 
 ### Filter and agent
 
-Deterministic code extracts text from PDF (`unpdf`), docx, xlsx, and pptx (`fflate` and XML), and plain text files. Images go to the agent as image blocks. A zip file is stored and never read. Extracted text is capped per file and in total.
+Deterministic code extracts text from PDF (`unpdf`), docx, xlsx, and pptx (`fflate` and XML), and plain text files. A zip file is stored and never read. Extracted text is capped per file and in total.
 
-Jev scores the message and each text chunk with one `noul` judgment. Jev also judges PNG and JPEG images. Jev rejects images outside a size range with `Invalid image dimensions`, for example 224 by 224 and 1920 by 1080. The filter records such an image as skipped and relies on the agent limits for it. Every raw judgment lands in `support.judgments`. A score at or above `JEV_INJECTION_THRESHOLD` flags the request.
+Office XML is scanned with linear `indexOf` scanners. Each archive entry stops at 4 MB inflated and each archive at 16 MB, and extraction stops at the per-file character cap. PDF extraction stops at 40 pages. PDF and Office extraction runs in a Bun `Worker` with a 20 second limit, so a hostile file cannot starve the lease heartbeat. A file that exceeds the limit is terminated and listed as not extracted. The worker reads an attachment from storage only when it will be extracted or sent as an image, and it processes attachments one at a time.
+
+Jev scores the message and each text chunk with one `noul` judgment. The message subject holds the request text and every attachment filename, so nothing the agent reads goes unjudged. Chunks overlap by 12 percent, and a text of at most two chunks also gets a head and tail judgment. Jev also judges PNG and JPEG images. Jev rejects images outside a size range with `Invalid image dimensions`, for example 224 by 224 and 1920 by 1080.
+
+The agent receives an image only when Jev recorded a judgment for it that is not flagged. A GIF, a WebP, an image Jev rejects, and every image when `JEV_JUDGE_IMAGES` is off is withheld. The filter records the withheld image as `skipped` in `support.judgments` with a reason, the agent sees it only as an attachment without extracted content, and the ticket lists it as not analyzed. Every raw judgment lands in `support.judgments`. A score at or above `JEV_INJECTION_THRESHOLD` flags the request.
 
 A flagged request, a Jev error, a timeout, or a missing key completes the job as human triage and starts no agent session. The agent has no tools, no MCP servers, and an environment with `limited` networking and an empty allowlist. Its output must parse as JSON and pass the triage result schema. Anything else becomes human triage.
+
+At worker start and on the first job the worker retrieves the remote agent and refuses to run a session unless it has zero tools, zero MCP servers, and zero skills. A drifted agent sends every job to human triage with `agent_definition_unsafe`, and the worker logs one error.
 
 Run `bun run agent:sync` once to publish the agent. It writes `modules/triage/agents/support-triage/agent.lock.json`, which git ignores. `TRIAGE_AGENT_ID` overrides the lock file.
 
@@ -212,11 +222,15 @@ Run `bun run agent:sync` once to publish the agent. It writes `modules/triage/ag
 
 The dispatcher sends each `triage.result.accepted` event to the adapter queue. The `linear-outbound` Lambda step loads the event and runs the adapter. The adapter picks the team from the project's `linear_team_id`. A project without a team gets one `ticket.blocked` event and no ticket. Set the team with `bun run seed:settings <teamId>`.
 
-The title and the summary come from the validated result. The customer text appears only as a quoted block with markup stripped and mentions neutralized. Labels and priority map from the validated enums. A human triage ticket gets the `needs-human-triage` label and no model text. `support.tickets` holds one row per request, and an advisory lock plus a marker in the description stop duplicates.
+The dispatcher advances its cursor when it enqueues an event. To recover a job whose message dead-lettered or whose Linear call kept failing, each tick re-enqueues `triage.result.accepted` events that have no ticket and whose project has a team. `support.ticket_deliveries` tracks the attempts and the last enqueue time. The wait doubles from 30 seconds to a cap of 15 minutes.
+
+The title and the summary come from the validated result and render as inert text: markdown control characters are escaped, links and mentions are defanged, and the title is one line. The customer text appears only as a quoted block with markup stripped, mentions neutralized, and links defanged. Labels and priority map from the validated enums. A human triage ticket, or an agent result with `needs_human`, gets the `needs-human-triage` label, and an agent result keeps its summary. `support.tickets` holds one row per request, and an advisory lock stops duplicates.
+
+The last line of the description is the marker `Support request ID: <id>`. The adapter finds an existing issue with an `endsWith` filter and then checks in code that the last line equals the exact marker, so quoted text or a summary that contains another marker never binds a request to the wrong issue.
 
 The Linear key comes from a `SecretsProvider`. Phase 2 reads `LINEAR_API_KEY`. Phase 4 swaps in Secrets Manager.
 
-`bun run dev:linear-stub` serves a GraphQL stub for `issueCreate`, `issueLabels`, `issueLabelCreate`, `team`, `issues`, `commentCreate`, and `issueArchive`. Set `LINEAR_API_URL` to the printed URL and `LINEAR_API_KEY` to any value. A live test in `modules/channels` creates and archives one ticket when `LINEAR_API_KEY` and `LINEAR_TEST_TEAM_ID` are set.
+`bun run dev:linear-stub` serves a GraphQL stub for `issueCreate`, `issueLabels`, `issueLabelCreate`, `team`, `issues`, `commentCreate`, and `issueArchive`. Set `LINEAR_API_URL` to the printed URL and `LINEAR_API_KEY` to any value. The override applies only outside production. A live test in `modules/channels` creates and archives one ticket when `LINEAR_API_KEY` and `LINEAR_TEST_TEAM_ID` are set.
 
 ### T15: Lambda steps locally
 
@@ -224,7 +238,9 @@ The Lambda step runs locally through an SQS poller that invokes the same `lambda
 
 ### Validation
 
-`bun run validate:phase-2` needs `TYPESAFE_API_KEY` and `ANTHROPIC_API_KEY`. It starts the API and the worker as separate processes with the Linear stub, and prints one PASS or FAIL line per criterion. `VALIDATE_TIME_FACTOR` scales the delays and the lease. A factor of 0.14 gives an 8 second delay. Pass `--partial` to run the criteria that need no agent session when the Anthropic key is absent.
+`bun run validate:phase-2` needs `TYPESAFE_API_KEY` and `ANTHROPIC_API_KEY`. It starts the API and the worker as separate processes with the Linear stub, and prints one PASS or FAIL line per criterion. `VALIDATE_TIME_FACTOR` scales the delays and the lease. A factor of 0.14 gives an 8 second delay. Pass `--partial` to run the criteria that need no agent session when the Anthropic key is absent. The script treats an empty key as absent.
+
+Test helpers live behind `@pw-support/channels/testing` and `@pw-support/triage/testing`. `scripts/lint-boundaries.ts` allows only the subpaths a module declares in `exports`.
 
 The injection corpus in `modules/triage/corpus` runs against live Jev when `TYPESAFE_API_KEY` is set and skips otherwise.
 
