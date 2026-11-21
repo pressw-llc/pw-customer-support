@@ -62,6 +62,35 @@ Fail when `.env.local` lacks a key from `.env.example`.
 bun run env check
 ```
 
+## What reaches `.env.example`
+
+The script fails closed. `.env.example` gets a blank for the key when any of these holds:
+
+- The key name contains `KEY`, `SECRET`, `TOKEN`, `PASSWORD`, `PRIVATE`, or `CREDENTIAL`.
+- The value comes from `--stdin`.
+- The caller passes `--secret`.
+
+Pass `--not-secret` to write the value to `.env.example` anyway. Use it only for dummy values, as with `AWS_ACCESS_KEY_ID=test`.
+
+```bash
+bun run env set AWS_ACCESS_KEY_ID=test --not-secret
+```
+
+An inline value on a key with a non-secret name goes to the example. Pass `--secret` when such a value is sensitive.
+
+`.env.local` always gets the real value unless the caller passes `--example-only`.
+
+## Argument rules
+
+The script exits non-zero before it reads stdin or writes a file in these cases:
+
+- A flag is unknown, repeated, or given a value when it takes none.
+- `--comment` or `--dir` has no value, an empty value, or a value that starts with `-`. Write `--comment=TEXT` for such a comment.
+- `--example-only` appears with `--local-only`, or `--secret` with `--not-secret`, or `--comment` with `--local-only`.
+- `KEY=VALUE` appears together with `--stdin`.
+- A second positional argument appears.
+- Stdin is empty.
+
 ## Notes
 
 - The script rejects unknown flags and extra arguments before it reads stdin or writes a file.

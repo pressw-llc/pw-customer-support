@@ -190,6 +190,7 @@ const ALLOWED: Record<string, { flags: string[]; positionals: number }> = {
   set: {
     flags: [
       "--secret",
+      "--not-secret",
       "--stdin",
       "--comment",
       "--example-only",
@@ -204,9 +205,34 @@ const ALLOWED: Record<string, { flags: string[]; positionals: number }> = {
   check: { flags: ["--dir"], positionals: 0 },
 };
 
+const EXCLUSIVE: [string, string][] = [
+  ["--example-only", "--local-only"],
+  ["--secret", "--not-secret"],
+  ["--comment", "--local-only"],
+];
+
+const SECRET_NAME = /(KEY|SECRET|TOKEN|PASSWORD|PRIVATE|CREDENTIAL)/;
+
+export function isSecretName(key: string): boolean {
+  return SECRET_NAME.test(key);
+}
+
 function flagName(arg: string): string {
   const eq = arg.indexOf("=");
   return eq === -1 ? arg : arg.slice(0, eq);
+}
+
+function readFlagValue(
+  name: string,
+  arg: string,
+  next: string | undefined,
+): { value: string; consumed: boolean } {
+  const eq = arg.indexOf("=");
+  const value = eq === -1 ? next : arg.slice(eq + 1);
+  const missing =
+    value === undefined || value === "" || (eq === -1 && value.startsWith("-"));
+  if (missing) throw new Error(`${name} needs a value, use ${name}=VALUE`);
+  return { value, consumed: eq === -1 };
 }
 
 function parseArgs(argv: string[]): Parsed {
@@ -218,25 +244,32 @@ function parseArgs(argv: string[]): Parsed {
   let dir = defaultDir;
   for (let i = 0; i < rest.length; i++) {
     const arg = rest[i] as string;
-    if (arg.startsWith("-")) {
-      const name = flagName(arg);
-      if (!allowed?.flags.includes(name) || name !== arg) {
-        throw new Error(`unknown flag ${name} for ${command}`);
-      }
-      if (VALUE_FLAGS.has(name)) {
-        const next = rest[++i];
-        if (next === undefined) throw new Error(`${name} needs a value`);
-        if (name === "--comment") comment = next;
-        else dir = resolve(next);
-      } else {
-        flags.add(name);
-      }
-    } else {
+    if (!arg.startsWith("-")) {
       positional.push(arg);
+      continue;
+    }
+    const name = flagName(arg);
+    if (!allowed?.flags.includes(name)) {
+      throw new Error(`unknown flag ${name} for ${command}`);
+    }
+    if (flags.has(name)) throw new Error(`duplicate flag ${name}`);
+    flags.add(name);
+    if (VALUE_FLAGS.has(name)) {
+      const { value, consumed } = readFlagValue(name, arg, rest[i + 1]);
+      if (consumed) i++;
+      if (name === "--comment") comment = value;
+      else dir = resolve(value);
+    } else if (arg !== name) {
+      throw new Error(`${name} does not take a value`);
     }
   }
   if (allowed && positional.length > allowed.positionals) {
     throw new Error(`unexpected extra argument for ${command}`);
+  }
+  for (const [one, two] of EXCLUSIVE) {
+    if (flags.has(one) && flags.has(two)) {
+      throw new Error(`use only one of ${one} and ${two}`);
+    }
   }
   return { command, positional, flags, comment, dir };
 }
@@ -261,23 +294,24 @@ async function runSet(parsed: Parsed, io: Io, paths: Paths): Promise<number> {
   const key = eq === -1 ? target : target.slice(0, eq);
   assertKey(key);
   const inline = eq === -1 ? undefined : target.slice(eq + 1);
+  const useStdin = parsed.flags.has("--stdin");
+  if (useStdin && inline !== undefined) {
+    throw new Error("use either =VALUE or --stdin, not both");
+  }
   const exampleOnly = parsed.flags.has("--example-only");
   const localOnly = parsed.flags.has("--local-only");
-  if (exampleOnly && localOnly) {
-    throw new Error("use only one of --example-only and --local-only");
-  }
+  const exampleBlank =
+    !parsed.flags.has("--not-secret") &&
+    (parsed.flags.has("--secret") || useStdin || isSecretName(key));
   let value = inline;
-  if (parsed.flags.has("--stdin")) {
-    if (inline !== undefined) {
-      throw new Error("use either =VALUE or --stdin, not both");
-    }
+  if (useStdin) {
     value = (await io.readStdin()).replace(/\r?\n$/, "");
+    if (value === "") throw new Error("stdin is empty");
   }
-  const secret = parsed.flags.has("--secret");
   const written: string[] = [];
   if (!localOnly) {
     const text = readIfExists(paths.example) ?? "";
-    const exampleValue = secret ? "" : value;
+    const exampleValue = exampleBlank ? "" : value;
     const next =
       exampleValue === undefined
         ? ensureKey(text, key, parsed.comment)

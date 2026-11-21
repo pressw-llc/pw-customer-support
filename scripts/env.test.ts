@@ -13,6 +13,7 @@ import {
   describeKeys,
   ensureKey,
   formatValue,
+  isSecretName,
   main,
   missingKeys,
   parseEnv,
@@ -392,6 +393,178 @@ describe("cli", () => {
   test("an unknown command prints usage", async () => {
     expect(await run(["bogus"])).toBe(2);
     expect(err[0]).toContain("usage");
+  });
+});
+
+const FAKE = "FAKE-SECRET-123";
+
+const REJECTED: [string, string[]][] = [
+  [
+    "comment swallows --secret",
+    ["set", "LINEAR_API_KEY", "--stdin", "--comment", "--secret"],
+  ],
+  ["comment missing at the end", ["set", "K", "--stdin", "--comment"]],
+  [
+    "comment value starts with a dash",
+    ["set", "K", "--stdin", "--comment", "--dir"],
+  ],
+  ["comment value is a short flag", ["set", "K", "--stdin", "--comment", "-s"]],
+  [
+    "comment swallows --not-secret",
+    ["set", "K", "--stdin", "--comment", "--not-secret"],
+  ],
+  ["empty comment", ["set", "K", "--stdin", "--comment="]],
+  ["dir missing", ["set", "K", "--stdin", "--dir"]],
+  ["empty dir", ["set", "K", "--stdin", "--dir="]],
+  ["duplicate boolean flag", ["set", "K", "--stdin", "--secret", "--secret"]],
+  ["duplicate stdin", ["set", "K", "--stdin", "--stdin"]],
+  ["duplicate comment", ["set", "K", "--stdin", "--comment=a", "--comment=b"]],
+  [
+    "duplicate comment forms",
+    ["set", "K", "--stdin", "--comment=a", "--comment", "b"],
+  ],
+  ["inline value with stdin", ["set", "K=inline", "--stdin"]],
+  [
+    "example-only with local-only",
+    ["set", "K", "--stdin", "--example-only", "--local-only"],
+  ],
+  [
+    "secret with not-secret",
+    ["set", "K", "--stdin", "--secret", "--not-secret"],
+  ],
+  [
+    "comment with local-only",
+    ["set", "K", "--stdin", "--comment=x", "--local-only"],
+  ],
+  ["value on a boolean flag", ["set", "K", "--stdin", "--secret=1"]],
+  ["value on stdin flag", ["set", "K", "--stdin=true"]],
+  ["value on not-secret flag", ["set", "K", "--stdin", "--not-secret=0"]],
+  ["end-of-options marker", ["set", "K", "--stdin", "--"]],
+  ["lone dash", ["set", "K", "--stdin", "-"]],
+  ["short flag", ["set", "K", "--stdin", "-s"]],
+  ["typo --secreet", ["set", "K", "--stdin", "--secreet"]],
+  ["typo --secrets", ["set", "K", "--stdin", "--secrets"]],
+  ["typo --not-secrets", ["set", "K", "--stdin", "--not-secrets"]],
+  ["extra positional", ["set", "K", FAKE]],
+  ["extra positional after stdin", ["set", "K", "--stdin", "extra"]],
+  ["missing key", ["set", "--stdin"]],
+  ["lowercase key", ["set", "key", "--stdin"]],
+  ["bad key with value", ["set", `bad-key=${FAKE}`]],
+  ["flag from another command", ["set", "K", "--stdin", "--force"]],
+  ["uppercase command", ["SET", "K", "--stdin"]],
+];
+
+const ACCEPTED: [string, string[], string][] = [
+  [
+    "secret-named key with inline value",
+    ["set", `LINEAR_API_KEY=${FAKE}`],
+    "LINEAR_API_KEY",
+  ],
+  [
+    "secret-named key with --not-secret absent and stdin",
+    ["set", "LINEAR_WEBHOOK_SECRET", "--stdin"],
+    "LINEAR_WEBHOOK_SECRET",
+  ],
+  ["key name without a separator", ["set", `APIKEY=${FAKE}`], "APIKEY"],
+  ["password key", ["set", `DB_PASSWORD=${FAKE}`], "DB_PASSWORD"],
+  ["private key", ["set", `SIGNING_PRIVATE=${FAKE}`], "SIGNING_PRIVATE"],
+  ["credential key", ["set", `CREDENTIALS_JSON=${FAKE}`], "CREDENTIALS_JSON"],
+  ["plain key from stdin", ["set", "PLAIN", "--stdin"], "PLAIN"],
+  ["plain key with --secret", ["set", `PLAIN=${FAKE}`, "--secret"], "PLAIN"],
+  [
+    "stdin with a comment",
+    ["set", "PLAIN", "--stdin", "--comment=note"],
+    "PLAIN",
+  ],
+  [
+    "comment that looks like a flag",
+    ["set", "PLAIN", "--stdin", "--comment=--secret"],
+    "PLAIN",
+  ],
+  [
+    "stdin with example-only",
+    ["set", "PLAIN", "--stdin", "--example-only"],
+    "PLAIN",
+  ],
+  [
+    "secret-named key example-only",
+    ["set", `X_TOKEN=${FAKE}`, "--example-only"],
+    "X_TOKEN",
+  ],
+  [
+    "secret flag order reversed",
+    ["set", "--secret", "--stdin", "PLAIN"],
+    "PLAIN",
+  ],
+];
+
+describe("adversarial argv", () => {
+  test.each(REJECTED)("rejects: %s", async (_name, argv) => {
+    const code = await run(argv, `${FAKE}\n`);
+    expect(code).not.toBe(0);
+    expect(existsSync(join(dir, ".env.example"))).toBe(false);
+    expect(existsSync(join(dir, ".env.local"))).toBe(false);
+    expect(err.join("\n")).not.toContain(FAKE);
+    expect(out.join("\n")).not.toContain(FAKE);
+  });
+
+  test.each(ACCEPTED)(
+    "keeps the secret out of the example: %s",
+    async (_name, argv, key) => {
+      expect(await run(argv, `${FAKE}\n`)).toBe(0);
+      if (existsSync(join(dir, ".env.example"))) {
+        expect(example()).not.toContain(FAKE);
+        expect(example()).toContain(`${key}=\n`);
+      }
+      expect(out.join("\n") + err.join("\n")).not.toContain(FAKE);
+    },
+  );
+
+  test("a secret-named key stays blank in the example when it already had a value", async () => {
+    await run(["set", "X_API_KEY=old", "--not-secret", "--example-only"]);
+    expect(example()).toBe("X_API_KEY=old\n");
+    await run(["set", "X_API_KEY"]);
+    expect(example()).toBe("X_API_KEY=\n");
+  });
+
+  test("a secret-named key still reaches .env.local", async () => {
+    await run(["set", `LINEAR_API_KEY=${FAKE}`]);
+    expect(local()).toBe(`LINEAR_API_KEY=${FAKE}\n`);
+  });
+
+  test("--not-secret writes the value to the example for a secret-named key", async () => {
+    await run(["set", "AWS_ACCESS_KEY_ID=test", "--not-secret"]);
+    expect(example()).toBe("AWS_ACCESS_KEY_ID=test\n");
+  });
+
+  test("--not-secret is the only way stdin reaches the example", async () => {
+    await run(["set", "PLAIN", "--stdin", "--not-secret"], "shown\n");
+    expect(example()).toBe("PLAIN=shown\n");
+  });
+
+  test("the --flag=value form works for value flags", async () => {
+    await run(["set", "PLAIN=1", "--comment=a note"]);
+    expect(example()).toBe("# a note\nPLAIN=1\n");
+  });
+
+  test("empty stdin is rejected before any write", async () => {
+    expect(await run(["set", "PLAIN", "--stdin"], "")).toBe(1);
+    expect(await run(["set", "PLAIN", "--stdin"], "\n")).toBe(1);
+    expect(existsSync(join(dir, ".env.example"))).toBe(false);
+  });
+
+  test("isSecretName matches the documented words", () => {
+    for (const key of [
+      "A_KEY",
+      "B_SECRET",
+      "TOKEN",
+      "P_PASSWORD",
+      "PRIVATE_X",
+      "CREDENTIAL",
+    ]) {
+      expect(isSecretName(key)).toBe(true);
+    }
+    expect(isSecretName("API_PORT")).toBe(false);
   });
 });
 

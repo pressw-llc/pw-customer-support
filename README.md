@@ -20,7 +20,7 @@ The stack runs Postgres on `127.0.0.1:5447` and LocalStack on `127.0.0.1:4577`. 
 
 ## Environment
 
-`.env.example` is the committed template. Put real values in `.env.local`, which is gitignored. Manage both files with `bun run env` and the `env-files` skill. Do not edit them by hand.
+`.env.example` is the committed template. Put real values in `.env.local`, which is gitignored. Manage both files with `bun run env` and the `env-files` skill. Do not edit them by hand. `bun run env set` writes a blank to `.env.example` for a key whose name contains `KEY`, `SECRET`, `TOKEN`, `PASSWORD`, `PRIVATE`, or `CREDENTIAL`, and for any value read from `--stdin`. Pass `--not-secret` to publish a dummy value, as with the LocalStack credentials.
 
 | Variable                                     | Default                                | Purpose                               |
 | -------------------------------------------- | -------------------------------------- | ------------------------------------- |
