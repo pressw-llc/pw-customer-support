@@ -3,8 +3,10 @@ import {
   bigint,
   boolean,
   index,
+  integer,
   jsonb,
   pgSchema,
+  primaryKey,
   text,
   timestamp,
   unique,
@@ -69,6 +71,9 @@ export const requests = support.table(
       .references(() => customers.id, { onDelete: "cascade" }),
     channelKey: text("channel_key").notNull(),
     status: text("status").notNull().default("open"),
+    customerLastReadAt: timestamp("customer_last_read_at", {
+      withTimezone: true,
+    }),
     createdAt: createdAt(),
     updatedAt: timestamp("updated_at", { withTimezone: true })
       .notNull()
@@ -89,6 +94,7 @@ export const messages = support.table(
       .references(() => requests.id, { onDelete: "cascade" }),
     body: text("body").notNull(),
     bodyFlagged: boolean("body_flagged").notNull().default(false),
+    sanitizedBody: text("sanitized_body"),
     originChannel: text("origin_channel").notNull(),
     author: text("author").notNull(),
     audience: text("audience").notNull(),
@@ -129,4 +135,33 @@ export const events = support.table(
     createdAt: createdAt(),
   },
   (t) => [index("events_request_idx").on(t.requestId)],
+);
+
+export const attachmentRejections = support.table(
+  "attachment_rejections",
+  {
+    id: id(),
+    messageId: uuid("message_id")
+      .notNull()
+      .references(() => messages.id, { onDelete: "cascade" }),
+    filename: text("filename").notNull(),
+    sizeBytes: bigint("size_bytes", { mode: "number" }).notNull(),
+    reason: text("reason").notNull(),
+    createdAt: createdAt(),
+  },
+  (t) => [index("attachment_rejections_message_idx").on(t.messageId)],
+);
+
+export const rateLimits = support.table(
+  "rate_limits",
+  {
+    scope: text("scope").notNull(),
+    subject: text("subject").notNull(),
+    windowStart: timestamp("window_start", { withTimezone: true }).notNull(),
+    hits: integer("hits").notNull().default(0),
+  },
+  (t) => [
+    primaryKey({ columns: [t.scope, t.subject, t.windowStart] }),
+    index("rate_limits_window_idx").on(t.windowStart),
+  ],
 );
