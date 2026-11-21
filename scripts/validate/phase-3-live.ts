@@ -1,12 +1,15 @@
 import { join } from "node:path";
 import {
   createJevWordingScorer,
+  createLinearAdapter,
+  createLinearClient,
   type WordingScorer,
 } from "@pw-support/channels";
 import { type LinearStub, startLinearStub } from "@pw-support/channels/testing";
 import {
   bandForScore,
   hashCustomerId,
+  TICKET_REDELIVERY_BASE_SECONDS,
   WORDING_FLAG_BELOW,
   WORDING_HOLD_BELOW,
 } from "@pw-support/contracts";
@@ -20,6 +23,7 @@ import {
   inboundComments,
   listFlaggedReplies,
   maxEventSeq,
+  messageDeliveries,
   migrate,
   projects,
   replies,
@@ -47,11 +51,18 @@ const timingEnv = {
   TRIAGE_SWEEP_INTERVAL_SECONDS: "2",
 };
 
-const results: { id: string; status: "PASS" | "FAIL"; line: string }[] = [];
+const allowSkip = process.argv.includes("--allow-skip");
+
+const results: { id: string; status: "PASS" | "FAIL" | "SKIP" }[] = [];
 function check(id: string, ok: boolean, facts: string) {
   const status = ok ? "PASS" : "FAIL";
-  results.push({ id, status, line: `${status} ${id} ${facts}` });
+  results.push({ id, status });
   console.log(`[validate:phase-3] ${status} ${id} ${facts}`);
+}
+
+function skip(id: string, facts: string) {
+  results.push({ id, status: "SKIP" });
+  console.log(`[validate:phase-3] SKIP ${id} ${facts}`);
 }
 
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
@@ -462,26 +473,28 @@ async function main() {
     const borderReply = await db.query.replies.findFirst({
       where: eq(replies.inboundCommentId, borderRow.id),
     });
-    const flagged = await listFlaggedReplies(db, { limit: 50 });
-    const borderEvents = await eventTypes(seed.requestId);
-    check(
-      "A15 flagged",
-      borderRow.disposition === "sent_flagged" &&
-        borderReply?.flagged === true &&
-        flagged.some((row) => row.reply.id === borderReply?.id) &&
-        borderEvents.includes("reply.flagged"),
-      `borderline reply "${stable.text}" scored ${borderReply?.wordingScore.toFixed(2)} on live Jev (runs ${stable.scores.join(", ")}), sent and flagged, returned by listFlaggedReplies`,
-    );
+    const score = borderReply?.wordingScore ?? Number.NaN;
+    if (bandForScore(score) !== "send_flag") {
+      skip(
+        "A15-flag-band",
+        `not proven live: the resample of "${stable.text}" scored ${score.toFixed(2)}, outside [2, 3)`,
+      );
+    } else {
+      const flagged = await listFlaggedReplies(db, { limit: 50 });
+      const borderEvents = await eventTypes(seed.requestId);
+      check(
+        "A15-flag-band",
+        borderRow.disposition === "sent_flagged" &&
+          borderReply?.flagged === true &&
+          flagged.some((row) => row.reply.id === borderReply?.id) &&
+          borderEvents.includes("reply.flagged"),
+        `borderline reply "${stable.text}" scored ${score.toFixed(2)} on live Jev (earlier runs ${stable.scores.join(", ")}), disposition ${borderRow.disposition}, flagged ${borderReply?.flagged}, returned by listFlaggedReplies`,
+      );
+    }
   } else {
-    const bands = table.map((row) => bandForScore(row.scores[0] as number));
-    check(
-      "A15 flagged",
-      bands.includes("hold") &&
-        bands.includes("send") &&
-        table.every(
-          (row) => bandForScore(row.scores[0] as number) !== undefined,
-        ),
-      "no sample scored stably inside [2, 3) on three runs, so the flag band is proven by the unit tests (scores 2.0, 2.5) and the measured distribution above",
+    skip(
+      "A15-flag-band",
+      "not proven live: no sample scored inside [2, 3) on all three runs; the unit tests cover scores 2.0 and 2.5",
     );
   }
 
@@ -498,15 +511,34 @@ async function main() {
     "follow-up comment on the stub issue",
     60_000,
   );
+  const dispatcherPeriodMs = (TICKET_REDELIVERY_BASE_SECONDS + 2) * 1000;
+  await sleep(dispatcherPeriodMs);
+  const resync = await createLinearAdapter({
+    db,
+    linear: createLinearClient({
+      apiUrl: s.url,
+      secrets: { get: async () => "validate-stub-key" },
+    }),
+  }).syncFollowUps(seed.requestId);
   const copies = s.comments.filter((c) => c.body.includes(followUp)).length;
+  const sentMessageId = (await thread(seed)).messages.find((m) =>
+    m.body.includes(followUp),
+  );
+  const [delivery] = await db
+    .select()
+    .from(messageDeliveries)
+    .where(eq(messageDeliveries.linearCommentId, comment.id));
   check(
     "A16",
     post.status === 201 &&
       copies === 1 &&
+      resync === 0 &&
+      delivery?.via === "comment" &&
+      sentMessageId !== undefined &&
       comment.issueId === seed.issueId &&
       comment.body.startsWith("Customer follow-up via widget\n\n> ") &&
       comment.body.includes(`> ${followUp}`),
-    `widget follow-up posted to ${seed.identifier} as one quoted comment by ${comment.userName} (${copies} copy); header "${comment.body.split("\n")[0]}"`,
+    `widget follow-up posted to ${seed.identifier} as one quoted comment by ${comment.userName}; after ${dispatcherPeriodMs / 1000}s of dispatcher ticks and a second sync (posted ${resync}) the issue still holds ${copies} copy, recorded via ${delivery?.via}; header "${comment.body.split("\n")[0]}"`,
   );
 }
 
@@ -529,10 +561,12 @@ try {
 }
 
 console.log("\n[validate:phase-3] summary");
-for (const result of results)
-  console.log(result.line.split(" ").slice(0, 3).join(" "));
+for (const result of results) {
+  console.log(`[validate:phase-3] ${result.status} ${result.id}`);
+}
 const bad = results.filter((r) => r.status === "FAIL").length;
+const skipped = results.filter((r) => r.status === "SKIP").length;
 console.log(
-  `[validate:phase-3] ${results.filter((r) => r.status === "PASS").length} passed, ${bad} failed`,
+  `[validate:phase-3] ${results.filter((r) => r.status === "PASS").length} passed, ${bad} failed, ${skipped} skipped${skipped > 0 && !allowSkip ? " (pass --allow-skip to accept)" : ""}`,
 );
-process.exit(failed || bad > 0 ? 1 : 0);
+process.exit(failed || bad > 0 || (skipped > 0 && !allowSkip) ? 1 : 0);
