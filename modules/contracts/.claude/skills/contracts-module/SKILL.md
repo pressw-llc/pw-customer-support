@@ -19,7 +19,7 @@ description: Work in the contracts module: zod schemas and types that every othe
 - Add new event types to `eventTypes` in `src/events.ts`. The array is the single source for the enum.
 - `triage-job.ts` holds the job status, claimant, outcome, and human triage reason enums, the timing defaults, the delay halving rule, and the wake message shape. `humanTriageResult()` builds the deterministic fallback result.
 - `reply.ts` holds the wording thresholds (`WORDING_HOLD_BELOW`, `WORDING_FLAG_BELOW`), `bandForScore`, the hold reasons, the hold lifetime, and the Linear webhook limits and header names.
-- `comment.received` is the event that carries a stored inbound comment to the adapter. `reply.held`, `reply.sent`, and `reply.flagged` record the outcome.
+- `comment.received` is the event that carries a stored inbound comment to the adapter. `reply.held`, `reply.sent`, `reply.flagged`, `reply.cancelled`, and `reply.expired` record the outcome. `message.intake_completed` wakes follow-up delivery. `stripMarkup` and `clip` in `markup.ts` are the shared linear-time markup stripper.
 - `ThreadMessage` carries `authorName`, the staff display name.
 - `channel-adapter.ts` holds the adapter contract, the adapter queue names, and the adapter message shape.
 
