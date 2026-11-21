@@ -159,13 +159,58 @@ describe("checkMessage", () => {
       "<scr<script>x</script>ipt>alert(1)</scr<script>x</script>ipt>",
       "alert(1)",
     ],
-    ["unterminated tag", "hello <img src=x onerror=", "hello "],
-    ["control chars", "a\u0000b\u0007c", "abc"],
+    ["void element", "<img src=x onerror=1>hi", "hi"],
   ])("flags and strips %s", (_label, raw, sanitized) => {
     const verdict = checkMessage(raw);
     expect(verdict.sanitized).toBe(sanitized);
     expect(verdict.flagged).toBe(true);
     expect(verdict.reasons).toContain("markup");
+  });
+
+  test("control characters are removed and flagged apart from markup", () => {
+    const verdict = checkMessage("a\u0000b\u0007c");
+    expect(verdict.sanitized).toBe("abc");
+    expect(verdict.reasons).toEqual(["control_chars"]);
+  });
+
+  test.each([
+    ["a less-than before a letter", "a<b", "a<b"],
+    ["spaced comparison", "x < y > z", "x < y > z"],
+    ["a placeholder with a hyphen", "<your-token>", "<your-token>"],
+    ["an unknown element", "Press <Ctrl>+<C>", "Press <Ctrl>+<C>"],
+    [
+      "an unterminated known tag",
+      "hello <img src=x onerror=",
+      "hello <img src=x onerror=",
+    ],
+    ["an unknown tag lookalike", "x<scripts>y", "x<scripts>y"],
+    ["a bare opener", "x<a", "x<a"],
+  ])("keeps %s verbatim and does not flag it", (_label, raw, expected) => {
+    expect(checkMessage(raw)).toEqual({
+      sanitized: expected,
+      flagged: false,
+      reasons: [],
+    });
+  });
+
+  test("N2 real html is the only thing that flags markup", () => {
+    expect(checkMessage("<b>bold</b>")).toMatchObject({
+      sanitized: "bold",
+      reasons: ["markup"],
+    });
+    expect(checkMessage("<script>alert(1)</script>")).toMatchObject({
+      sanitized: "",
+      reasons: ["markup"],
+    });
+    expect(checkMessage("<img src=x onerror=1>")).toMatchObject({
+      sanitized: "",
+      reasons: ["markup"],
+    });
+  });
+
+  test("an unclosed script opener drops its line and keeps the next", () => {
+    expect(stripMarkup("ok <script src=x\nnext line")).toBe("ok \nnext line");
+    expect(stripMarkup("ok <style\nnext")).toBe("ok \nnext");
   });
 
   test("flags and truncates text over the length cap", () => {
@@ -180,7 +225,6 @@ describe("checkMessage", () => {
   });
 
   test.each([
-    ["a bare opener", "x<a", "x"],
     ["an opener with a stray greater-than", "x<a>y", "xy"],
     ["a closing tag", "x</b>y", "xy"],
     ["an upper-case script block", "x<SCRIPT>bad</ScRiPt >y", "xy"],
@@ -189,7 +233,6 @@ describe("checkMessage", () => {
       "x<script>bad",
       "xbad",
     ],
-    ["a script prefix that is not a script tag", "x<scripts>y", "xy"],
   ])("stripMarkup handles %s", (_label, raw, expected) => {
     expect(stripMarkup(raw)).toBe(expected);
   });
@@ -198,6 +241,10 @@ describe("checkMessage", () => {
 describe("markup stripping runs in linear time", () => {
   const inputs: [string, string][] = [
     ["unclosed anchors", "<a".repeat(500_000)],
+    ["unclosed known openers with spaces", "<b ".repeat(166_000)],
+    ["unclosed script openers across lines", "<script x\n".repeat(100_000)],
+    ["known openers with one late closer", `${"<i ".repeat(160_000)}>`],
+    ["placeholders and unknown elements", "<your-token><Ctrl>".repeat(50_000)],
     ["unclosed script openers", "<script ".repeat(200_000)],
     ["unclosed style openers", "<style ".repeat(200_000)],
     ["unclosed comments", "<!--".repeat(250_000)],

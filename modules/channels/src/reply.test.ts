@@ -117,10 +117,46 @@ describe("plain text for released staff replies", () => {
     );
   });
 
-  test("html tags are stripped and brackets without a link stay", () => {
-    expect(
-      plainStaffText("a <b>bold</b><script>x()</script> [not a link] (x)"),
-    ).toBe("a bold [not a link] (x)");
+  test("N2 staff words in angle brackets survive", () => {
+    expect(plainStaffText("Replace <your-token> with the value")).toBe(
+      "Replace <your-token> with the value",
+    );
+    expect(plainStaffText("a<b are supported. Others are not.")).toBe(
+      "a<b are supported. Others are not.",
+    );
+    expect(plainStaffText("Press <Ctrl>+<C> to copy")).toBe(
+      "Press <Ctrl>+<C> to copy",
+    );
+    expect(classifyStaffComment("@external Press <Ctrl>+<C> to copy")).toEqual({
+      kind: "external",
+      text: "Press <Ctrl>+<C> to copy",
+    });
+  });
+
+  test("linear hosts are dropped in every spelling", () => {
+    const variants = [
+      "https://user@linear.app/a",
+      "https://user:pw@uploads.linear.app/a",
+      "https://linear.app:443/a",
+      "https://LINEAR.app/a",
+      "https://linear.app./a",
+      "https://uploads.linear.app./f.png",
+      "https://linear.app。/a",
+      "https://a.b.linear.app/a",
+    ];
+    for (const url of variants) {
+      expect(plainStaffText(`x ${url} y`)).toBe("x  y");
+    }
+    expect(plainStaffText("https://xn--linear-app.com/a")).toBe(
+      "https://xn--linear-app.com/a",
+    );
+    expect(plainStaffText("https://linear.app.evil.com/a")).toBe(
+      "https://linear.app.evil.com/a",
+    );
+  });
+
+  test("brackets without a link stay", () => {
+    expect(plainStaffText("a [not a link] (x)")).toBe("a [not a link] (x)");
     expect(plainStaffText("[open](")).toBe("[open](");
     expect(plainStaffText("![x] [y](z")).toBe("![x] [y](z");
   });
@@ -147,6 +183,9 @@ describe("plain text for released staff replies", () => {
       "](".repeat(size / 2),
       "<".repeat(size),
       "<a ".repeat(size / 3),
+      "<b ".repeat(size / 3),
+      "https://user@".repeat(size / 13),
+      "https://linear.app.".repeat(size / 19),
       "https://".repeat(size / 8),
       "https://linear.app/".repeat(size / 19),
       `${"[".repeat(size / 2)}]${")".repeat(size / 2)}`,

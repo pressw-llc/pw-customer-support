@@ -1,7 +1,5 @@
-import { stripMarkup } from "@pw-support/contracts";
-
 const URL_STOP = new Set([" ", "\t", "\n", "\r", ")", "]", "<", ">", '"']);
-const HOST_STOP = new Set(["/", "?", "#", ":", "@"]);
+const TRAILING_PUNCTUATION = new Set([".", ",", ";", ":", "!", "?", "'", "*"]);
 
 function isLetterAt(text: string, index: number, lower: string): boolean {
   return (text.charCodeAt(index) | 0x20) === lower.charCodeAt(0);
@@ -20,10 +18,16 @@ function schemeLengthAt(text: string, index: number): number {
   return text.startsWith("://", index + 4 + secure) ? 7 + secure : 0;
 }
 
-function isLinearHost(text: string, start: number, end: number): boolean {
-  let hostEnd = start;
-  while (hostEnd < end && !HOST_STOP.has(text.charAt(hostEnd))) hostEnd++;
-  const host = text.slice(start, hostEnd).toLowerCase();
+function isLinearHost(candidate: string): boolean {
+  let hostname: string;
+  try {
+    hostname = new URL(candidate).hostname.toLowerCase();
+  } catch {
+    return false;
+  }
+  let end = hostname.length;
+  while (end > 0 && hostname.charAt(end - 1) === ".") end--;
+  const host = hostname.slice(0, end);
   return host === "linear.app" || host.endsWith(".linear.app");
 }
 
@@ -32,16 +36,22 @@ function dropLinearUrls(text: string): string {
   let literalFrom = 0;
   let index = 0;
   while (index < text.length) {
-    const scheme = schemeLengthAt(text, index);
-    if (scheme === 0) {
+    if (schemeLengthAt(text, index) === 0) {
       index++;
       continue;
     }
-    let end = index + scheme;
+    let end = index;
     while (end < text.length && !URL_STOP.has(text.charAt(end))) end++;
-    if (isLinearHost(text, index + scheme, end)) {
+    let trimmed = end;
+    while (
+      trimmed > index &&
+      TRAILING_PUNCTUATION.has(text.charAt(trimmed - 1))
+    ) {
+      trimmed--;
+    }
+    if (isLinearHost(text.slice(index, trimmed))) {
       out.push(text.slice(literalFrom, index));
-      literalFrom = end;
+      literalFrom = trimmed;
     }
     index = end;
   }
@@ -89,7 +99,7 @@ function linksToText(text: string): string {
 }
 
 export function plainStaffText(markdown: string): string {
-  const withoutLinks = dropLinearUrls(linksToText(stripMarkup(markdown)));
+  const withoutLinks = dropLinearUrls(linksToText(markdown));
   return withoutLinks
     .split("\n")
     .map((line) => line.trimEnd())

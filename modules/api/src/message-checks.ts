@@ -1,4 +1,9 @@
-import { clip, MAX_MESSAGE_CHARS, stripMarkup } from "@pw-support/contracts";
+import {
+  clip,
+  MAX_MESSAGE_CHARS,
+  stripMarkup,
+  stripMarkupDetailed,
+} from "@pw-support/contracts";
 
 export { clip, stripMarkup };
 
@@ -28,9 +33,10 @@ export function checkMessage(
 ): MessageVerdict {
   const bounded = clip(raw, MAX_STORED_MESSAGE_CHARS);
   const truncated = options.truncated === true || bounded.length < raw.length;
-  const stripped = stripMarkup(bounded);
+  const { text: stripped, htmlRemoved } = stripMarkupDetailed(bounded);
   const reasons: string[] = [];
-  if (stripped !== bounded) reasons.push("markup");
+  if (htmlRemoved) reasons.push("markup");
+  else if (stripped !== bounded) reasons.push("control_chars");
   if (truncated || stripped.length > MAX_MESSAGE_CHARS) {
     reasons.push("too_long");
   }
