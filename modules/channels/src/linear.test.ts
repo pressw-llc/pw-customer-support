@@ -6,9 +6,16 @@ import {
   SendMessageCommand,
   SQSClient,
 } from "@aws-sdk/client-sqs";
-import { adapterMessageSchema, resolveStackEnv } from "@pw-support/contracts";
+import {
+  adapterMessageSchema,
+  resolveStackEnv,
+  systemAdapterContext,
+  TICKET_REDELIVERY_BASE_SECONDS,
+  TICKET_REDELIVERY_MAX_SECONDS,
+} from "@pw-support/contracts";
 import {
   advanceEventCursor,
+  claimTicketRedeliveries,
   findTicketByRequest,
   getEventCursor,
   loadTriageContext,
@@ -422,6 +429,7 @@ describe("linear adapter", () => {
       projectSlug: scope.projectSlug,
       linearTeamId: h.team,
     });
+    h.clock.advance(TICKET_REDELIVERY_BASE_SECONDS + 1);
     const after = await h.adapter.redeliver?.();
     const mine = after?.find((e) => e.requestId === done.request.id);
     expect(mine).toBeDefined();
@@ -457,7 +465,7 @@ describe("linear adapter", () => {
 
 describe("dispatcher", () => {
   function adapterNamed(name: string) {
-    return { ...h.adapter, name };
+    return { ...h.adapter, name, redeliver: async () => [] };
   }
 
   test("delivers subscribed events in order and advances the durable cursor", async () => {
@@ -664,5 +672,124 @@ describe("adapter runtime", () => {
     );
     expect(runtime.linearAdapter.name).toBe("linear");
     expect(runtime.db).toBe(h.db);
+  });
+});
+
+describe("C2 redelivery of completed jobs without a ticket", () => {
+  function scopedAdapter(name: string, requestId: string) {
+    return {
+      ...h.adapter,
+      name,
+      redeliver: async () =>
+        (
+          await claimTicketRedeliveries(h.db, {
+            now: h.clock.now(),
+            limit: 500,
+          })
+        ).filter((event) => event.requestId === requestId),
+    };
+  }
+
+  function countingTransport(counter: { enqueued: number }) {
+    return {
+      async deliver(
+        adapter: { handle: typeof h.adapter.handle },
+        event: Parameters<typeof h.adapter.handle>[0],
+      ) {
+        counter.enqueued += 1;
+        await adapter.handle(event, systemAdapterContext).catch(() => {});
+      },
+    };
+  }
+
+  test("a ticket is created exactly once after Linear fails and enqueues stay inside the backoff", async () => {
+    const name = `linear-redeliver-${crypto.randomUUID().slice(0, 8)}`;
+    await advanceEventCursor(h.db, name, await maxEventSeq(h.db));
+    const done = await h.completedRequest();
+    const counter = { enqueued: 0 };
+    const dispatcher = createDispatcher({
+      db: h.db,
+      adapters: [scopedAdapter(name, done.request.id)],
+      transport: countingTransport(counter),
+    });
+    h.stub.failNext(100_000);
+    const stepSeconds = 10;
+    const windowSeconds = 2400;
+    for (let elapsed = 0; elapsed < windowSeconds; elapsed += stepSeconds) {
+      h.clock.advance(stepSeconds);
+      await dispatcher.tick();
+    }
+    expect(await findTicketByRequest(h.db, done.request.id)).toBeNull();
+    const attempts = Math.ceil(
+      Math.log2(TICKET_REDELIVERY_MAX_SECONDS / TICKET_REDELIVERY_BASE_SECONDS),
+    );
+    const bound =
+      1 +
+      attempts +
+      Math.ceil(windowSeconds / TICKET_REDELIVERY_MAX_SECONDS) +
+      1;
+    expect(counter.enqueued).toBeGreaterThanOrEqual(3);
+    expect(counter.enqueued).toBeLessThanOrEqual(bound);
+    expect(counter.enqueued).toBeLessThan(windowSeconds / stepSeconds / 10);
+
+    h.stub.failNext(0);
+    h.clock.advance(TICKET_REDELIVERY_MAX_SECONDS + 1);
+    await dispatcher.tick();
+    expect(await findTicketByRequest(h.db, done.request.id)).not.toBeNull();
+    const settled = counter.enqueued;
+    for (let index = 0; index < 5; index++) {
+      h.clock.advance(TICKET_REDELIVERY_MAX_SECONDS + 1);
+      await dispatcher.tick();
+    }
+    expect(counter.enqueued).toBe(settled);
+    expect(
+      h.stub.issues.filter((issue) =>
+        issue.description.includes(done.request.id),
+      ),
+    ).toHaveLength(1);
+  });
+
+  test("a request blocked on a missing team is not re-enqueued on every tick", async () => {
+    const name = `linear-blocked-${crypto.randomUUID().slice(0, 8)}`;
+    await advanceEventCursor(h.db, name, await maxEventSeq(h.db));
+    const scope = await h.project({ teamId: null });
+    const done = await h.completedRequest({ project: scope });
+    const counter = { enqueued: 0 };
+    const dispatcher = createDispatcher({
+      db: h.db,
+      adapters: [scopedAdapter(name, done.request.id)],
+      transport: countingTransport(counter),
+    });
+    for (let index = 0; index < 30; index++) {
+      h.clock.advance(60);
+      await dispatcher.tick();
+    }
+    expect(counter.enqueued).toBe(1);
+    await setProjectLinearTeam(h.db, {
+      clientSlug: h.clientSlug,
+      projectSlug: scope.projectSlug,
+      linearTeamId: h.team,
+    });
+    h.clock.advance(TICKET_REDELIVERY_BASE_SECONDS + 1);
+    await dispatcher.tick();
+    expect(await findTicketByRequest(h.db, done.request.id)).not.toBeNull();
+    expect(counter.enqueued).toBe(2);
+  });
+
+  test("a human triage completion without a ticket is redelivered as well", async () => {
+    const done = await h.completedRequest({ human: true });
+    h.clock.advance(TICKET_REDELIVERY_BASE_SECONDS + 1);
+    const due = await claimTicketRedeliveries(h.db, {
+      now: h.clock.now(),
+      limit: 500,
+    });
+    expect(due.map((event) => event.requestId)).toContain(done.request.id);
+    const again = await claimTicketRedeliveries(h.db, {
+      now: h.clock.now(),
+      limit: 500,
+    });
+    expect(again.map((event) => event.requestId)).not.toContain(
+      done.request.id,
+    );
   });
 });

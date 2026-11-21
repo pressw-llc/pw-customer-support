@@ -260,3 +260,13 @@ export const tickets = support.table("tickets", {
   url: text("url").notNull(),
   createdAt: createdAt(),
 });
+
+export const ticketDeliveries = support.table("ticket_deliveries", {
+  requestId: uuid("request_id")
+    .primaryKey()
+    .references(() => requests.id, { onDelete: "cascade" }),
+  deliveryAttempts: integer("delivery_attempts").notNull().default(0),
+  lastEnqueuedAt: timestamp("last_enqueued_at", {
+    withTimezone: true,
+  }).notNull(),
+});

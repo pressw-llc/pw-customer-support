@@ -8,11 +8,11 @@ import {
 } from "@pw-support/contracts";
 import {
   appendEvent,
+  claimTicketRedeliveries,
   findTicketByRequest,
   getTriageJobForRequest,
   insertTicket,
   inTransaction,
-  listBlockedTicketEvents,
   listJudgments,
   loadTriageContext,
   requestHasEvent,
@@ -39,6 +39,7 @@ export type TicketOutcome =
 export interface LinearAdapterDeps {
   db: SupportDb;
   linear: LinearClient;
+  now?: () => Date;
 }
 
 export interface LinearAdapter extends ChannelAdapter {
@@ -47,6 +48,7 @@ export interface LinearAdapter extends ChannelAdapter {
 
 export function createLinearAdapter(deps: LinearAdapterDeps): LinearAdapter {
   const { db, linear } = deps;
+  const clock = deps.now ?? (() => new Date());
 
   async function createTicketForRequest(
     requestId: string,
@@ -145,7 +147,7 @@ export function createLinearAdapter(deps: LinearAdapterDeps): LinearAdapter {
       if (!event.requestId) return;
       await createTicketForRequest(event.requestId);
     },
-    redeliver: () => listBlockedTicketEvents(db),
+    redeliver: () => claimTicketRedeliveries(db, { now: clock() }),
     createTicketForRequest,
   };
 }

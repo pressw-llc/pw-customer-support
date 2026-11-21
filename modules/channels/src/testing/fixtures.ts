@@ -31,6 +31,16 @@ export const VALID_RESULT: TriageResult = {
   needs_human: false,
 };
 
+export class OffsetClock {
+  private offsetMs = 0;
+
+  readonly now = (): Date => new Date(Date.now() + this.offsetMs);
+
+  advance(seconds: number): void {
+    this.offsetMs += seconds * 1000;
+  }
+}
+
 export async function createChannelsHarness() {
   await migrate();
   const db: SupportDb = createDb();
@@ -39,7 +49,12 @@ export async function createChannelsHarness() {
     apiUrl: stub.url,
     secrets: { get: async () => "lin_api_test" },
   });
-  const adapter: LinearAdapter = createLinearAdapter({ db, linear });
+  const clock = new OffsetClock();
+  const adapter: LinearAdapter = createLinearAdapter({
+    db,
+    linear,
+    now: clock.now,
+  });
   const clientSlug = `acme-ch-${crypto.randomUUID().slice(0, 8)}`;
   const team = stub.teams[0]?.id as string;
 
@@ -145,6 +160,7 @@ export async function createChannelsHarness() {
     stub,
     linear,
     adapter,
+    clock,
     team,
     clientSlug,
     project,

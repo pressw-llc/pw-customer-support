@@ -1,7 +1,11 @@
 import type { EventEnvelope, EventType } from "@pw-support/contracts";
-import { eventEnvelopeSchema } from "@pw-support/contracts";
+import {
+  eventEnvelopeSchema,
+  TICKET_REDELIVERY_BASE_SECONDS,
+  TICKET_REDELIVERY_MAX_SECONDS,
+} from "@pw-support/contracts";
 import { and, asc, eq, gt, inArray, sql } from "drizzle-orm";
-import type { SupportExecutor } from "./client";
+import { inTransaction, type SupportExecutor } from "./client";
 import type { Project } from "./projects";
 import {
   attachments,
@@ -180,40 +184,68 @@ export async function requestHasEvent(
   return rows.length > 0;
 }
 
-export async function listBlockedTicketEvents(
+export interface RedeliveryOptions {
+  now?: Date;
+  limit?: number;
+  baseSeconds?: number;
+  maxSeconds?: number;
+}
+
+const REDELIVERY_LOCK_ID = 7_340_002;
+
+export async function claimTicketRedeliveries(
   db: SupportExecutor,
-  limit = 50,
+  options: RedeliveryOptions = {},
 ): Promise<EventEnvelope[]> {
-  const rows = await db.execute<Record<string, unknown>>(sql`
-    SELECT e.id, e.seq, e.type, e.channel_key, e.request_id, e.payload, e.created_at
-    FROM support.events e
-    WHERE e.type = 'triage.result.accepted'
-      AND EXISTS (
-        SELECT 1 FROM support.events b
-        WHERE b.request_id = e.request_id AND b.type = 'ticket.blocked'
+  const nowTs = (options.now ?? new Date()).toISOString();
+  const base = options.baseSeconds ?? TICKET_REDELIVERY_BASE_SECONDS;
+  const max = options.maxSeconds ?? TICKET_REDELIVERY_MAX_SECONDS;
+  const limit = options.limit ?? 50;
+  return inTransaction(db, async (tx) => {
+    await tx.execute(sql`SELECT pg_advisory_xact_lock(${REDELIVERY_LOCK_ID})`);
+    const rows = await tx.execute<Record<string, unknown>>(sql`
+      WITH due AS (
+        SELECT e.id, e.seq, e.type, e.channel_key, e.request_id, e.payload, e.created_at
+        FROM support.events e
+        LEFT JOIN support.ticket_deliveries d ON d.request_id = e.request_id
+        WHERE e.type = 'triage.result.accepted'
+          AND e.request_id IS NOT NULL
+          AND NOT EXISTS (
+            SELECT 1 FROM support.tickets t WHERE t.request_id = e.request_id
+          )
+          AND EXISTS (
+            SELECT 1 FROM support.requests r
+            JOIN support.projects p ON p.id = r.project_id
+            WHERE r.id = e.request_id AND p.linear_team_id IS NOT NULL
+          )
+          AND COALESCE(d.last_enqueued_at, e.created_at)
+            <= ${nowTs}::timestamptz - make_interval(
+              secs => LEAST(${max}::double precision, ${base}::double precision * power(2, COALESCE(d.delivery_attempts, 0)))
+            )
+        ORDER BY e.seq
+        LIMIT ${limit}
+      ), marked AS (
+        INSERT INTO support.ticket_deliveries (request_id, delivery_attempts, last_enqueued_at)
+        SELECT request_id, 1, ${nowTs}::timestamptz FROM due
+        ON CONFLICT (request_id) DO UPDATE
+          SET delivery_attempts = support.ticket_deliveries.delivery_attempts + 1,
+              last_enqueued_at = EXCLUDED.last_enqueued_at
       )
-      AND NOT EXISTS (
-        SELECT 1 FROM support.tickets t WHERE t.request_id = e.request_id
-      )
-      AND EXISTS (
-        SELECT 1 FROM support.requests r
-        JOIN support.projects p ON p.id = r.project_id
-        WHERE r.id = e.request_id AND p.linear_team_id IS NOT NULL
-      )
-    ORDER BY e.seq
-    LIMIT ${limit}
-  `);
-  return rows.map((row) =>
-    eventEnvelopeSchema.parse({
-      id: row.id,
-      seq: row.seq,
-      type: row.type,
-      channelKey: row.channel_key,
-      requestId: row.request_id,
-      payload: row.payload,
-      createdAt: row.created_at,
-    }),
-  );
+      SELECT id, seq, type, channel_key, request_id, payload, created_at
+      FROM due ORDER BY seq
+    `);
+    return rows.map((row) =>
+      eventEnvelopeSchema.parse({
+        id: row.id,
+        seq: row.seq,
+        type: row.type,
+        channelKey: row.channel_key,
+        requestId: row.request_id,
+        payload: row.payload,
+        createdAt: row.created_at,
+      }),
+    );
+  });
 }
 
 export async function getEventBySeq(
