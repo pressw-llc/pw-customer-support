@@ -155,9 +155,7 @@ export async function applyFetchedComment(
       return { status: "refreshed" };
     }
     const edited =
-      fetched.body !== inbound.body ||
-      (inbound.sourceUpdatedAt !== null &&
-        fetched.updatedAt.getTime() !== inbound.sourceUpdatedAt.getTime());
+      fetched.body !== inbound.body || fetched.authorId !== inbound.authorId;
     await tx
       .update(inboundComments)
       .set({ body: fetched.body, sourceUpdatedAt: fetched.updatedAt })

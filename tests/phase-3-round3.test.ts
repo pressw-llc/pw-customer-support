@@ -229,13 +229,37 @@ describe("H2 a confirm always checks the held comment against Linear", () => {
     ]);
   });
 
-  test("H2 a changed updatedAt with the same body cancels the hold", async () => {
+  test("H2 a changed updatedAt with the same body releases the reply and stores the new time", async () => {
     const s = await p.scenario();
     const held = await staff(s, "@external rough text [s=1.0]");
-    held.updatedAt = new Date(Date.now() + 120_000).toISOString();
+    const bumped = new Date(Date.now() + 120_000);
+    held.updatedAt = bumped.toISOString();
+    await staff(s, "@confirm", { parentId: held.id });
+    expect((await p.repliesFor(s.requestId))[0]?.status).toBe("sent");
+    expect(bodiesOf(await p.thread(s.who, s.requestId))).toHaveLength(2);
+    expect((await inboundOf(held.id))?.sourceUpdatedAt?.getTime()).toBe(
+      bumped.getTime(),
+    );
+  });
+
+  test("H2 an update webhook with an identical body leaves the hold in place", async () => {
+    const s = await p.scenario();
+    const held = await staff(s, "@external rough text [s=1.0]");
+    const payload = commentWebhookPayload(
+      { ...held, updatedAt: new Date(Date.now() + 60_000).toISOString() },
+      Date.now(),
+      "update",
+    );
+    expect(await post(payload)).toMatchObject({ status: "ignored" });
+    expect((await p.repliesFor(s.requestId))[0]?.status).toBe("held");
+  });
+
+  test("H2 a different human author at confirm time cancels the hold", async () => {
+    const s = await p.scenario();
+    const held = await staff(s, "@external rough text [s=1.0]");
+    held.userId = "someone-else";
     await staff(s, "@confirm", { parentId: held.id });
     expect((await p.repliesFor(s.requestId))[0]?.status).toBe("cancelled");
-    expect(bodiesOf(await p.thread(s.who, s.requestId))).toHaveLength(1);
   });
 
   test("H2 an unchanged held comment is fetched once and then released", async () => {
