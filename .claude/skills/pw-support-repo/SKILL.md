@@ -65,4 +65,5 @@ Plans live in `docs/plans/customer-support-v1/`. `PRD.md` holds the locked decis
 
 - Keep client names, client data, and real keys out of this public repository. Use `acme` in fixtures.
 - Never commit `.env.local`.
+- Manage `.env.example` and `.env.local` through `bun run env`. The `env-files` skill describes it.
 - Use the pipelines and managed-agents skills in this directory when you touch `triage`.

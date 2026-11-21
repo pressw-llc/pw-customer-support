@@ -21,9 +21,12 @@ bun run stack:up                    # Postgres 5447, LocalStack 4577
 bun run stack:down
 bun run db:migrate
 bun run synth                       # cdk synth, no AWS credentials needed
+bun run env set NAME[=VALUE]        # manage .env.example and .env.local
 ```
 
 `bun run check` leaves the Compose stack running. Integration tests use the real Compose Postgres and LocalStack, so start the stack before `bun test`. `bun install` needs `GITHUB_TOKEN` with `read:packages` for the `@pressw-llc` packages.
+
+Manage `.env.example` and `.env.local` only through `bun run env`, as the `env-files` skill describes. Never read or hand-edit them.
 
 ## Architecture
 

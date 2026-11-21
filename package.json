@@ -16,6 +16,7 @@
     "stack:up": "docker compose up -d --wait",
     "stack:down": "docker compose down -v",
     "db:migrate": "bun scripts/db-migrate.ts",
+    "env": "bun scripts/env.ts",
     "synth": "bun run --filter @pw-support/infra synth",
     "prepare": "git config core.hooksPath .githooks || true"
   },

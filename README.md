@@ -10,16 +10,17 @@ Install Bun 1.3, Docker, and set `GITHUB_TOKEN` to a token with `read:packages`.
 
 ```bash
 bun install
+bun run env sync
 bun run stack:up
 bun run db:migrate
 bun run check
 ```
 
-The stack runs Postgres on `127.0.0.1:5447` and LocalStack on `127.0.0.1:4577`. Every script runs on built-in defaults against the local stack, so no env file is required.
+The stack runs Postgres on `127.0.0.1:5447` and LocalStack on `127.0.0.1:4577`. `bun run env sync` creates `.env.local` from `.env.example`. Every script still runs on built-in defaults against the local stack without it.
 
 ## Environment
 
-Put overrides in `.env.local`, which is gitignored.
+`.env.example` is the committed template. Put real values in `.env.local`, which is gitignored. Manage both files with `bun run env` and the `env-files` skill. Do not edit them by hand.
 
 | Variable                                     | Default                                             | Purpose                              |
 | -------------------------------------------- | --------------------------------------------------- | ------------------------------------ |
@@ -33,21 +34,28 @@ Put overrides in `.env.local`, which is gitignored.
 | `TRIAGE_WAKE_QUEUE`                          | `pw-support-triage-wake`                            | SQS queue that wakes triage          |
 | `TRIAGE_WAKE_DLQ`                            | `pw-support-triage-wake-dlq`                        | Dead-letter queue for the wake queue |
 | `API_PORT`                                   | `8787`                                              | Port for the Hono API server         |
+| `ANTHROPIC_API_KEY`                          | blank, secret                                       | Anthropic API key                    |
+| `TYPESAFE_API_KEY`                           | blank, secret                                       | TypeSafe key for the Jev filter      |
+| `LINEAR_API_KEY`                             | blank, secret                                       | Linear API key                       |
+| `LINEAR_WEBHOOK_SECRET`                      | blank, secret                                       | Linear webhook signing secret        |
+| `COGNITO_ISSUER`                             | blank                                               | Cognito token issuer URL             |
+| `COGNITO_AUDIENCE`                           | blank                                               | Cognito token audience               |
 
 ## Commands
 
-| Command                         | Action                                                        |
-| ------------------------------- | ------------------------------------------------------------- |
-| `bun run check`                 | Run install, lint, typecheck, stack, test, and synth in order |
-| `bun run check --skip-install`  | Run the same stages without the install                       |
-| `bun run lint`                  | Run Biome and the module boundary check                       |
-| `bun run typecheck`             | Run `tsc --noEmit` in every module                            |
-| `bun test`                      | Run all tests                                                 |
-| `bun test path/to/file.test.ts` | Run one test file                                             |
-| `bun run stack:up`              | Start Postgres and LocalStack                                 |
-| `bun run stack:down`            | Stop the stack and delete its volumes                         |
-| `bun run db:migrate`            | Apply the SQL migrations to `DATABASE_URL`                    |
-| `bun run synth`                 | Run `cdk synth` with no AWS credentials                       |
+| Command                         | Action                                                         |
+| ------------------------------- | -------------------------------------------------------------- |
+| `bun run check`                 | Run install, lint, typecheck, stack, test, and synth in order  |
+| `bun run check --skip-install`  | Run the same stages without the install                        |
+| `bun run lint`                  | Run Biome and the module boundary check                        |
+| `bun run typecheck`             | Run `tsc --noEmit` in every module                             |
+| `bun test`                      | Run all tests                                                  |
+| `bun test path/to/file.test.ts` | Run one test file                                              |
+| `bun run stack:up`              | Start Postgres and LocalStack                                  |
+| `bun run stack:down`            | Stop the stack and delete its volumes                          |
+| `bun run db:migrate`            | Apply the SQL migrations to `DATABASE_URL`                     |
+| `bun run env <command>`         | Manage `.env.example` and `.env.local` without printing values |
+| `bun run synth`                 | Run `cdk synth` with no AWS credentials                        |
 
 `bun run check` leaves the stack running. Run `bun run stack:down` to stop it.
 
