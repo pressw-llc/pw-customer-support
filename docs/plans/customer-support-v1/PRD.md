@@ -7,16 +7,7 @@
 
 ## Decide This
 
-| ID | Question | Default if unanswered | Blocking |
-| --- | --- | --- | --- |
-| Q1 | Which AWS account and region host the stack? | No deploy. Local stack only. | yes: Phase 0 deploy exit |
-| Q2 | Which npmjs organization owns the public package? | Scope `@pressw-llc` on both registries. | yes: Phase 6 publish |
-| Q3 | Which Cognito user pool backs admin login? | CDK creates a new pool restricted to `pressw.ai` emails. | no |
-| Q4 | What happens to a marked staff reply that scores low on Jev wording? | Below 3 of 5: hold, warn the author in the source channel, send on confirm. | no |
-| Q6 | What does the triage agent see from attachments? | File name, type, and size only. No file content. | no |
-| Q7 | What are the attachment limits? | 10 files per message, 25 MB per file, allowlisted types. | no |
-| Q8 | How does a laptop run a claimed triage job? | A headless Claude Code subagent with one tool: submit the result. | no |
-| Q9 | How does Linear routing pick a team? | One Linear team per project, set in admin settings. | no |
+No open questions. Every question raised in drafting is a Locked Decision, D28 to D36.
 
 ## Goal
 
@@ -61,6 +52,7 @@ PressW has no shared intake path for client support requests. V1 gives client de
 - **Ontology, themes, sentiment, and emotion views.** V1 stores raw judgments. V2 builds the views.
 - **Knowledge graph extraction.** V2 builds the graph in Postgres from the V1 event stream.
 - **A Python package.** D1 makes the backend TypeScript.
+- **Video attachments.** D33 rejects video.
 - **Real-time push to the widget.** V1 polls.
 - **End-user authentication.** The hashed ID is the only customer gate.
 
@@ -98,7 +90,7 @@ PressW has no shared intake path for client support requests. V1 gives client de
 | D16 | A channel key is `client[:project[:user]]`. A subscription matches by prefix. | `acme` receives every `acme` job. A three-part key receives one user's jobs. |
 | D17 | Laptop and cloud claimants submit the same result schema through the same validation. | A laptop result gets no extra trust. |
 | D18 | Channel adapters run as Lambda pipeline steps triggered by stream events. | Slack and email arrive later as new adapters with no core change. |
-| D19 | A staff comment is internal unless it starts with the customer marker. A marked comment gets a Jev wording score from 0 to 5. | No unmarked comment reaches a customer. Q4 sets the low-score behavior. |
+| D19 | A staff comment is internal unless it starts with `@external`. A marked comment gets a Jev wording score from 0 to 5. | No unmarked comment reaches a customer. D31 sets the score bands. |
 | D20 | Every message stores its origin channel, author, and audience. | The thread shows where each party replied. |
 | D21 | Admin settings store integration keys in AWS Secrets Manager. Postgres stores a reference only. | No secret in a database dump, a log, or an API response. |
 | D22 | AWS CDK defines the stack. Docker Compose runs Postgres and LocalStack locally. | The same containers and scripts run locally and in AWS. |
@@ -107,6 +99,15 @@ PressW has no shared intake path for client support requests. V1 gives client de
 | D25 | The gist supplies only: conventional commits, githooks, `.env.example`, `/health`, UUID keys, 85 percent coverage. | Bun, Biome, shadcn, and AWS replace pnpm, ESLint, NiceGUI, and GKE. |
 | D26 | Admin is a Vite React app with shadcn and Tailwind, behind Cognito. | Admin API routes reject any request without a valid Cognito token. |
 | D27 | The MCP service is an authenticated API route. The plugin authenticates with Cognito. | Subscriptions and queries follow the engineer's identity. |
+| D28 | The stack deploys to a new dedicated AWS account in `us-east-1`. | The account, CDK bootstrap, and a GitHub OIDC role must exist before the first deploy. |
+| D29 | The widget package is `@pressw-llc/support-react` on npmjs and GitHub Packages. | One name everywhere. PressW needs a `pressw-llc` organization on npmjs. |
+| D30 | Admin and MCP login use the `pw-telemetry-platform` Cognito pool through a new app client. | Staff keep one login. The stack validates tokens across accounts and depends on that pool. |
+| D31 | A wording score below 2 holds the reply until the author confirms. A score from 2 to below 3 sends and raises a flag. A score of 3 or more sends. | A held reply warns the author in the source channel. A flag shows in the admin UI. |
+| D32 | The agent receives request text, images, and text extracted from documents. Deterministic code extracts the text. | Extracted text and image content pass the D10 filter where Jev can read them. D11 still holds. |
+| D33 | A message accepts 10 files of 25 MB each: images, PDF, text, logs, CSV, JSON, Office documents, zip. | Video is rejected. Zip content is stored and never extracted for the agent. |
+| D34 | A laptop runs a claimed job in a headless Claude Code subagent whose one tool submits the result. | Triage does not interrupt the engineer's session. |
+| D35 | Admin settings map each client project to one Linear team. The agent picks labels and priority only. | Team routing is deterministic. |
+| D36 | Admin settings store the severe-request CC list in V1. No V1 code reads the list. | The V2 Slack adapter needs no migration. |
 
 Claim precedence for one triage job, per D13 to D15:
 
@@ -127,11 +128,12 @@ Outbound gate for one staff comment, per D19:
 
 ```mermaid
 flowchart TD
-    S[Staff comment arrives] --> M{Customer marker present?}
+    S[Staff comment arrives] --> M{Starts with @external?}
     M -- no --> I[Store as internal]
     M -- yes --> W{Jev wording score}
-    W -- at or above threshold --> P[Send to customer]
-    W -- below threshold --> F[Hold and warn author]
+    W -- 3 or more --> P[Send to customer]
+    W -- 2 to below 3 --> G[Send and flag]
+    W -- below 2 --> F[Hold and warn author]
     F -- author confirms --> P
 ```
 
@@ -139,7 +141,7 @@ flowchart TD
 
 - Never give customer content to an LLM that holds a tool or open network access.
 - Never let model output call an external system. Only deterministic code writes to Linear or to a customer.
-- Never send a staff comment to a customer without the customer marker.
+- Never send a staff comment to a customer without the `@external` marker.
 - Never return one project's data to a request that carries another project's key.
 - Never write an integration secret to Postgres, a log, an event, or an API response.
 - Never process a request before the request and its event are committed.
@@ -152,29 +154,32 @@ flowchart TD
 | A1 | A fresh React app renders the widget from one import and two props. The host needs no CSS or build change. | D4, D5 |
 | A2 | A request with text and two attachments returns success. Postgres holds the request, the files' records, and a `request.created` event. | D7, D8 |
 | A3 | A stopped triage worker does not lose a submitted request. Triage completes after the worker restarts. | D7, Safety Law: commit before processing |
-| A4 | A renamed executable upload is rejected. An oversize file is rejected. | D9 |
+| A4 | A renamed executable upload is rejected. A 26 MB file, an eleventh file, and a video are each rejected. | D9, D33 |
 | A5 | A request with a known injection payload produces a human-triage ticket. No agent session starts. | D10 |
 | A6 | Malformed agent output produces a human-triage ticket. | D11 |
 | A7 | The agent definition lists zero tools and zero MCP servers. The environment config restricts networking. | D11, Safety Law: no tools or network |
-| A8 | A normal request produces one Linear ticket in the project's configured team, with no manual step. | D12 |
+| A8 | A normal request produces one Linear ticket in the project's configured team, with no manual step. | D12, D35 |
 | A9 | Two concurrent claims on one job yield one winner and one refusal. | D13 |
 | A10 | With no subscriber, three consecutive jobs on one channel wait 60, 30, then 15 seconds. A laptop claim returns the wait to 60. | D14 |
 | A11 | A laptop claims a job and submits nothing. The cloud worker completes the job after lease expiry. | D15 |
 | A12 | A subscriber on `acme` receives a job keyed `acme:p:u`. A subscriber on `acme:other` does not. | D16 |
 | A13 | A schema-invalid laptop result is refused and the job reopens. | D17 |
-| A14 | An unmarked Linear comment never appears in the widget. A marked comment appears and raises the unread indicator. | D19, Safety Law: customer marker |
-| A15 | A marked comment below the score threshold stays held until the author confirms. | D19 |
+| A14 | An unmarked Linear comment never appears in the widget. An `@external` comment appears and raises the unread indicator. | D19, Safety Law: `@external` marker |
+| A15 | An `@external` comment scored below 2 stays held until the author confirms. A comment scored 2.5 sends and shows a flag in the admin UI. | D31 |
 | A16 | A customer follow-up in the widget appears as a comment on the Linear ticket. | D18, D20 |
 | A17 | A request made with project key A and a hashed ID from project B returns no data. | Safety Law: project isolation |
 | A18 | A saved Linear key appears in Secrets Manager. A database dump and the settings API response hold no key material. | D21 |
-| A19 | An admin route returns 401 without a Cognito token. A `pressw.ai` user sees the request list with an acknowledgement timer. | D26 |
+| A19 | An admin route returns 401 without a Cognito token. A telemetry-pool user sees the request list with an acknowledgement timer. | D26, D30 |
 | A20 | The plugin lists, adds, and removes subscriptions and queries request state over MCP. | D27 |
 | A21 | `bun run check` passes locally. The Actions log shows the same command. | D23 |
-| A22 | The stack deploys from the local deploy script and from Actions. A request submitted to the deployed API reaches Linear. | D22 |
-| A23 | `bun install` from npmjs and from GitHub Packages both resolve the widget. | D6 |
+| A22 | The stack deploys to the dedicated account from the local deploy script and from Actions. A request submitted to the deployed API reaches Linear. | D22, D28 |
+| A23 | `bun install @pressw-llc/support-react` resolves from npmjs and from GitHub Packages. | D6, D29 |
 | A24 | A PR in this repository receives a `pressw-agent` review and no CodeRabbit review. | D24 |
 | A25 | A lint run fails on a cross-module deep import. | D3 |
 | A26 | Each module directory holds at least one skill. The root holds the pipelines skills and a repository skill. | D2 |
+| A27 | A request with a screenshot and a PDF yields a ticket summary that cites content from both. A PDF that holds an injection payload yields a human-triage ticket. | D32, D10 |
+| A28 | A laptop job completes while the engineer's session shows no prompt. The subagent's tool list holds one tool. | D34 |
+| A29 | A saved CC list survives a reload of admin settings. | D36 |
 
 D1, D25 are structural and carry no behavior of their own. A21 and A25 cover them.
 
@@ -198,15 +203,24 @@ flowchart LR
 
 | Phase | Delivers | Exit | Gate |
 | --- | --- | --- | --- |
-| 0 | Workspace, `contracts`, `db`, Compose stack, check scripts, Actions, CDK skeleton, `.coderabbit.yaml`, root skills | A21, A24, A25 pass. The empty stack deploys once Q1 is answered. | PR reviewer |
+| 0 | Workspace, `contracts`, `db`, Compose stack, check scripts, Actions, CDK skeleton, `.coderabbit.yaml`, root skills | A21, A24, A25 pass. The empty stack deploys to the dedicated account. | PR reviewer |
 | 1 | Intake API, attachments, static checks, event stream, widget, example host app | A1 to A4 and A17 pass on the local stack. T14 is verified or recorded as unsupported. | PR reviewer, live validation |
-| 2 | Job table, claim protocol, delay and backoff, Jev filter, managed agent, Linear adapter outbound | A5 to A11 pass against a Linear sandbox team. T15 is verified. | Adversarial review, live validation |
+| 2 | Job table, claim protocol, delay and backoff, Jev filter, managed agent, Linear adapter outbound | A5 to A11 and A27 pass against a Linear sandbox team. T15 is verified. | Adversarial review, live validation |
 | 3 | Linear webhook inbound, marker and wording gate, customer follow-up sync, unread indicator | A14 to A16 pass. | Adversarial review, live validation |
-| 4 | Cognito login, request list and detail, acknowledgement timer, settings, secret storage | A18 and A19 pass. | PR reviewer, live validation |
-| 5 | MCP route, subscriptions, Claude Code plugin, laptop claim and result | A12, A13, A20 pass with a real laptop session. | Adversarial review, live validation |
+| 4 | Cognito login, request list and detail, acknowledgement timer, settings, secret storage | A18, A19, and A29 pass. | PR reviewer, live validation |
+| 5 | MCP route, subscriptions, Claude Code plugin, laptop claim and result | A12, A13, A20, and A28 pass with a real laptop session. | Adversarial review, live validation |
 | 6 | Release script for both registries, production deploy, runbook | A22, A23, A26 pass on AWS. | Owner approval |
 
 Each phase ships the skills for the modules it creates. Phases 2 to 5 seed settings from a script until Phase 4 lands the settings UI.
+
+Owner actions that gate a phase exit:
+
+| Action | Gates |
+| --- | --- |
+| Create the dedicated AWS account and grant deploy access | Phase 0 deploy exit |
+| Grant an app client on the telemetry Cognito pool | Phase 4 |
+| Provide a Linear sandbox team and API key, a Jev key, and Anthropic access | Phase 2 |
+| Create the `pressw-llc` npmjs organization and a publish token | Phase 6 |
 
 ## Validation Plan
 
@@ -222,11 +236,13 @@ Each phase ships the skills for the modules it creates. Phases 2 to 5 seed setti
 
 | Risk | Mitigation |
 | --- | --- |
-| A Claude artifact blocks the widget or its API calls. | T14 is tested in Phase 1. A failure records artifacts as unsupported and does not block V1. |
+| A Claude artifact blocks the widget or its API calls. | T14 is tested in Phase 1. The owner decided that a failure records artifacts as unsupported and V1 continues. |
 | The Jev filter misses a novel injection. | D11 and D12 hold without the filter. The agent cannot act and cannot write. |
 | A pipelines release changes behavior. | Pin exact versions. The claim protocol in D13 lives in this repository. |
 | The pipeline tenant default from T16 lands in this stack's tables. | Set the tenant explicitly on every run. File an upstream issue to remove the literal. |
-| A public intake endpoint draws abuse. | Rate limit per project key and per hashed ID. Attachment caps from Q7. |
+| A public intake endpoint draws abuse. | Rate limit per project key and per hashed ID. Attachment caps from D33. |
+| An image or document carries injected instructions to the agent. | D32 filters extracted text. D11 and D12 leave the agent unable to act or write. |
+| The telemetry Cognito pool changes or goes down. | D30 isolates the dependency to one token validator. Admin and MCP fail closed. |
 | Lambda steps do not run locally. | T15 is tested in Phase 2. The fallback runs adapters through the in-process runner locally. |
 | A laptop receives customer content. | Subscriptions require a Cognito identity from D27. Claims are recorded per engineer. |
 | V1 scope is large for a first release. | Phases 4 and 5 run in parallel with 3. Each phase exits on its own criteria. |
