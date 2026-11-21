@@ -464,34 +464,36 @@ export async function releaseTriageJob(
   input: JobOptions & { jobId: string; claimToken: string; reason: string },
 ): Promise<boolean> {
   const now = clockOf(input);
-  const rows = await db
-    .update(triageJobs)
-    .set({
-      status: "open",
-      claimToken: null,
-      claimedBy: null,
-      claimedByKind: null,
-      leaseExpiresAt: null,
-      cloudAvailableAt: now,
-      updatedAt: now,
-    })
-    .where(
-      and(
-        eq(triageJobs.id, input.jobId),
-        eq(triageJobs.status, "claimed"),
-        eq(triageJobs.claimToken, input.claimToken),
-      ),
-    )
-    .returning();
-  const job = rows[0];
-  if (!job) return false;
-  await appendEvent(db, {
-    type: "triage.job.released",
-    channelKey: job.channelKey,
-    requestId: job.requestId,
-    payload: { jobId: job.id, reason: input.reason },
+  return inTransaction(db, async (tx) => {
+    const rows = await tx
+      .update(triageJobs)
+      .set({
+        status: "open",
+        claimToken: null,
+        claimedBy: null,
+        claimedByKind: null,
+        leaseExpiresAt: null,
+        cloudAvailableAt: now,
+        updatedAt: now,
+      })
+      .where(
+        and(
+          eq(triageJobs.id, input.jobId),
+          eq(triageJobs.status, "claimed"),
+          eq(triageJobs.claimToken, input.claimToken),
+        ),
+      )
+      .returning();
+    const job = rows[0];
+    if (!job) return false;
+    await appendEvent(tx, {
+      type: "triage.job.released",
+      channelKey: job.channelKey,
+      requestId: job.requestId,
+      payload: { jobId: job.id, reason: input.reason },
+    });
+    return true;
   });
-  return true;
 }
 
 export async function extendTriageLease(

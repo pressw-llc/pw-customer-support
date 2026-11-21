@@ -5,6 +5,7 @@ import {
   createEnvironment,
   createSession,
   type ManagedAgentsClient,
+  retrieveAgent,
   sendEvents,
   sendInterrupt,
   streamSession,
@@ -25,6 +26,21 @@ export interface AgentRunResult {
 
 export interface AgentRunHooks {
   onSession?: (sessionId: string) => Promise<void> | void;
+  signal?: AbortSignal;
+}
+
+export class AgentAbortedError extends Error {
+  constructor() {
+    super("agent session aborted");
+    this.name = "AgentAbortedError";
+  }
+}
+
+export class AgentDefinitionUnsafeError extends Error {
+  constructor(readonly problems: string[]) {
+    super(`remote agent definition is unsafe: ${problems.join("; ")}`);
+    this.name = "AgentDefinitionUnsafeError";
+  }
 }
 
 export interface AgentRunner {
@@ -119,6 +135,7 @@ export function createManagedAgentRunner(
 ): AgentRunner {
   return {
     async run(input, hooks) {
+      if (hooks?.signal?.aborted) throw new AgentAbortedError();
       const client = options.client ?? (await createClient());
       const environment = await createEnvironment(
         {
@@ -155,6 +172,14 @@ export function createManagedAgentRunner(
             options.timeoutMs,
           );
         });
+        const abort = new Promise<never>((_, reject) => {
+          const signal = hooks?.signal;
+          if (!signal) return;
+          const fire = () => reject(new AgentAbortedError());
+          if (signal.aborted) fire();
+          else signal.addEventListener("abort", fire, { once: true });
+        });
+        abort.catch(() => {});
         const id = sessionId;
         const collect = (async () => {
           let text = "";
@@ -186,11 +211,14 @@ export function createManagedAgentRunner(
           throw new Error("agent stream closed before the session went idle");
         })();
         try {
-          const textOutput = await Promise.race([collect, timeout]);
+          const textOutput = await Promise.race([collect, timeout, abort]);
           return { textOutput, sessionId: id };
         } catch (error) {
           collect.catch(() => {});
-          if (error instanceof AgentTimeoutError) {
+          if (
+            error instanceof AgentTimeoutError ||
+            error instanceof AgentAbortedError
+          ) {
             await sendInterrupt(id, { client }).catch(() => {});
           }
           throw error;
@@ -201,6 +229,63 @@ export function createManagedAgentRunner(
         if (sessionId) await archiveSession(sessionId, client).catch(() => {});
         await archiveEnvironment(environment.id, client).catch(() => {});
       }
+    },
+  };
+}
+
+export interface AgentDefinitionShape {
+  tools?: unknown[] | null;
+  mcp_servers?: unknown[] | null;
+  skills?: unknown[] | null;
+}
+
+export function agentDefinitionProblems(agent: AgentDefinitionShape): string[] {
+  const problems: string[] = [];
+  if ((agent.tools?.length ?? 0) > 0) problems.push("agent has tools");
+  if ((agent.mcp_servers?.length ?? 0) > 0) {
+    problems.push("agent has MCP servers");
+  }
+  if ((agent.skills?.length ?? 0) > 0) problems.push("agent has skills");
+  return problems;
+}
+
+export interface AgentVerifier {
+  verify(): Promise<string[]>;
+}
+
+export function createAgentVerifier(options: {
+  agentId: string;
+  client?: ManagedAgentsClient;
+}): AgentVerifier {
+  let cached: Promise<string[]> | undefined;
+  return {
+    verify() {
+      cached ??= (async () => {
+        const client = options.client ?? (await createClient());
+        return agentDefinitionProblems(
+          (await retrieveAgent(
+            options.agentId,
+            client,
+          )) as AgentDefinitionShape,
+        );
+      })().catch((error) => {
+        cached = undefined;
+        throw error;
+      });
+      return cached;
+    },
+  };
+}
+
+export function guardAgentRunner(
+  inner: AgentRunner,
+  verifier: AgentVerifier,
+): AgentRunner {
+  return {
+    async run(input, hooks) {
+      const problems = await verifier.verify();
+      if (problems.length > 0) throw new AgentDefinitionUnsafeError(problems);
+      return inner.run(input, hooks);
     },
   };
 }

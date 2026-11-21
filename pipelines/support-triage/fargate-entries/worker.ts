@@ -4,6 +4,7 @@ import {
   defaultFargateSqsAdapter,
   fargateMain,
 } from "@pressw-llc/pipeline";
+import { getWorkerRuntime, startSweeper } from "@pw-support/triage";
 import pipeline from "../pipeline.config";
 import triage from "../steps/triage/index";
 
@@ -16,18 +17,23 @@ export async function runTriageWorker(options: {
   waitTimeSeconds?: number;
 }): Promise<void> {
   configureFargateRuntime({});
-  await fargateMain({
-    pipeline,
-    stepName: "triage",
-    step: triage,
-    queueUrl: options.queueUrl,
-    sqs: defaultFargateSqsAdapter({
+  const runtime = getWorkerRuntime();
+  await runtime.verifyAgent();
+  await Promise.all([
+    fargateMain({
+      pipeline,
+      stepName: "triage",
+      step: triage,
       queueUrl: options.queueUrl,
-      client: options.client,
-      waitTimeSeconds: options.waitTimeSeconds ?? 20,
+      sqs: defaultFargateSqsAdapter({
+        queueUrl: options.queueUrl,
+        client: options.client,
+        waitTimeSeconds: options.waitTimeSeconds ?? 20,
+        visibilityTimeoutSec: VISIBILITY_TIMEOUT_SECONDS,
+      }),
       visibilityTimeoutSec: VISIBILITY_TIMEOUT_SECONDS,
+      shutdownSignal: options.signal,
     }),
-    visibilityTimeoutSec: VISIBILITY_TIMEOUT_SECONDS,
-    shutdownSignal: options.signal,
-  });
+    startSweeper(runtime.deps, options.signal),
+  ]);
 }

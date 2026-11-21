@@ -40,6 +40,15 @@ const adapterQueue = `pw-support-test-linear-${suffix}`;
 const sqs: SQSClient = createSqsClient({});
 const stub = startLinearStub();
 let h: TriageHarness;
+
+function runtimeFor(harness: TriageHarness) {
+  return {
+    deps: harness.deps,
+    sqs,
+    verifyAgent: async () => [] as string[],
+    close: async () => {},
+  };
+}
 let wakeUrl = "";
 let adapterUrl = "";
 
@@ -53,7 +62,7 @@ beforeAll(async () => {
     timing: { initialDelaySeconds: 0 },
     wake: createSqsWakeSender({ client: sqs, queueName: wakeQueue }),
   });
-  setWorkerRuntime({ deps: h.deps, sqs, close: async () => {} });
+  setWorkerRuntime(runtimeFor(h));
   setAdapterRuntime(
     createAdapterRuntime(
       { LINEAR_API_URL: stub.url },
@@ -92,6 +101,37 @@ describe("pipeline definitions", () => {
     expect(triagePipeline.graph.triage?.runtime).toBe("fargate");
     expect(linearPipeline.graph.deliver?.runtime).toBe("lambda");
   });
+});
+
+describe("the Fargate entry runs the sweeper", () => {
+  test("C3 a job whose wake was never sent is completed by the sweeper started in runTriageWorker", async () => {
+    const quiet = await createTriageHarness({
+      timing: { initialDelaySeconds: 0 },
+    });
+    quiet.deps.config.sweepIntervalMs = 200;
+    setWorkerRuntime(runtimeFor(quiet));
+    const controller = new AbortController();
+    const worker = runTriageWorker({
+      client: sqs,
+      queueUrl: wakeUrl,
+      signal: controller.signal,
+      waitTimeSeconds: 1,
+    });
+    try {
+      const who = await quiet.tenant();
+      const { jobId } = await quiet.submit(who, "Lost wake message.");
+      const job = await until(async () => {
+        const row = await getTriageJob(quiet.db, jobId);
+        return row?.status === "completed" ? row : null;
+      }, "the sweeper to complete the job");
+      expect(job.outcome).toBe("agent");
+    } finally {
+      controller.abort();
+      await worker;
+      setWorkerRuntime(runtimeFor(h));
+      await quiet.close();
+    }
+  }, 30_000);
 });
 
 describe("T15 and T5 on the local stack", () => {

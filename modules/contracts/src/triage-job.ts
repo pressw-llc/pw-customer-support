@@ -19,6 +19,7 @@ export const humanTriageReasons = [
   "filter_unavailable",
   "agent_output_invalid",
   "agent_error",
+  "agent_definition_unsafe",
   "attempts_exhausted",
 ] as const;
 export const humanTriageReasonSchema = z.enum(humanTriageReasons);

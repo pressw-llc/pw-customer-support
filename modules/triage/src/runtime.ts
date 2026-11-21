@@ -1,6 +1,9 @@
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { readAgentLock } from "@pressw-llc/managed-agents";
+import {
+  type ManagedAgentsClient,
+  readAgentLock,
+} from "@pressw-llc/managed-agents";
 import {
   createS3Storage,
   createSqsClient,
@@ -8,7 +11,12 @@ import {
   loadConfig,
 } from "@pw-support/api";
 import { closeDb, createDb } from "@pw-support/db";
-import { type AgentRunner, createManagedAgentRunner } from "./agent-runner";
+import {
+  type AgentRunner,
+  createAgentVerifier,
+  createManagedAgentRunner,
+  guardAgentRunner,
+} from "./agent-runner";
 import { loadTriageConfig, type TriageConfig } from "./config";
 import { createJevClient, type JevClient } from "./jev";
 import type { WorkerDeps } from "./worker";
@@ -67,20 +75,31 @@ export function setWorkerRuntime(runtime: WorkerRuntime | undefined): void {
 
 export function createWorkerRuntime(
   env: EnvLike = process.env,
-  options: { lockPath?: string } = {},
+  options: { lockPath?: string; agentClient?: ManagedAgentsClient } = {},
 ) {
   const config = loadTriageConfig(env);
   const db = createDb();
   const apiConfig = loadConfig(env);
   const sqs = createSqsClient(env);
   const agentId = resolveAgentId(config, options.lockPath);
+  const verifier = agentId
+    ? createAgentVerifier({ agentId, client: options.agentClient })
+    : undefined;
   const deps: WorkerDeps = {
     db,
     storage: createS3Storage(apiConfig),
     jev: jevFromEnv(config, env),
-    agent: agentId
-      ? createManagedAgentRunner({ agentId, timeoutMs: config.agent.timeoutMs })
-      : missingAgent(),
+    agent:
+      agentId && verifier
+        ? guardAgentRunner(
+            createManagedAgentRunner({
+              agentId,
+              timeoutMs: config.agent.timeoutMs,
+              client: options.agentClient,
+            }),
+            verifier,
+          )
+        : missingAgent(),
     config,
     claimant:
       env.TRIAGE_WORKER_ID || `cloud-${crypto.randomUUID().slice(0, 8)}`,
@@ -91,6 +110,25 @@ export function createWorkerRuntime(
   return {
     deps,
     sqs,
+    async verifyAgent(): Promise<string[]> {
+      if (!verifier) return [];
+      try {
+        const problems = await verifier.verify();
+        if (problems.length > 0) {
+          deps.log?.(
+            "remote agent definition is unsafe; every job goes to human triage",
+            { agentId, problems },
+          );
+        }
+        return problems;
+      } catch (error) {
+        deps.log?.("remote agent check failed", {
+          agentId,
+          error: error instanceof Error ? error.message : String(error),
+        });
+        return [];
+      }
+    },
     async close() {
       sqs.destroy();
       await closeDb(db);

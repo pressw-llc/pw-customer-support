@@ -430,6 +430,20 @@ describe("result submission", () => {
       }),
     ).toBe(false);
   });
+
+  test("a failing event append rolls the release back", async () => {
+    const { job, token } = await claimed("release-atomic");
+    await expect(
+      releaseTriageJob(db, {
+        jobId: job.id,
+        claimToken: token,
+        reason: 10n as unknown as string,
+      }),
+    ).rejects.toThrow();
+    const stored = await getTriageJob(db, job.id);
+    expect(stored?.status).toBe("claimed");
+    expect(stored?.claimToken).toBe(token);
+  });
 });
 
 describe("availability and sweeping", () => {

@@ -13,6 +13,7 @@ export interface FilterOptions {
   jev: JevClient | null;
   threshold: number;
   chunkChars: number;
+  overlapRatio?: number;
   requestId: string;
 }
 
@@ -25,23 +26,41 @@ export interface FilterVerdict {
 
 const CONCURRENCY = 4;
 
-export function chunkText(text: string, size: number): string[] {
+export const CHUNK_OVERLAP_RATIO = 0.12;
+
+export function chunkText(
+  text: string,
+  size: number,
+  overlap = Math.floor(size * CHUNK_OVERLAP_RATIO),
+): string[] {
   if (text.length <= size) return [text];
+  const step = Math.max(1, size - overlap);
   const chunks: string[] = [];
-  for (let start = 0; start < text.length; start += size) {
+  for (let start = 0; ; start += step) {
     chunks.push(text.slice(start, start + size));
+    if (start + size >= text.length) break;
   }
   return chunks;
+}
+
+function headAndTail(text: string, size: number): string {
+  const half = Math.floor(size / 2);
+  return `${text.slice(0, half)}\n${text.slice(-half)}`;
 }
 
 interface Unit {
   subject: string;
   chunk: number;
   of: number;
+  part?: string;
   input: JevSubject;
 }
 
-function unitsFor(subjects: FilterSubject[], chunkChars: number): Unit[] {
+function unitsFor(
+  subjects: FilterSubject[],
+  chunkChars: number,
+  overlapRatio: number,
+): Unit[] {
   return subjects.flatMap<Unit>((entry) => {
     if (entry.image) {
       return [
@@ -53,13 +72,28 @@ function unitsFor(subjects: FilterSubject[], chunkChars: number): Unit[] {
         },
       ];
     }
-    const chunks = chunkText(entry.text ?? "", chunkChars);
-    return chunks.map((text, chunk) => ({
+    const text = entry.text ?? "";
+    const chunks = chunkText(
+      text,
+      chunkChars,
+      Math.floor(chunkChars * overlapRatio),
+    );
+    const units: Unit[] = chunks.map((piece, chunk) => ({
       subject: entry.subject,
       chunk,
       of: chunks.length,
-      input: { text },
+      input: { text: piece },
     }));
+    if (chunks.length > 1 && text.length <= chunkChars * 2) {
+      units.push({
+        subject: entry.subject,
+        chunk: 0,
+        of: 1,
+        part: "head_tail",
+        input: { text: headAndTail(text, chunkChars) },
+      });
+    }
+    return units;
   });
 }
 
@@ -79,6 +113,7 @@ export async function runInjectionFilter(
   const units = unitsFor(
     subjects.filter((entry) => entry.image || (entry.text ?? "").trim() !== ""),
     options.chunkChars,
+    options.overlapRatio ?? CHUNK_OVERLAP_RATIO,
   );
   const judgments: JudgmentInput[] = [];
   let failure: string | undefined;
@@ -97,7 +132,12 @@ export async function runInjectionFilter(
           score: result.score,
           threshold: options.threshold,
           flagged: result.score >= options.threshold,
-          raw: { ...result.raw, chunk: unit.chunk, of: unit.of },
+          raw: {
+            ...result.raw,
+            chunk: unit.chunk,
+            of: unit.of,
+            ...(unit.part ? { part: unit.part } : {}),
+          },
         });
       } catch (error) {
         if (error instanceof JevInputError) {

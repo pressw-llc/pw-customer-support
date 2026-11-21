@@ -265,11 +265,6 @@ describe("extractAttachments", () => {
           sizeBytes: 4,
           load: load("a.txt", enc("text")),
         },
-        {
-          id: "n",
-          filename: "none.txt",
-          contentType: "text/plain",
-        },
       ],
       limits,
     );
@@ -278,9 +273,29 @@ describe("extractAttachments", () => {
       "skipped",
       "skipped",
       "document",
-      "skipped",
     ]);
-    expect(items[3]).toMatchObject({ reason: "extraction_failed" });
+  });
+
+  test("a loader failure propagates instead of becoming a skipped file", async () => {
+    await expect(
+      extractAttachments(
+        [
+          {
+            id: "t",
+            filename: "a.txt",
+            contentType: "text/plain",
+            load: () => Promise.reject(new Error("s3 down")),
+          },
+        ],
+        limits,
+      ),
+    ).rejects.toThrow(/s3 down/);
+    await expect(
+      extractAttachments(
+        [{ id: "t", filename: "a.txt", contentType: "text/plain" }],
+        limits,
+      ),
+    ).rejects.toThrow(/neither bytes nor a loader/);
   });
 
   test("raw text is sliced to the cap before cleaning", async () => {

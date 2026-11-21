@@ -178,8 +178,8 @@ async function extractOne(
     filename,
     reason,
   });
+  const bytes = await bytesOf(input);
   try {
-    const bytes = await bytesOf(input);
     if (plan.action === "image") {
       if (bytes.byteLength > limits.maxImageBytes) {
         return skipped("image_too_large");

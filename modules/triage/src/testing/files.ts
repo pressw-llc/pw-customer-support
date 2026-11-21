@@ -113,6 +113,12 @@ export function makePng(): Uint8Array {
   return new Uint8Array(Buffer.from(PNG_1X1, "base64"));
 }
 
+const GIF_1X1 = "R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7";
+
+export function makeGif(): Uint8Array {
+  return new Uint8Array(Buffer.from(GIF_1X1, "base64"));
+}
+
 export function makeZip(): Uint8Array {
   return zipSync({ "readme.txt": strToU8("archive content must not be read") });
 }

@@ -8,7 +8,6 @@ export const triageWorker: ModuleInfo = {
 export {
   claimTriageJob as claimJob,
   extendTriageLease as renewLease,
-  submitTriageResult as submitResult,
 } from "@pw-support/db";
 export {
   definition as triageAgentDefinition,
@@ -22,6 +21,7 @@ export * from "./jev";
 export * from "./parse";
 export * from "./process";
 export * from "./runtime";
+export * from "./submit";
 export * from "./testing/files";
 export * from "./testing/harness";
 export * from "./worker";

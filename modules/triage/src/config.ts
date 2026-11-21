@@ -1,7 +1,6 @@
 import {
   loadTimingConfig,
   RESOURCE_NAMES,
-  TRIAGE_DEFAULTS,
   type TriageTiming,
 } from "@pw-support/contracts";
 
@@ -18,6 +17,8 @@ export interface TriageConfig {
     maxCharsTotal: number;
     maxImages: number;
     maxImageBytes: number;
+    timeoutMs: number;
+    maxPdfPages: number;
   };
   agent: {
     model: string;
@@ -26,7 +27,6 @@ export interface TriageConfig {
   };
   wakeQueue: string;
   sweepIntervalMs: number;
-  maxWakeDelaySeconds: number;
 }
 
 export const DEFAULT_AGENT_MODEL = "claude-sonnet-5-5";
@@ -62,6 +62,8 @@ export function loadTriageConfig(env: EnvLike = process.env): TriageConfig {
       maxCharsTotal: number(env.TRIAGE_MAX_CHARS_TOTAL, 60_000),
       maxImages: number(env.TRIAGE_MAX_IMAGES, 6),
       maxImageBytes: 5 * 1024 * 1024,
+      timeoutMs: 20_000,
+      maxPdfPages: 40,
     },
     agent: {
       model: text(env.TRIAGE_AGENT_MODEL) ?? DEFAULT_AGENT_MODEL,
@@ -70,6 +72,5 @@ export function loadTriageConfig(env: EnvLike = process.env): TriageConfig {
     },
     wakeQueue: text(env.TRIAGE_WAKE_QUEUE) ?? RESOURCE_NAMES.triageWakeQueue,
     sweepIntervalMs: number(env.TRIAGE_SWEEP_INTERVAL_SECONDS, 30) * 1000,
-    maxWakeDelaySeconds: TRIAGE_DEFAULTS.maxWakeDelaySeconds,
   };
 }

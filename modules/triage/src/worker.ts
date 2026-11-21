@@ -26,19 +26,38 @@ function clockOf(deps: WorkerDeps): Date {
   return (deps.now ?? (() => new Date()))();
 }
 
+export const RETRY_BASE_SECONDS = 5;
+export const RETRY_MAX_SECONDS = 60;
+
+export function retryDelaySeconds(attempts: number): number {
+  return Math.min(
+    RETRY_MAX_SECONDS,
+    RETRY_BASE_SECONDS * 2 ** Math.max(0, attempts - 1),
+  );
+}
+
+async function deferral(deps: WorkerDeps, jobId: string): Promise<WakeOutcome> {
+  const job = await getTriageJob(deps.db, jobId);
+  if (!job) return { action: "dropped" };
+  const availability = cloudAvailability(
+    job,
+    clockOf(deps),
+    deps.config.timing,
+  );
+  if (availability.state === "leased" || availability.state === "waiting") {
+    await deps.wake.send(jobId, availability.waitSeconds);
+    return { action: "deferred", delaySeconds: availability.waitSeconds };
+  }
+  return availability.state === "completed"
+    ? { action: "dropped" }
+    : { action: "lost" };
+}
+
 export async function handleWake(
   deps: WorkerDeps,
   jobId: string,
 ): Promise<WakeOutcome> {
   const timing = deps.config.timing;
-  const job = await getTriageJob(deps.db, jobId);
-  if (!job) return { action: "dropped" };
-  const availability = cloudAvailability(job, clockOf(deps), timing);
-  if (availability.state === "completed") return { action: "dropped" };
-  if (availability.state === "leased" || availability.state === "waiting") {
-    await deps.wake.send(jobId, availability.waitSeconds);
-    return { action: "deferred", delaySeconds: availability.waitSeconds };
-  }
   const claim = await claimTriageJob(deps.db, {
     jobId,
     kind: "cloud",
@@ -46,17 +65,22 @@ export async function handleWake(
     now: deps.now,
     timing,
   });
-  if (!claim.won) return { action: "lost" };
+  if (!claim.won) return deferral(deps, jobId);
   const token = claim.job.claimToken as string;
+  const ownership = new AbortController();
   const heartbeat = setInterval(
     async () => {
       try {
-        await extendTriageLease(deps.db, {
+        const held = await extendTriageLease(deps.db, {
           jobId,
           claimToken: token,
           now: deps.now,
           timing,
         });
+        if (!held) {
+          deps.log?.("lease lost", { jobId });
+          ownership.abort();
+        }
       } catch (error) {
         deps.log?.("lease renewal failed", {
           jobId,
@@ -67,10 +91,11 @@ export async function handleWake(
     Math.max(1000, (timing.leaseSeconds * 1000) / 3),
   );
   try {
-    return {
-      action: "processed",
-      result: await processClaimedJob(deps, claim.job),
-    };
+    const result = await processClaimedJob(deps, claim.job, ownership.signal);
+    if (result.status === "released" && result.reason === "processing_failed") {
+      await deps.wake.send(jobId, retryDelaySeconds(claim.job.attempts));
+    }
+    return { action: "processed", result };
   } finally {
     clearInterval(heartbeat);
   }
