@@ -21,6 +21,7 @@ description: Work in the api module: the Hono HTTP server on Bun. Use when you a
 | `message-checks.ts` | `checkMessage` strips markup and enforces the length cap                                                 |
 | `storage.ts`        | `ObjectStorage` interface and the S3 implementation                                                      |
 | `config.ts`         | `loadConfig(env)` with local defaults for the Compose stack                                              |
+| `wake.ts`           | SQS client, queue lookup, and the wake sender that sends `DelaySeconds`. Triage reuses it                |
 | `server.ts`         | Process entry. It is glue and no test loads it                                                           |
 | `testing/`          | `fixtures.ts` builds magic-byte buffers. `harness.ts` builds an app against real Postgres and LocalStack |
 
@@ -32,6 +33,7 @@ description: Work in the api module: the Hono HTTP server on Bun. Use when you a
 
 - Build the app in `createApp` so tests call `app.request` without a socket.
 - Persist the request, the message, and the event in one transaction before any processing. Never reorder this.
+- The same transaction opens the triage job. After the checks and uploads finish, call `markIntakeComplete`, then send the wake message. A failed wake send never fails the request. The worker sweeper recovers the job.
 - Scope every customer query by project and customer. Use the repository functions in `@pw-support/db`.
 - Append state changes through `appendEvent`. Add new event types to `@pw-support/contracts` first.
 - Decide attachment type by magic bytes, never by filename or declared type.
