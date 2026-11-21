@@ -33,12 +33,14 @@
     "seed:settings": "bun scripts/seed-settings.ts",
     "validate:pipelines": "bunx pw-pipeline validate",
     "validate:phase-2": "bun scripts/validate/phase-2-live.ts",
+    "validate:phase-4": "bun scripts/validate/phase-4-live.ts",
     "synth": "bun run --filter @pw-support/infra synth",
     "prepare": "git config core.hooksPath .githooks || true"
   },
   "devDependencies": {
     "@anthropic-ai/sdk": "0.137.0",
     "@aws-sdk/client-s3": "^3.717.0",
+    "@aws-sdk/client-secrets-manager": "^3.717.0",
     "@aws-sdk/client-sqs": "^3.717.0",
     "@biomejs/biome": "2.6.2",
     "@playwright/test": "1.65.1",
