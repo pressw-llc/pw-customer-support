@@ -2,8 +2,8 @@ import {
   type ClaimantKind,
   defaultTiming,
   delayChannelFor,
-  halveDelay,
   type HumanTriageReason,
+  halveDelay,
   humanTriageResult,
   type TriageOutcome,
   type TriageResult,
@@ -146,7 +146,8 @@ export type Availability =
 function intakeReady(job: TriageJob, now: Date, timing: TriageTiming) {
   return (
     job.intakeCompletedAt !== null ||
-    job.createdAt.getTime() <= plusSeconds(now, -timing.intakeGraceSeconds).getTime()
+    job.createdAt.getTime() <=
+      plusSeconds(now, -timing.intakeGraceSeconds).getTime()
   );
 }
 
@@ -358,11 +359,7 @@ async function completeClaimed(
       .from(triageJobs)
       .where(eq(triageJobs.id, input.jobId))
       .for("update");
-    if (
-      !job ||
-      job.status !== "claimed" ||
-      job.claimToken !== input.claimToken
-    ) {
+    if (job?.status !== "claimed" || job.claimToken !== input.claimToken) {
       return { ok: false, reason: "stale_claim" };
     }
     const parsed = triageResultSchema.safeParse(input.payload);
@@ -421,9 +418,7 @@ async function completeClaimed(
         outcome: input.outcome,
         claimedByKind: job.claimedByKind,
         claimedBy: job.claimedBy,
-        ...(input.humanTriageReason
-          ? { reason: input.humanTriageReason }
-          : {}),
+        ...(input.humanTriageReason ? { reason: input.humanTriageReason } : {}),
       },
     });
     return { ok: true, job: required(updated) };

@@ -51,7 +51,10 @@ function text(value: string | undefined): string | undefined {
 export function loadTimingConfig(env: EnvLike = process.env): TriageTiming {
   return {
     initialDelaySeconds: Math.floor(
-      number(env.TRIAGE_INITIAL_DELAY_SECONDS, defaultTiming.initialDelaySeconds),
+      number(
+        env.TRIAGE_INITIAL_DELAY_SECONDS,
+        defaultTiming.initialDelaySeconds,
+      ),
     ),
     leaseSeconds: Math.max(
       1,

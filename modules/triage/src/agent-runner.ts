@@ -35,7 +35,11 @@ type ContentBlock =
   | { type: "text"; text: string }
   | {
       type: "image";
-      source: { type: "base64"; media_type: "image/png" | "image/jpeg" | "image/gif" | "image/webp"; data: string };
+      source: {
+        type: "base64";
+        media_type: "image/png" | "image/jpeg" | "image/gif" | "image/webp";
+        data: string;
+      };
     };
 
 function neutralize(value: string): string {

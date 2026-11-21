@@ -20,6 +20,8 @@ export interface StackConfig {
   bucket: string;
   wakeQueue: string;
   wakeDlq: string;
+  linearAdapterQueue: string;
+  linearAdapterDlq: string;
 }
 
 export function stackConfig(env: NodeJS.ProcessEnv = process.env): StackConfig {
@@ -29,6 +31,8 @@ export function stackConfig(env: NodeJS.ProcessEnv = process.env): StackConfig {
     bucket: env.ATTACHMENTS_BUCKET ?? RESOURCE_NAMES.attachmentsBucket,
     wakeQueue: env.TRIAGE_WAKE_QUEUE ?? RESOURCE_NAMES.triageWakeQueue,
     wakeDlq: env.TRIAGE_WAKE_DLQ ?? RESOURCE_NAMES.triageWakeDlq,
+    linearAdapterQueue: RESOURCE_NAMES.linearAdapterQueue,
+    linearAdapterDlq: RESOURCE_NAMES.linearAdapterDlq,
   };
 }
 
@@ -55,18 +59,31 @@ export async function setupStack(config: StackConfig): Promise<void> {
   const s3 = new S3Client({ ...clientConfig(config), forcePathStyle: true });
   const sqs = new SQSClient(clientConfig(config));
   await ensureBucket(s3, config.bucket);
-  const dlq = await sqs.send(
-    new CreateQueueCommand({ QueueName: config.wakeDlq }),
+  await ensureQueueWithDlq(sqs, config.wakeQueue, config.wakeDlq);
+  await ensureQueueWithDlq(
+    sqs,
+    config.linearAdapterQueue,
+    config.linearAdapterDlq,
   );
+  s3.destroy();
+  sqs.destroy();
+}
+
+async function ensureQueueWithDlq(
+  sqs: SQSClient,
+  queue: string,
+  dlq: string,
+): Promise<void> {
+  const created = await sqs.send(new CreateQueueCommand({ QueueName: dlq }));
   const attributes = await sqs.send(
     new GetQueueAttributesCommand({
-      QueueUrl: dlq.QueueUrl,
+      QueueUrl: created.QueueUrl,
       AttributeNames: ["QueueArn"],
     }),
   );
   await sqs.send(
     new CreateQueueCommand({
-      QueueName: config.wakeQueue,
+      QueueName: queue,
       Attributes: {
         RedrivePolicy: JSON.stringify({
           deadLetterTargetArn: attributes.Attributes?.QueueArn,
@@ -75,14 +92,12 @@ export async function setupStack(config: StackConfig): Promise<void> {
       },
     }),
   );
-  s3.destroy();
-  sqs.destroy();
 }
 
 if (import.meta.main) {
   const config = stackConfig();
   await setupStack(config);
   console.log(
-    `[stack-setup] bucket ${config.bucket}, queues ${config.wakeQueue} and ${config.wakeDlq} ready`,
+    `[stack-setup] bucket ${config.bucket}, queues ${config.wakeQueue}, ${config.linearAdapterQueue}, and their dead-letter queues ready`,
   );
 }

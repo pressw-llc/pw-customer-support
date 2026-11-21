@@ -48,9 +48,14 @@ export interface CreateIssueInput {
 }
 
 export interface LinearClient {
-  getTeam(teamId: string): Promise<{ id: string; key: string; name: string } | null>;
+  getTeam(
+    teamId: string,
+  ): Promise<{ id: string; key: string; name: string } | null>;
   findOrCreateLabel(teamId: string, name: string): Promise<string>;
-  findIssueByMarker(teamId: string, marker: string): Promise<LinearIssue | null>;
+  findIssueByMarker(
+    teamId: string,
+    marker: string,
+  ): Promise<LinearIssue | null>;
   createIssue(input: CreateIssueInput): Promise<LinearIssue>;
   createComment(issueId: string, body: string): Promise<{ id: string }>;
   archiveIssue(issueId: string): Promise<boolean>;
@@ -110,7 +115,10 @@ export function createLinearClient(options: LinearClientOptions): LinearClient {
       );
     }
     if (!response.ok) {
-      throw new LinearError(`Linear answered ${response.status}`, response.status);
+      throw new LinearError(
+        `Linear answered ${response.status}`,
+        response.status,
+      );
     }
     return schema.parse(body.data);
   }

@@ -2,9 +2,9 @@ import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { defaultTiming, humanTriageResult } from "@pw-support/contracts";
 import { eq } from "drizzle-orm";
 import {
-  cloudAvailability,
   claimTriageJob,
   closeDb,
+  cloudAvailability,
   createDb,
   ensureProject,
   events,
@@ -318,9 +318,7 @@ describe("result submission", () => {
     const stored = await getTriageJob(db, job.id);
     expect(stored?.status).toBe("completed");
     expect(stored?.outcome).toBe("agent");
-    expect((stored?.result as { result: { title: string } }).result.title).toBe(
-      "Login fails",
-    );
+    expect(stored?.result).toMatchObject({ result: { title: "Login fails" } });
     expect((await eventTypesFor(request.id)).at(-1)).toBe(
       "triage.result.accepted",
     );
@@ -482,8 +480,10 @@ describe("availability and sweeping", () => {
       waitSeconds: 50,
     });
     expect(cloudAvailability(job, at(60)())).toEqual({ state: "claimable" });
-    expect(cloudAvailability({ ...job, status: "completed" }, at(0)())).toEqual({
-      state: "completed",
-    });
+    expect(cloudAvailability({ ...job, status: "completed" }, at(0)())).toEqual(
+      {
+        state: "completed",
+      },
+    );
   });
 });

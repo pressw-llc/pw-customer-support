@@ -143,7 +143,9 @@ export function startLinearStub(options: StubOptions = {}): LinearStub {
       const owner = team(input.teamId);
       const name = input.name;
       if (typeof name !== "string" || name.trim() === "") {
-        throw new GraphQlFailure("Argument Validation Error: name must not be empty");
+        throw new GraphQlFailure(
+          "Argument Validation Error: name must not be empty",
+        );
       }
       if (stub.labels.some((l) => l.teamId === owner.id && l.name === name)) {
         throw new GraphQlFailure(`Duplicate label name: ${name}`);
@@ -177,17 +179,27 @@ export function startLinearStub(options: StubOptions = {}): LinearStub {
       const owner = team(input.teamId);
       const title = input.title;
       if (typeof title !== "string" || title.trim() === "") {
-        throw new GraphQlFailure("Argument Validation Error: title must not be empty");
+        throw new GraphQlFailure(
+          "Argument Validation Error: title must not be empty",
+        );
       }
       const priority = input.priority ?? 0;
-      if (!Number.isInteger(priority) || (priority as number) < 0 || (priority as number) > 4) {
-        throw new GraphQlFailure("Argument Validation Error: priority must be 0 to 4");
+      if (
+        !Number.isInteger(priority) ||
+        (priority as number) < 0 ||
+        (priority as number) > 4
+      ) {
+        throw new GraphQlFailure(
+          "Argument Validation Error: priority must be 0 to 4",
+        );
       }
       const labelIds = Array.isArray(input.labelIds)
         ? (input.labelIds as string[])
         : [];
       for (const labelId of labelIds) {
-        if (!stub.labels.some((l) => l.id === labelId && l.teamId === owner.id)) {
+        if (
+          !stub.labels.some((l) => l.id === labelId && l.teamId === owner.id)
+        ) {
           throw new GraphQlFailure(`Entity not found: IssueLabel ${labelId}`);
         }
       }
@@ -198,7 +210,8 @@ export function startLinearStub(options: StubOptions = {}): LinearStub {
         url: `https://linear.app/stub/issue/${identifier}`,
         teamId: owner.id,
         title,
-        description: typeof input.description === "string" ? input.description : "",
+        description:
+          typeof input.description === "string" ? input.description : "",
         priority: priority as number,
         labelIds,
         archived: false,
@@ -222,9 +235,15 @@ export function startLinearStub(options: StubOptions = {}): LinearStub {
       const issue = stub.issues.find((i) => i.id === input.issueId);
       if (!issue) throw new GraphQlFailure("Entity not found: Issue");
       if (typeof input.body !== "string" || input.body === "") {
-        throw new GraphQlFailure("Argument Validation Error: body must not be empty");
+        throw new GraphQlFailure(
+          "Argument Validation Error: body must not be empty",
+        );
       }
-      const comment = { id: crypto.randomUUID(), issueId: issue.id, body: input.body };
+      const comment = {
+        id: crypto.randomUUID(),
+        issueId: issue.id,
+        body: input.body,
+      };
       stub.comments.push(comment);
       return { commentCreate: { success: true, comment: { id: comment.id } } };
     },
@@ -245,7 +264,11 @@ export function startLinearStub(options: StubOptions = {}): LinearStub {
       }
       if (/^bearer\s/i.test(authorization)) {
         return Response.json(
-          { errors: [{ message: "Personal API keys do not use the Bearer prefix" }] },
+          {
+            errors: [
+              { message: "Personal API keys do not use the Bearer prefix" },
+            ],
+          },
           { status: 401 },
         );
       }

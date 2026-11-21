@@ -44,7 +44,14 @@ interface Unit {
 function unitsFor(subjects: FilterSubject[], chunkChars: number): Unit[] {
   return subjects.flatMap<Unit>((entry) => {
     if (entry.image) {
-      return [{ subject: entry.subject, chunk: 0, of: 1, input: { image: entry.image } }];
+      return [
+        {
+          subject: entry.subject,
+          chunk: 0,
+          of: 1,
+          input: { image: entry.image },
+        },
+      ];
     }
     const chunks = chunkText(entry.text ?? "", chunkChars);
     return chunks.map((text, chunk) => ({

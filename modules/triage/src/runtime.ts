@@ -3,10 +3,7 @@ import { fileURLToPath } from "node:url";
 import { readAgentLock } from "@pressw-llc/managed-agents";
 import { createS3Storage, loadConfig } from "@pw-support/api";
 import { closeDb, createDb } from "@pw-support/db";
-import {
-  type AgentRunner,
-  createManagedAgentRunner,
-} from "./agent-runner";
+import { type AgentRunner, createManagedAgentRunner } from "./agent-runner";
 import { loadTriageConfig, type TriageConfig } from "./config";
 import { createJevClient, type JevClient } from "./jev";
 import { createSqsClient, createSqsWakeSender } from "./wake";
@@ -75,7 +72,8 @@ export function createWorkerRuntime(env: EnvLike = process.env) {
       ? createManagedAgentRunner({ agentId, timeoutMs: config.agent.timeoutMs })
       : missingAgent(),
     config,
-    claimant: env.TRIAGE_WORKER_ID || `cloud-${crypto.randomUUID().slice(0, 8)}`,
+    claimant:
+      env.TRIAGE_WORKER_ID || `cloud-${crypto.randomUUID().slice(0, 8)}`,
     wake: createSqsWakeSender({ client: sqs, queueName: config.wakeQueue }),
     log: (message, detail) =>
       console.log(`[triage] ${message}`, detail ? JSON.stringify(detail) : ""),

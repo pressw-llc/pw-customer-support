@@ -10,8 +10,8 @@ import {
   appendEvent,
   findTicketByRequest,
   getTriageJobForRequest,
-  inTransaction,
   insertTicket,
+  inTransaction,
   listBlockedTicketEvents,
   loadTriageContext,
   requestHasEvent,
@@ -57,7 +57,7 @@ export function createLinearAdapter(deps: LinearAdapterDeps): LinearAdapter {
       const existing = await findTicketByRequest(tx, requestId);
       if (existing) return { status: "exists", ticket: existing };
       const job = await getTriageJobForRequest(tx, requestId);
-      if (!job || job.status !== "completed" || !job.result) {
+      if (job?.status !== "completed" || !job.result) {
         throw new Error(`triage job for request ${requestId} is not complete`);
       }
       const stored = storedResultSchema.parse(job.result);
@@ -70,7 +70,10 @@ export function createLinearAdapter(deps: LinearAdapterDeps): LinearAdapter {
             type: "ticket.blocked",
             channelKey: context.request.channelKey,
             requestId,
-            payload: { reason: "no_linear_team", projectId: context.project.id },
+            payload: {
+              reason: "no_linear_team",
+              projectId: context.project.id,
+            },
           });
         }
         return { status: "blocked", reason: "no_linear_team" };

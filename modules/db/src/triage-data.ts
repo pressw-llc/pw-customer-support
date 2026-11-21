@@ -72,7 +72,11 @@ export async function loadTriageContext(
 
 export async function setProjectLinearTeam(
   db: SupportExecutor,
-  input: { clientSlug: string; projectSlug: string; linearTeamId: string | null },
+  input: {
+    clientSlug: string;
+    projectSlug: string;
+    linearTeamId: string | null;
+  },
 ): Promise<boolean> {
   const rows = await db
     .update(projects)

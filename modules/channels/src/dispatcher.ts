@@ -1,7 +1,4 @@
-import {
-  SendMessageCommand,
-  type SQSClient,
-} from "@aws-sdk/client-sqs";
+import { SendMessageCommand, type SQSClient } from "@aws-sdk/client-sqs";
 import type {
   AdapterContext,
   AdapterMessage,
@@ -100,7 +97,10 @@ export function createDispatcher(options: DispatcherOptions) {
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error);
         result.failed[adapter.name] = message;
-        log("adapter delivery failed", { adapter: adapter.name, error: message });
+        log("adapter delivery failed", {
+          adapter: adapter.name,
+          error: message,
+        });
       }
     }
     return result;

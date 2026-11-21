@@ -1,4 +1,4 @@
-import { readObjectBytes, type ObjectStorage } from "@pw-support/api";
+import { type ObjectStorage, readObjectBytes } from "@pw-support/api";
 import type { HumanTriageReason } from "@pw-support/contracts";
 import {
   claimTriageJob,
@@ -6,9 +6,9 @@ import {
   recordAgentSession,
   recordJudgments,
   releaseTriageJob,
+  type SupportDb,
   submitHumanTriage,
   submitTriageResult,
-  type SupportDb,
   type TriageJob,
 } from "@pw-support/db";
 import type { AgentInput, AgentRunner } from "./agent-runner";
@@ -30,7 +30,11 @@ export interface ProcessDeps {
 }
 
 export type ProcessOutcome =
-  | { status: "completed"; outcome: "agent" | "human_triage"; reason?: HumanTriageReason }
+  | {
+      status: "completed";
+      outcome: "agent" | "human_triage";
+      reason?: HumanTriageReason;
+    }
   | { status: "released"; reason: string };
 
 function logOf(deps: ProcessDeps) {
@@ -176,11 +180,7 @@ export async function processClaimedJob(
       timing: deps.config.timing,
     });
     if (!reclaim.won) return { status: "released", reason: "reclaim_lost" };
-    return await complete(
-      deps,
-      reclaim.job,
-      "agent_output_invalid",
-    );
+    return await complete(deps, reclaim.job, "agent_output_invalid");
   } catch (error) {
     const reason = error instanceof Error ? error.message : String(error);
     log("processing failed", { jobId: job.id, error: reason });

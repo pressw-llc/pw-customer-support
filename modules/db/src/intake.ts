@@ -7,7 +7,6 @@ import { and, asc, desc, eq, gt, inArray, ne, sql } from "drizzle-orm";
 import type { SupportDb, SupportExecutor } from "./client";
 import { appendEvent } from "./events";
 import type { Project } from "./projects";
-import { type JobOptions, openTriageJob, type TriageJob } from "./triage-jobs";
 import {
   attachmentRejections,
   attachments,
@@ -15,6 +14,7 @@ import {
   messages,
   requests,
 } from "./schema";
+import { type JobOptions, openTriageJob, type TriageJob } from "./triage-jobs";
 
 export type Customer = typeof customers.$inferSelect;
 export type RequestRow = typeof requests.$inferSelect;
@@ -93,11 +93,7 @@ export async function persistInboundRequest(
       requestId: created.id,
       payload: { messageId: first.id, originChannel: "widget" },
     });
-    const { job, delaySeconds } = await openTriageJob(
-      tx,
-      created,
-      jobOptions,
-    );
+    const { job, delaySeconds } = await openTriageJob(tx, created, jobOptions);
     return { request: created, message: first, job, delaySeconds };
   });
 }

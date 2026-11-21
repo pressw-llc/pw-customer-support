@@ -1,3 +1,4 @@
+import type { WakeSender } from "@pw-support/contracts";
 import {
   claimTriageJob,
   cloudAvailability,
@@ -5,8 +6,11 @@ import {
   getTriageJob,
   listCloudEligibleJobs,
 } from "@pw-support/db";
-import type { WakeSender } from "@pw-support/contracts";
-import { type ProcessDeps, type ProcessOutcome, processClaimedJob } from "./process";
+import {
+  type ProcessDeps,
+  type ProcessOutcome,
+  processClaimedJob,
+} from "./process";
 
 export interface WorkerDeps extends ProcessDeps {
   wake: WakeSender;

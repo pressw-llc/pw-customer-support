@@ -45,15 +45,18 @@ const ENTITIES: Record<string, string> = {
 };
 
 function decodeEntities(value: string): string {
-  return value.replace(/&(#x[0-9a-f]+|#\d+|[a-z]+);/gi, (match, body: string) => {
-    if (body.startsWith("#x")) {
-      return safeCodePoint(Number.parseInt(body.slice(2), 16), match);
-    }
-    if (body.startsWith("#")) {
-      return safeCodePoint(Number.parseInt(body.slice(1), 10), match);
-    }
-    return ENTITIES[body.toLowerCase()] ?? match;
-  });
+  return value.replace(
+    /&(#x[0-9a-f]+|#\d+|[a-z]+);/gi,
+    (match, body: string) => {
+      if (body.startsWith("#x")) {
+        return safeCodePoint(Number.parseInt(body.slice(2), 16), match);
+      }
+      if (body.startsWith("#")) {
+        return safeCodePoint(Number.parseInt(body.slice(1), 10), match);
+      }
+      return ENTITIES[body.toLowerCase()] ?? match;
+    },
+  );
 }
 
 function safeCodePoint(code: number, fallback: string): string {
@@ -128,7 +131,8 @@ export function extractXlsx(bytes: Uint8Array): string {
   const entries = unzipEntries(
     bytes,
     (name) =>
-      name === "xl/sharedStrings.xml" || /^xl\/worksheets\/sheet\d+\.xml$/.test(name),
+      name === "xl/sharedStrings.xml" ||
+      /^xl\/worksheets\/sheet\d+\.xml$/.test(name),
   );
   const shared = (entries["xl/sharedStrings.xml"] ?? "")
     .split(/<\/si>/)
@@ -183,7 +187,10 @@ const IMAGE_FORMATS: Record<string, "png" | "jpeg" | "gif" | "webp"> = {
   "image/webp": "webp",
 };
 
-function capped(text: string, max: number): { text: string; truncated: boolean } {
+function capped(
+  text: string,
+  max: number,
+): { text: string; truncated: boolean } {
   return text.length > max
     ? { text: text.slice(0, max), truncated: true }
     : { text, truncated: false };
@@ -195,7 +202,8 @@ async function extractOne(
   imagesSoFar: number,
 ): Promise<ExtractedItem> {
   const { id, filename } = input;
-  const contentType = input.contentType.split(";")[0]?.trim().toLowerCase() ?? "";
+  const contentType =
+    input.contentType.split(";")[0]?.trim().toLowerCase() ?? "";
   const kind = attachmentKindFor(contentType);
   const skipped = (reason: string): ExtractedItem => ({
     kind: "skipped",

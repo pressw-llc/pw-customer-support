@@ -40,7 +40,11 @@ function controlFree(value: string): string {
   return Array.from(value)
     .filter((char) => {
       const code = char.codePointAt(0) ?? 0;
-      return code === 10 || code === 9 || (code >= 32 && code !== 0x2028 && code !== 0x2029);
+      return (
+        code === 10 ||
+        code === 9 ||
+        (code >= 32 && code !== 0x2028 && code !== 0x2029)
+      );
     })
     .join("");
 }
@@ -66,7 +70,7 @@ export function quoteCustomerText(text: string): string {
 
 export function safeFilename(filename: string): string {
   const cleaned = stripMarkup(filename)
-    .replace(/[`\[\]()<>\n\t]/g, "_")
+    .replace(/[`[\]()<>\n\t]/g, "_")
     .trim()
     .slice(0, FILENAME_MAX_CHARS);
   return cleaned === "" ? "file" : cleaned;
@@ -95,14 +99,19 @@ export interface TicketDraft {
 export function buildTicket(input: TicketInput): TicketDraft {
   const { result } = input;
   const human = input.outcome === "human_triage";
-  const title = oneLine(result.title).slice(0, TITLE_MAX_CHARS) || "Support request";
+  const title =
+    oneLine(result.title).slice(0, TITLE_MAX_CHARS) || "Support request";
   const sections: string[] = [stripMarkup(result.summary).trim()];
   if (human && input.humanTriageReason) {
     sections.push(`Reason: ${input.humanTriageReason}`);
   } else {
-    sections.push(`Category: ${result.category}. Priority: ${result.priority}.`);
+    sections.push(
+      `Category: ${result.category}. Priority: ${result.priority}.`,
+    );
   }
-  sections.push(`## Customer message\n${quoteCustomerText(input.customerText)}`);
+  sections.push(
+    `## Customer message\n${quoteCustomerText(input.customerText)}`,
+  );
   if (input.attachmentNames.length > 0) {
     sections.push(
       `## Attachments\n${input.attachmentNames.map((name) => `- \`${safeFilename(name)}\``).join("\n")}`,

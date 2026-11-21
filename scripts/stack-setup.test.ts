@@ -42,6 +42,14 @@ test("setupStack creates the bucket and queues and can run twice", async () => {
   const dlq = await sqs.send(
     new GetQueueUrlCommand({ QueueName: config.wakeDlq }),
   );
+  const adapter = await sqs.send(
+    new GetQueueUrlCommand({ QueueName: config.linearAdapterQueue }),
+  );
+  const adapterDlq = await sqs.send(
+    new GetQueueUrlCommand({ QueueName: config.linearAdapterDlq }),
+  );
+  expect(adapter.QueueUrl).toContain(config.linearAdapterQueue);
+  expect(adapterDlq.QueueUrl).toContain(config.linearAdapterDlq);
   expect(wake.QueueUrl).toContain(config.wakeQueue);
   expect(dlq.QueueUrl).toContain(config.wakeDlq);
   s3.destroy();
