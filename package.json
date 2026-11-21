@@ -11,7 +11,7 @@
   ],
   "scripts": {
     "check": "bun scripts/check.ts",
-    "build": "bun run --filter @pressw-llc/support-react build",
+    "build": "bun run --filter @pressw-llc/support-react build && bun run --filter @pw-support/admin build",
     "lint": "biome check . && bun scripts/lint-boundaries.ts",
     "format": "biome format --write .",
     "typecheck": "tsc --noEmit && bun run --filter '*' typecheck",
@@ -26,6 +26,7 @@
     "seed:dev": "bun scripts/seed-dev.ts",
     "dev:api": "bun scripts/db-migrate.ts && bun scripts/stack-setup.ts && bun modules/api/src/server.ts",
     "dev:example": "bun run --filter @pw-support/host-app dev",
+    "dev:admin": "bun run --filter @pw-support/admin dev",
     "dev:worker": "bun scripts/db-migrate.ts && bun scripts/stack-setup.ts && bun scripts/dev-worker.ts",
     "dev:linear-stub": "bun scripts/dev-linear-stub.ts",
     "agent:sync": "bun modules/triage/agents/support-triage/sync.ts",
