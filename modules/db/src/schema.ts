@@ -113,6 +113,9 @@ export const messages = support.table(
       withTimezone: true,
     }),
     createdAt: createdAt(),
+    insertedAt: timestamp("inserted_at", { withTimezone: true })
+      .notNull()
+      .default(sql`clock_timestamp()`),
   },
   (t) => [index("messages_request_created_idx").on(t.requestId, t.createdAt)],
 );
@@ -129,6 +132,9 @@ export const attachments = support.table(
     sizeBytes: bigint("size_bytes", { mode: "number" }).notNull(),
     storageKey: text("storage_key").notNull(),
     sha256: text("sha256").notNull(),
+    linearDeliveredAt: timestamp("linear_delivered_at", {
+      withTimezone: true,
+    }),
     createdAt: createdAt(),
   },
   (t) => [index("attachments_message_idx").on(t.messageId)],
@@ -294,14 +300,19 @@ export const inboundComments = support.table(
     authorId: text("author_id"),
     authorName: text("author_name"),
     body: text("body").notNull(),
-    requestId: uuid("request_id")
-      .notNull()
-      .references(() => requests.id, { onDelete: "cascade" }),
+    requestId: uuid("request_id").references(() => requests.id, {
+      onDelete: "cascade",
+    }),
     status: text("status").notNull().default("pending"),
     disposition: text("disposition"),
     messageId: uuid("message_id").references(() => messages.id, {
       onDelete: "set null",
     }),
+    sourceCreatedAt: timestamp("source_created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    deliveryAttempts: integer("delivery_attempts").notNull().default(0),
+    lastEnqueuedAt: timestamp("last_enqueued_at", { withTimezone: true }),
     createdAt: createdAt(),
     processedAt: timestamp("processed_at", { withTimezone: true }),
   },
@@ -325,10 +336,11 @@ export const replies = support.table(
     body: text("body").notNull(),
     status: text("status").notNull(),
     holdReason: text("hold_reason"),
+    cancelReason: text("cancel_reason"),
     wordingScore: doublePrecision("wording_score").notNull(),
     flagged: boolean("flagged").notNull().default(false),
     messageId: uuid("message_id").references(() => messages.id, {
-      onDelete: "set null",
+      onDelete: "cascade",
     }),
     confirmedBy: text("confirmed_by"),
     warningCommentId: text("warning_comment_id"),

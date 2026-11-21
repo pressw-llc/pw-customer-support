@@ -24,7 +24,12 @@ export type AttachmentRecord = typeof attachments.$inferSelect;
 export interface TriageContext {
   request: typeof requests.$inferSelect;
   project: Project;
-  messages: { id: string; body: string; createdAt: Date }[];
+  messages: {
+    id: string;
+    body: string;
+    createdAt: Date;
+    intakeCompletedAt: Date | null;
+  }[];
   attachments: AttachmentRecord[];
 }
 
@@ -69,6 +74,7 @@ export async function loadTriageContext(
       id: message.id,
       body: message.sanitizedBody ?? message.body,
       createdAt: message.createdAt,
+      intakeCompletedAt: message.intakeCompletedAt,
     })),
     attachments: files,
   };

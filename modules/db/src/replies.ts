@@ -1,15 +1,26 @@
 import {
-  type EventEnvelope,
-  eventEnvelopeSchema,
   MESSAGE_INTAKE_GRACE_SECONDS,
+  ORPHAN_COMMENT_TTL_SECONDS,
   REPLY_HOLD_TTL_SECONDS,
   type ReplyBand,
+  type ReplyCancelReason,
   type ReplyHoldReason,
-  TICKET_REDELIVERY_BASE_SECONDS,
-  TICKET_REDELIVERY_MAX_SECONDS,
   WORDING_HOLD_BELOW,
 } from "@pw-support/contracts";
-import { and, asc, desc, eq, inArray, isNull, sql } from "drizzle-orm";
+import {
+  and,
+  asc,
+  desc,
+  eq,
+  gt,
+  inArray,
+  isNotNull,
+  isNull,
+  lt,
+  ne,
+  or,
+  sql,
+} from "drizzle-orm";
 import { inTransaction, type SupportExecutor, type SupportTx } from "./client";
 import { appendEvent } from "./events";
 import {
@@ -32,7 +43,6 @@ export type RequestRecord = typeof requests.$inferSelect;
 
 export const WORDING_JUDGMENT_KIND = "wording";
 const PROVIDER = "linear";
-const FOLLOW_UP_LOCK_ID = 7_340_003;
 
 function required<T>(row: T | undefined): T {
   if (row === undefined) throw new Error("expected a row");
@@ -59,27 +69,36 @@ export interface InboundCommentInput {
   authorId: string | null;
   authorName: string | null;
   body: string;
+  sourceCreatedAt: Date;
 }
 
 export type InboundCommentResult =
   | { status: "stored"; inbound: InboundCommentRow }
+  | { status: "awaiting_ticket"; inbound: InboundCommentRow }
   | { status: "duplicate_delivery" }
-  | { status: "duplicate_comment" }
-  | { status: "unknown_issue" };
+  | { status: "duplicate_comment" };
+
+async function insertDelivery(
+  tx: SupportTx,
+  deliveryId: string,
+): Promise<boolean> {
+  const rows = await tx
+    .insert(webhookDeliveries)
+    .values({ deliveryId, provider: PROVIDER })
+    .onConflictDoNothing()
+    .returning({ id: webhookDeliveries.deliveryId });
+  return rows.length > 0;
+}
 
 export async function persistInboundComment(
   db: SupportExecutor,
   input: InboundCommentInput,
 ): Promise<InboundCommentResult> {
   return inTransaction(db, async (tx) => {
-    const delivery = await tx
-      .insert(webhookDeliveries)
-      .values({ deliveryId: input.deliveryId, provider: PROVIDER })
-      .onConflictDoNothing()
-      .returning({ id: webhookDeliveries.deliveryId });
-    if (delivery.length === 0) return { status: "duplicate_delivery" };
+    if (!(await insertDelivery(tx, input.deliveryId))) {
+      return { status: "duplicate_delivery" };
+    }
     const found = await findTicketByLinearIssue(tx, input.issueId);
-    if (!found) return { status: "unknown_issue" };
     const [inbound] = await tx
       .insert(inboundComments)
       .values({
@@ -90,22 +109,125 @@ export async function persistInboundComment(
         authorId: input.authorId,
         authorName: input.authorName,
         body: input.body,
-        requestId: found.request.id,
+        sourceCreatedAt: input.sourceCreatedAt,
+        requestId: found?.request.id ?? null,
       })
       .onConflictDoNothing()
       .returning();
     if (!inbound) return { status: "duplicate_comment" };
+    if (!found) return { status: "awaiting_ticket", inbound };
+    await appendCommentReceived(tx, found.request, inbound);
+    return { status: "stored", inbound };
+  });
+}
+
+export async function appendCommentReceived(
+  tx: SupportTx,
+  request: RequestRecord,
+  inbound: InboundCommentRow,
+): Promise<void> {
+  await appendEvent(tx, {
+    type: "comment.received",
+    channelKey: request.channelKey,
+    requestId: request.id,
+    payload: {
+      inboundId: inbound.id,
+      commentId: inbound.commentId,
+      issueId: inbound.issueId,
+    },
+  });
+}
+
+export interface CommentChangeInput {
+  deliveryId: string;
+  commentId: string;
+  action: "update" | "remove";
+  body?: string;
+}
+
+export type CommentChangeResult =
+  | { status: "duplicate_delivery" }
+  | { status: "unknown_comment" }
+  | { status: "unchanged" }
+  | { status: "updated" }
+  | { status: "removed" }
+  | { status: "cancelled"; reply: ReplyRow };
+
+export async function applyCommentChange(
+  db: SupportExecutor,
+  input: CommentChangeInput,
+): Promise<CommentChangeResult> {
+  return inTransaction(db, async (tx) => {
+    if (!(await insertDelivery(tx, input.deliveryId))) {
+      return { status: "duplicate_delivery" };
+    }
+    const [inbound] = await tx
+      .select()
+      .from(inboundComments)
+      .where(
+        and(
+          eq(inboundComments.provider, PROVIDER),
+          eq(inboundComments.commentId, input.commentId),
+        ),
+      )
+      .for("update");
+    if (!inbound) return { status: "unknown_comment" };
+    const edited =
+      input.action === "update" &&
+      input.body !== undefined &&
+      input.body !== inbound.body;
+    if (input.action === "update" && !edited) return { status: "unchanged" };
+    if (inbound.status === "pending") {
+      if (input.action === "remove") {
+        await tx
+          .update(inboundComments)
+          .set({
+            status: "processed",
+            disposition: inbound.requestId
+              ? "removed"
+              : "ignored:unknown_issue",
+            body: inbound.requestId ? inbound.body : "",
+            processedAt: sql`now()`,
+          })
+          .where(eq(inboundComments.id, inbound.id));
+        return { status: "removed" };
+      }
+      await tx
+        .update(inboundComments)
+        .set({ body: input.body })
+        .where(eq(inboundComments.id, inbound.id));
+      return { status: "updated" };
+    }
+    const [held] = await tx
+      .select()
+      .from(replies)
+      .where(
+        and(
+          eq(replies.inboundCommentId, inbound.id),
+          eq(replies.status, "held"),
+        ),
+      )
+      .for("update");
+    if (!held || !inbound.requestId) return { status: "unchanged" };
+    const reason: ReplyCancelReason =
+      input.action === "remove" ? "removed" : "edited";
+    const [cancelled] = await tx
+      .update(replies)
+      .set({ status: "cancelled", cancelReason: reason })
+      .where(eq(replies.id, held.id))
+      .returning();
+    const request = await requestFor(tx, inbound.requestId);
     await appendEvent(tx, {
-      type: "comment.received",
-      channelKey: found.request.channelKey,
-      requestId: found.request.id,
+      type: "reply.cancelled",
+      channelKey: request.channelKey,
+      requestId: request.id,
       payload: {
-        inboundId: inbound.id,
-        commentId: input.commentId,
-        issueId: input.issueId,
+        replyId: held.id,
+        inboundCommentId: inbound.id,
+        reason,
       },
     });
-    return { status: "stored", inbound };
+    return { status: "cancelled", reply: required(cancelled) };
   });
 }
 
@@ -195,13 +317,17 @@ export async function ignoreInboundComment(
   });
 }
 
+function displayTime(date: Date) {
+  return sql`LEAST(${date.toISOString()}::timestamptz, clock_timestamp())`;
+}
+
 export async function storeInternalComment(
   db: SupportExecutor,
   inboundId: string,
 ): Promise<MessageRecord | null> {
   return inTransaction(db, async (tx) => {
     const inbound = await lockPending(tx, inboundId);
-    if (!inbound) return null;
+    if (!inbound?.requestId) return null;
     const [message] = await tx
       .insert(messages)
       .values({
@@ -211,6 +337,7 @@ export async function storeInternalComment(
         author: "staff",
         authorName: inbound.authorName,
         audience: "internal",
+        createdAt: displayTime(inbound.sourceCreatedAt),
       })
       .returning();
     const stored = required(message);
@@ -225,6 +352,7 @@ async function releaseReply(
     request: RequestRecord;
     body: string;
     authorName: string | null;
+    displayAt: Date;
   },
 ): Promise<MessageRecord> {
   const [message] = await tx
@@ -236,6 +364,7 @@ async function releaseReply(
       author: "staff",
       authorName: input.authorName,
       audience: "external",
+      createdAt: displayTime(input.displayAt),
     })
     .returning();
   await tx
@@ -258,6 +387,7 @@ async function requestFor(
 
 export interface ExternalReplyInput {
   inboundId: string;
+  sourceBody: string;
   text: string;
   score: number;
   band: ReplyBand;
@@ -278,7 +408,7 @@ export async function resolveExternalReply(
 ): Promise<ExternalReplyResult | null> {
   return inTransaction(db, async (tx) => {
     const inbound = await lockPending(tx, input.inboundId);
-    if (!inbound) return null;
+    if (!inbound?.requestId || inbound.body !== input.sourceBody) return null;
     const request = await requestFor(tx, inbound.requestId);
     const now = input.now ?? new Date();
     const ttl = input.holdTtlSeconds ?? REPLY_HOLD_TTL_SECONDS;
@@ -334,6 +464,7 @@ export async function resolveExternalReply(
       request,
       body: input.text,
       authorName: inbound.authorName,
+      displayAt: inbound.sourceCreatedAt,
     });
     const [reply] = await tx
       .insert(replies)
@@ -381,7 +512,8 @@ export async function resolveExternalReply(
 
 export type ConfirmOutcome =
   | { outcome: "sent"; reply: ReplyRow; message: MessageRecord }
-  | { outcome: "ignored"; reason: string };
+  | { outcome: "ignored"; reason: string }
+  | { outcome: "deferred"; reason: string };
 
 export async function confirmHeldReply(
   db: SupportExecutor,
@@ -395,29 +527,86 @@ export async function confirmHeldReply(
       await markProcessed(tx, inbound.id, `confirm_ignored:${reason}`);
       return { outcome: "ignored", reason };
     };
-    if (!inbound.parentCommentId) return ignore("no_thread");
-    const held = await tx
+    const defer = (reason: string): ConfirmOutcome => ({
+      outcome: "deferred",
+      reason,
+    });
+    const parent = inbound.parentCommentId;
+    if (!inbound.requestId) return defer("awaiting_ticket");
+    if (!parent) return ignore("no_thread");
+    const [earlierPending] = await tx
+      .select({ id: inboundComments.id })
+      .from(inboundComments)
+      .where(
+        and(
+          eq(inboundComments.requestId, inbound.requestId),
+          ne(inboundComments.id, inbound.id),
+          eq(inboundComments.status, "pending"),
+          lt(inboundComments.sourceCreatedAt, inbound.sourceCreatedAt),
+          or(
+            eq(inboundComments.commentId, parent),
+            eq(inboundComments.parentCommentId, parent),
+          ),
+        ),
+      )
+      .limit(1);
+    if (earlierPending) return defer("thread_pending");
+    const candidates = await tx
+      .select({ id: replies.id })
+      .from(replies)
+      .innerJoin(
+        inboundComments,
+        eq(inboundComments.id, replies.inboundCommentId),
+      )
+      .where(
+        and(
+          eq(replies.requestId, inbound.requestId),
+          eq(replies.threadRootId, parent),
+          eq(replies.status, "held"),
+          lt(inboundComments.sourceCreatedAt, inbound.sourceCreatedAt),
+        ),
+      )
+      .orderBy(desc(inboundComments.sourceCreatedAt), desc(replies.id));
+    const locked = await tx
       .select()
       .from(replies)
       .where(
         and(
-          eq(replies.requestId, inbound.requestId),
-          eq(replies.threadRootId, inbound.parentCommentId),
+          inArray(
+            replies.id,
+            candidates.map((row) => row.id),
+          ),
           eq(replies.status, "held"),
         ),
       )
-      .orderBy(desc(replies.createdAt), desc(replies.id))
       .for("update");
-    if (held.length === 0) return ignore("no_hold");
+    const byId = new Map(locked.map((row) => [row.id, row]));
+    const held = candidates
+      .map((row) => byId.get(row.id))
+      .filter((row): row is ReplyRow => row !== undefined);
+    if (held.length === 0) {
+      const [known] = await tx
+        .select({ id: inboundComments.id })
+        .from(inboundComments)
+        .where(
+          and(
+            eq(inboundComments.provider, PROVIDER),
+            eq(inboundComments.commentId, parent),
+          ),
+        );
+      const ageMs = now.getTime() - inbound.createdAt.getTime();
+      if (!known && ageMs < ORPHAN_COMMENT_TTL_SECONDS * 1000) {
+        return defer("thread_unknown");
+      }
+      return ignore("no_hold");
+    }
     const mine = inbound.authorId
-      ? held.find((reply) => reply.authorId === inbound.authorId)
+      ? held.find((row) => row.authorId === inbound.authorId)
       : undefined;
     if (!mine) return ignore("not_author");
+    if (!mine.warningCommentId) return defer("warning_pending");
     if (mine.expiresAt && mine.expiresAt.getTime() <= now.getTime()) {
-      await tx
-        .update(replies)
-        .set({ status: "expired" })
-        .where(eq(replies.id, mine.id));
+      await expireReply(tx, mine, inbound.requestId);
       return ignore("expired");
     }
     const request = await requestFor(tx, inbound.requestId);
@@ -425,6 +614,7 @@ export async function confirmHeldReply(
       request,
       body: mine.body,
       authorName: mine.authorName,
+      displayAt: inbound.sourceCreatedAt,
     });
     const [updated] = await tx
       .update(replies)
@@ -454,6 +644,24 @@ export async function confirmHeldReply(
   });
 }
 
+export async function expireReply(
+  tx: SupportTx,
+  reply: ReplyRow,
+  requestId: string,
+): Promise<void> {
+  await tx
+    .update(replies)
+    .set({ status: "expired" })
+    .where(and(eq(replies.id, reply.id), eq(replies.status, "held")));
+  const request = await requestFor(tx, requestId);
+  await appendEvent(tx, {
+    type: "reply.expired",
+    channelKey: request.channelKey,
+    requestId,
+    payload: { replyId: reply.id },
+  });
+}
+
 export async function recordReplyWarning(
   db: SupportExecutor,
   replyId: string,
@@ -465,6 +673,26 @@ export async function recordReplyWarning(
     .where(and(eq(replies.id, replyId), isNull(replies.warningCommentId)))
     .returning({ id: replies.id });
   return rows.length > 0;
+}
+
+export async function lockReplyNeedingWarning(
+  tx: SupportTx,
+  inboundId: string,
+  now: Date,
+): Promise<ReplyRow | null> {
+  const [row] = await tx
+    .select()
+    .from(replies)
+    .where(
+      and(
+        eq(replies.inboundCommentId, inboundId),
+        eq(replies.status, "held"),
+        isNull(replies.warningCommentId),
+        gt(replies.expiresAt, now),
+      ),
+    )
+    .for("update");
+  return row ?? null;
 }
 
 export interface FlaggedReply {
@@ -497,11 +725,18 @@ export async function listFlaggedReplies(
 export async function listHeldReplies(
   db: SupportExecutor,
   requestId: string,
+  now: Date = new Date(),
 ): Promise<ReplyRow[]> {
   return db
     .select()
     .from(replies)
-    .where(and(eq(replies.requestId, requestId), eq(replies.status, "held")))
+    .where(
+      and(
+        eq(replies.requestId, requestId),
+        eq(replies.status, "held"),
+        gt(replies.expiresAt, now),
+      ),
+    )
     .orderBy(asc(replies.createdAt));
 }
 
@@ -510,25 +745,46 @@ export async function markMessageIntakeComplete(
   messageId: string,
   now: Date = new Date(),
 ): Promise<void> {
-  await db
-    .update(messages)
-    .set({ intakeCompletedAt: now })
-    .where(eq(messages.id, messageId));
+  await inTransaction(db, async (tx) => {
+    const [message] = await tx
+      .update(messages)
+      .set({ intakeCompletedAt: now })
+      .where(eq(messages.id, messageId))
+      .returning({ requestId: messages.requestId });
+    if (!message) return;
+    const [ticketed] = await tx
+      .select({ channelKey: requests.channelKey })
+      .from(tickets)
+      .innerJoin(requests, eq(requests.id, tickets.requestId))
+      .where(eq(tickets.requestId, message.requestId));
+    if (!ticketed) return;
+    await appendEvent(tx, {
+      type: "message.intake_completed",
+      channelKey: ticketed.channelKey,
+      requestId: message.requestId,
+      payload: { messageId },
+    });
+  });
 }
 
 export async function markMessagesDeliveredViaTicket(
   db: SupportExecutor,
-  requestId: string,
-  messageIds: string[],
-  now: Date = new Date(),
+  input: {
+    requestId: string;
+    messageIds: string[];
+    attachmentIds: string[];
+    now?: Date;
+  },
 ): Promise<void> {
-  if (messageIds.length === 0) return;
+  const now = input.now ?? new Date();
+  await markAttachmentsDelivered(db, input.attachmentIds, now);
+  if (input.messageIds.length === 0) return;
   await db
     .insert(messageDeliveries)
     .values(
-      messageIds.map((messageId) => ({
+      input.messageIds.map((messageId) => ({
         messageId,
-        requestId,
+        requestId: input.requestId,
         via: "ticket",
         deliveredAt: now,
       })),
@@ -543,7 +799,19 @@ export async function markMessagesDeliveredViaTicket(
 export interface PendingFollowUp {
   message: MessageRecord;
   attachmentNames: string[];
+  attachmentIds: string[];
   ready: boolean;
+}
+
+export function isMessageReady(
+  message: { intakeCompletedAt: Date | null; createdAt: Date },
+  now: Date,
+): boolean {
+  return (
+    message.intakeCompletedAt !== null ||
+    now.getTime() - message.createdAt.getTime() >=
+      MESSAGE_INTAKE_GRACE_SECONDS * 1000
+  );
 }
 
 export async function listUndeliveredFollowUps(
@@ -568,6 +836,7 @@ export async function listUndeliveredFollowUps(
   if (rows.length === 0) return [];
   const files = await db
     .select({
+      id: attachments.id,
       messageId: attachments.messageId,
       filename: attachments.filename,
     })
@@ -579,16 +848,79 @@ export async function listUndeliveredFollowUps(
       ),
     )
     .orderBy(asc(attachments.createdAt), asc(attachments.id));
-  const graceMs = MESSAGE_INTAKE_GRACE_SECONDS * 1000;
-  return rows.map(({ message }) => ({
-    message,
-    attachmentNames: files
-      .filter((file) => file.messageId === message.id)
-      .map((file) => file.filename),
-    ready:
-      message.intakeCompletedAt !== null ||
-      now.getTime() - message.createdAt.getTime() >= graceMs,
-  }));
+  return rows.map(({ message }) => {
+    const own = files.filter((file) => file.messageId === message.id);
+    return {
+      message,
+      attachmentNames: own.map((file) => file.filename),
+      attachmentIds: own.map((file) => file.id),
+      ready: isMessageReady(message, now),
+    };
+  });
+}
+
+export interface LateAttachments {
+  messageId: string;
+  attachmentIds: string[];
+  attachmentNames: string[];
+}
+
+export async function listLateAttachments(
+  db: SupportExecutor,
+  requestId: string,
+  now: Date = new Date(),
+): Promise<LateAttachments[]> {
+  const rows = await db
+    .select({
+      message: messages,
+      id: attachments.id,
+      filename: attachments.filename,
+    })
+    .from(attachments)
+    .innerJoin(messages, eq(messages.id, attachments.messageId))
+    .innerJoin(
+      messageDeliveries,
+      and(
+        eq(messageDeliveries.messageId, messages.id),
+        isNotNull(messageDeliveries.deliveredAt),
+      ),
+    )
+    .where(
+      and(
+        eq(messages.requestId, requestId),
+        isNull(attachments.linearDeliveredAt),
+      ),
+    )
+    .orderBy(
+      asc(messages.createdAt),
+      asc(attachments.createdAt),
+      asc(attachments.id),
+    );
+  const grouped = new Map<string, LateAttachments>();
+  for (const row of rows) {
+    if (!isMessageReady(row.message, now)) continue;
+    const entry = grouped.get(row.message.id) ?? {
+      messageId: row.message.id,
+      attachmentIds: [],
+      attachmentNames: [],
+    };
+    entry.attachmentIds.push(row.id);
+    entry.attachmentNames.push(row.filename);
+    grouped.set(row.message.id, entry);
+  }
+  return [...grouped.values()];
+}
+
+export async function markAttachmentsDelivered(
+  db: SupportExecutor,
+  attachmentIds: string[],
+  now: Date = new Date(),
+): Promise<void> {
+  if (attachmentIds.length === 0) return;
+  await db
+    .update(attachments)
+    .set({ linearDeliveredAt: now })
+    .where(inArray(attachments.id, attachmentIds));
 }
 
 export async function recordFollowUpDelivered(
@@ -597,6 +929,7 @@ export async function recordFollowUpDelivered(
     messageId: string;
     requestId: string;
     linearCommentId: string;
+    attachmentIds?: string[];
     now?: Date;
   },
 ): Promise<void> {
@@ -618,106 +951,9 @@ export async function recordFollowUpDelivered(
         deliveredAt: now,
       },
     });
+  await markAttachmentsDelivered(db, input.attachmentIds ?? [], now);
 }
 
 export function followUpLockKey(requestId: string) {
   return sql`SELECT pg_advisory_xact_lock(hashtextextended(${requestId}, 18))`;
-}
-
-function eventFromRow(row: Record<string, unknown>): EventEnvelope {
-  return eventEnvelopeSchema.parse({
-    id: row.id,
-    seq: row.seq,
-    type: row.type,
-    channelKey: row.channel_key,
-    requestId: row.request_id,
-    payload: row.payload,
-    createdAt: row.created_at,
-  });
-}
-
-export interface FollowUpRedeliveryOptions {
-  now?: Date;
-  limit?: number;
-  requestId?: string;
-  baseSeconds?: number;
-  maxSeconds?: number;
-}
-
-export async function claimFollowUpRedeliveries(
-  db: SupportExecutor,
-  options: FollowUpRedeliveryOptions = {},
-): Promise<EventEnvelope[]> {
-  const nowTs = (options.now ?? new Date()).toISOString();
-  const base = options.baseSeconds ?? TICKET_REDELIVERY_BASE_SECONDS;
-  const max = options.maxSeconds ?? TICKET_REDELIVERY_MAX_SECONDS;
-  const limit = options.limit ?? 50;
-  const requestFilter = options.requestId
-    ? sql`AND e.request_id = ${options.requestId}`
-    : sql``;
-  return inTransaction(db, async (tx) => {
-    await tx.execute(sql`SELECT pg_advisory_xact_lock(${FOLLOW_UP_LOCK_ID})`);
-    const rows = await tx.execute<Record<string, unknown>>(sql`
-      WITH due AS (
-        SELECT e.id, e.seq, e.type, e.channel_key, e.request_id, e.payload, e.created_at,
-          m.id AS message_id
-        FROM support.events e
-        JOIN support.messages m ON m.id::text = e.payload->>'messageId'
-        LEFT JOIN support.message_deliveries d ON d.message_id = m.id
-        WHERE e.type = 'message.created'
-          AND e.request_id IS NOT NULL
-          ${requestFilter}
-          AND m.author = 'customer' AND m.audience = 'external' AND m.origin_channel = 'widget'
-          AND d.delivered_at IS NULL
-          AND EXISTS (SELECT 1 FROM support.tickets t WHERE t.request_id = e.request_id)
-          AND (m.intake_completed_at IS NOT NULL
-            OR m.created_at <= ${nowTs}::timestamptz - make_interval(secs => ${MESSAGE_INTAKE_GRACE_SECONDS}))
-          AND COALESCE(d.last_enqueued_at, m.created_at)
-            <= ${nowTs}::timestamptz - make_interval(
-              secs => LEAST(${max}::double precision, ${base}::double precision * power(2, LEAST(COALESCE(d.delivery_attempts, 0), 20)))
-            )
-        ORDER BY e.seq
-        LIMIT ${limit}
-      ), marked AS (
-        INSERT INTO support.message_deliveries (message_id, request_id, delivery_attempts, last_enqueued_at)
-        SELECT message_id, request_id, 1, ${nowTs}::timestamptz FROM due
-        ON CONFLICT (message_id) DO UPDATE
-          SET delivery_attempts = support.message_deliveries.delivery_attempts + 1,
-              last_enqueued_at = EXCLUDED.last_enqueued_at
-      )
-      SELECT id, seq, type, channel_key, request_id, payload, created_at
-      FROM due ORDER BY seq
-    `);
-    return rows.map(eventFromRow);
-  });
-}
-
-export interface InboundRedeliveryOptions {
-  now?: Date;
-  limit?: number;
-  staleSeconds?: number;
-  maxAgeSeconds?: number;
-}
-
-export async function listStaleInboundEvents(
-  db: SupportExecutor,
-  options: InboundRedeliveryOptions = {},
-): Promise<EventEnvelope[]> {
-  const nowTs = (options.now ?? new Date()).toISOString();
-  const stale = options.staleSeconds ?? 60;
-  const maxAge = options.maxAgeSeconds ?? 24 * 60 * 60;
-  const rows = await db.execute<Record<string, unknown>>(sql`
-    SELECT e.id, e.seq, e.type, e.channel_key, e.request_id, e.payload, e.created_at
-    FROM support.events e
-    JOIN support.inbound_comments i ON i.id::text = e.payload->>'inboundId'
-    LEFT JOIN support.replies r ON r.inbound_comment_id = i.id
-    WHERE e.type = 'comment.received'
-      AND i.created_at <= ${nowTs}::timestamptz - make_interval(secs => ${stale})
-      AND i.created_at >= ${nowTs}::timestamptz - make_interval(secs => ${maxAge})
-      AND (i.status = 'pending'
-        OR (r.status = 'held' AND r.warning_comment_id IS NULL))
-    ORDER BY e.seq
-    LIMIT ${options.limit ?? 20}
-  `);
-  return rows.map(eventFromRow);
 }
