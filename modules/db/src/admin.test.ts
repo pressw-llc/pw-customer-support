@@ -2,7 +2,6 @@ import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import type { StaffIdentity } from "@pw-support/contracts";
 import { eq } from "drizzle-orm";
 import {
-  appendEvent,
   closeDb,
   createAdminProject,
   createDb,

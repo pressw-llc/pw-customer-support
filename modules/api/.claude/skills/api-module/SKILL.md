@@ -18,7 +18,7 @@ description: Work in the api module: the Hono HTTP server on Bun. Use when you a
 | `intake-service.ts`   | Persist, then run checks, store files, record rejections, shape responses                                                                                                                                                                |
 | `middleware.ts`       | `identify` resolves the key and upserts the customer. `rateLimit` counts per key and per user                                                                                                                                            |
 | `file-type.ts`        | `detectFile` by magic bytes and `preflightAttachment` for count, size, and empty checks                                                                                                                                                  |
-| `message-checks.ts`   | `checkMessage` strips markup in linear time and enforces the length caps                                                                                                                                                                 |
+| `message-checks.ts`   | `checkMessage` strips well-formed markup in linear time and enforces the length caps                                                                                                                                                     |
 | `storage.ts`          | `ObjectStorage` interface and the S3 implementation                                                                                                                                                                                      |
 | `config.ts`           | `loadConfig(env)` with local defaults for the Compose stack                                                                                                                                                                              |
 | `wake.ts`             | SQS client, queue lookup, and the wake sender that sends `DelaySeconds`. Triage reuses it                                                                                                                                                |
@@ -32,7 +32,7 @@ description: Work in the api module: the Hono HTTP server on Bun. Use when you a
 
 `POST /v1/requests`, `GET /v1/requests`, `GET /v1/requests/:id`, `POST /v1/requests/:id/messages`, `POST /v1/requests/:id/read`, `GET /v1/attachments/:id`. Each needs `X-Support-Key` and `X-Support-User`.
 
-`POST /webhooks/linear` takes the Linear `Comment` webhook. It sits outside `/v1`, skips key identity, and caps the body at `LINEAR_WEBHOOK_MAX_BYTES`. The route hands the raw bytes and two headers to the `LinearWebhookIntake` from `@pw-support/channels`. Without an intake it answers 503.
+`POST /webhooks/linear` takes the Linear `Comment` webhook. It sits outside `/v1`, skips key identity, and caps the body at `LINEAR_WEBHOOK_MAX_BYTES`. The route hands the raw bytes and two headers to the `LinearWebhookIntake` from `@pw-support/channels`. Without an intake it answers 503. `server.ts` builds one managed secrets provider and passes it to both the intake and the admin save route, so the webhook secret comes from Secrets Manager with the environment as fallback and the route fails closed with neither.
 
 ## Rules
 

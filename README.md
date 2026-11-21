@@ -328,6 +328,10 @@ Editing or deleting a held comment in Linear cancels the hold in the same transa
 
 The adapter orders changes by the `updatedAt` of the signed payload and stores it as `source_updated_at`. An update applies only when its `updatedAt` is strictly newer. An update or a remove that arrives before its create is recorded in `support.comment_changes` with the action and time and no text. A create whose `updatedAt` is older than a recorded change, or any create after a recorded remove, never trusts its payload: the adapter fetches the current comment from Linear and processes that, or marks it removed. The adapter applies the same rule before it scores a marked comment and before a confirm releases a held reply. A payload with no `createdAt` is never a confirm and never `@external`. An actor or user marked `app`, a non-user type, a `botActor`, or an external user is never human.
 
+A confirm always fetches every live held comment of the thread from Linear before it releases anything. It compares the `updatedAt` and the body with the stored row. Any difference, or a comment Linear no longer returns, cancels the hold and sends nothing. A failed fetch keeps the confirm pending and it retries with backoff. It never sends on a failure.
+
+An update webhook with no `updatedAt` marks the stored comment `refetch_required` and records no change time. An update that arrives while `refetch_required` is true records its change row. `applyFetchedComment` keeps `refetch_required` set while a newer change row remains, so the next fetch picks up the later edit.
+
 A hold past its expiry is hidden from `listHeldReplies`, skipped by the warning retry, and marked `expired` with `reply.expired` by the next dispatcher tick.
 
 ### Customer follow-ups
@@ -342,7 +346,7 @@ A comment on an issue with no ticket row yet is stored pending with no request, 
 
 ### Webhook setup
 
-Create a Linear webhook for the `Comment` resource and point it at `POST <api>/webhooks/linear`. Scope the webhook to the teams that hold support tickets. The API stores ids only for comments on other issues, but a scoped webhook keeps unrelated traffic out. Set `LINEAR_WEBHOOK_SECRET` to the signing secret Linear shows. The route needs a public URL. For a local API, run a tunnel such as `cloudflared tunnel --url http://localhost:8787` or `ngrok http 8787` and use its address. The route returns 503 and stores nothing while the secret is missing.
+Create a Linear webhook for the `Comment` resource and point it at `POST <api>/webhooks/linear`. Scope the webhook to the teams that hold support tickets. The API stores ids only for comments on other issues, but a scoped webhook keeps unrelated traffic out. Save the signing secret Linear shows in the admin settings, or set `LINEAR_WEBHOOK_SECRET` for local development. The route reads it through the same Secrets Manager provider as the Linear key and the Jev key, with the environment variable as the fallback. The route needs a public URL. For a local API, run a tunnel such as `cloudflared tunnel --url http://localhost:8787` or `ngrok http 8787` and use its address. The route returns 503 and stores nothing while the secret is missing.
 
 The route checks the `Linear-Signature` header against an HMAC SHA-256 of the raw body, rejects a `webhookTimestamp` older than 60 seconds, treats `Linear-Delivery` as an idempotency key, and caps the body at 256 KiB.
 
@@ -388,17 +392,19 @@ Every route sits behind the token validator. CORS allows only `ADMIN_ORIGINS`. M
 | `GET /admin/integrations`                     | Return `configured` and update metadata, never a value       |
 | `PUT /admin/integrations/:kind`               | Store a secret in Secrets Manager                            |
 
-The list filters are `projectId`, `status`, `flaggedReplies`, `needsHuman`, `limit`, and `cursor`. `needsHuman` matches a job with the `human_triage` outcome or a result with `needs_human`. `flaggedReplies` matches a request with a `reply.flagged` or `reply.held` event.
+The list filters are `projectId`, `status`, `flaggedReplies`, `needsHuman`, `limit`, and `cursor`. `needsHuman` matches a job with the `human_triage` outcome or a result with `needs_human`. `flaggedReplies` reads `support.replies`. It matches a request with a flagged reply, the rows `listFlaggedReplies` returns, or a hold that has not expired.
+
+The request detail returns every thread message with `author`, `authorName`, `originChannel`, and `audience`, so internal Linear comments and customer-visible replies stay distinct. It also returns a `replies` list from `support.replies`. Each reply carries its status (`held`, `sent`, `cancelled`, or `expired`), its wording score, the hold reason, the cancel reason, the expiry, and whether the warning was posted. The UI renders every body, summary, author name, and event payload as a plain text node.
 
 ### Acknowledgement timer
 
-`acknowledged_at` is the earliest message on the request where the author is `staff` and the origin is `linear` or the audience is `external`. One subquery in `modules/db/src/admin.ts` defines it. It stays null until staff comment. The list shows a running timer from `created_at` while it is null and the time to acknowledge afterwards. The timer turns amber at 15 minutes and red at 60 minutes. The constants `ACK_WARN_MINUTES` and `ACK_CRITICAL_MINUTES` live in `@pw-support/contracts`.
+`acknowledged_at` is the earliest message on the request where the author is `staff` and the origin is `linear` or the audience is `external`. These are the values the reply loop writes: an internal Linear comment has `origin_channel=linear` and `author=staff`, and a released reply has `audience=external`. One subquery in `modules/db/src/admin.ts` defines it. It stays null until staff comment. The list shows a running timer from `created_at` while it is null and the time to acknowledge afterwards. The timer turns amber at 15 minutes and red at 60 minutes. The constants `ACK_WARN_MINUTES` and `ACK_CRITICAL_MINUTES` live in `@pw-support/contracts`.
 
 ### Integration secrets
 
 Saving a Linear API key, a Linear webhook secret, or a TypeSafe key writes the value to Secrets Manager under `pw-support/<scope>/<name>` and creates the secret when it does not exist. Postgres stores only the secret name in `support.integrations`, with `updated_at` and `updated_by`. No API response, log line, or event holds the value. The admin routes log the error name and never the request body.
 
-`createManagedSecrets` in `@pw-support/channels` reads the value through the Postgres reference with a 30 second cache. It falls back to the matching environment variable, such as `LINEAR_API_KEY`, when no reference exists. The Linear client and the Jev client use it. The API invalidates its own cache after a save, and other processes see the change within the cache time.
+`createManagedSecrets` in `@pw-support/channels` reads the value through the Postgres reference with a 30 second cache. It falls back to the matching environment variable, such as `LINEAR_API_KEY`, when no reference exists. The Linear client, the Jev client, the wording scorer, and the webhook intake use it. The API invalidates its own cache after a save, and other processes see the change within the cache time.
 
 ### CC list
 
@@ -406,7 +412,7 @@ The severe-request CC list belongs to a project, in `support.projects.severe_cc_
 
 ### Validation
 
-`bun run validate:phase-4` starts the API with the mock issuer and LocalStack and prints one PASS or FAIL line per check. It covers A19 (401 without a token, with a forged token, with a token from another issuer, and 200 with an issued token), A29, and the five A18 checks. A18b scans a real `pg_dump` taken inside the Postgres container. The Playwright suite in `e2e/admin.spec.ts` drives the login through the mock issuer and writes screenshots to `e2e/artifacts`.
+`bun run validate:phase-4` starts the API with the mock issuer and LocalStack and prints one PASS or FAIL line per check. It covers A15-admin (a flagged reply from the admin API for staff, 401 without a token), A19 (401 without a token, with a forged token, with a token from another issuer, and 200 with an issued token), A29, and the five A18 checks. A18b scans a real `pg_dump` taken inside the Postgres container. The Playwright suite in `e2e/admin.spec.ts` drives the login through the mock issuer and writes screenshots to `e2e/artifacts`.
 
 ## Modules
 

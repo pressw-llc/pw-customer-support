@@ -28,6 +28,8 @@ description: Work in the admin module: the staff admin UI. Use when you build re
 - Start the login once. `AuthProvider` guards the effect with a `WeakSet`, because a second code exchange makes the issuer return a different user.
 - A 401 starts a fresh login through `onUnauthorized`.
 - Never show or store an integration secret. The settings fields are write-only. The API returns `configured` and update metadata.
+- Render every thread body, summary, author name, and event payload as a React text node. Never use `dangerouslySetInnerHTML` or a markdown renderer. `e2e/admin.spec.ts` checks that markup in a message stays literal text.
+- Show the reply loop from `detail.replies` (status, score, reason, expiry, warning) and the list flags from `flaggedReplies` and `heldReplies`. Both come from `support.replies`.
 - Take the timer thresholds from `ACK_WARN_MINUTES` and `ACK_CRITICAL_MINUTES` in `@pw-support/contracts`.
 - Keep logic in `src/lib` with a `bun test` file. The React code under `src/app` and `src/components` is outside the bun coverage run and has Playwright coverage in `e2e/admin.spec.ts`.
 - Add shadcn components with `bunx --bun shadcn@latest add <name>` from this directory. The CLI rewrites the `cn` import, so check that it points at `@/lib/utils`.

@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, spyOn, test } from "bun:test";
 import {
   buildHoldWarning,
   classifyStaffComment,
@@ -256,7 +256,10 @@ describe("Jev wording scorer", () => {
       apiKey: async () => key,
       fetcher: (async (_url: unknown, init?: RequestInit) => {
         seen.push(
-          String((init?.headers as Record<string, string>).Authorization),
+          String(
+            (init?.headers as Record<string, string> | undefined)
+              ?.Authorization,
+          ),
         );
         return new Response(
           JSON.stringify({ answers: { wording: { noul: 1 } } }),
@@ -275,9 +278,38 @@ describe("Jev wording scorer", () => {
     await expect(failing.score("x")).rejects.toThrow(/not configured/);
   });
 
-  test("a secrets provider always yields a scorer, even with no key in the env", () => {
-    const secrets = { get: async () => "k" };
-    expect(wordingScorerFor({}, secrets)).not.toBeNull();
+  test("a secrets provider always yields a scorer that reads its key per call", async () => {
+    const names: string[] = [];
+    const secrets = {
+      get: async (name: string) => {
+        names.push(name);
+        return "from-provider";
+      },
+    };
+    const calls: string[] = [];
+    const fetchSpy = spyOn(globalThis, "fetch").mockImplementation((async (
+      _url: unknown,
+      init?: RequestInit,
+    ) => {
+      calls.push(
+        String(
+          (init?.headers as Record<string, string> | undefined)?.Authorization,
+        ),
+      );
+      return new Response(
+        JSON.stringify({ answers: { wording: { noul: 0.8 } } }),
+      );
+    }) as unknown as typeof fetch);
+    const scorer = wordingScorerFor({}, secrets);
+    expect(scorer).not.toBeNull();
+    try {
+      const result = await scorer?.score("Hello customer");
+      expect(result?.score).toBe(4);
+    } finally {
+      fetchSpy.mockRestore();
+    }
+    expect(names).toEqual(["typesafe-api-key"]);
+    expect(calls).toEqual(["Bearer from-provider"]);
   });
 
   test("the runtime builds a scorer only when the key is set", () => {

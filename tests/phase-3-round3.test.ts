@@ -9,6 +9,7 @@ import {
   applyCommentChange,
   applyFetchedComment,
   commentChanges,
+  commentNeedsRefresh,
   inboundComments,
   persistInboundComment,
 } from "@pw-support/db";
@@ -379,5 +380,75 @@ describe("H3 an update with no updatedAt is treated as refetch_required", () => 
           ),
         ),
     ).toHaveLength(1);
+  });
+});
+
+describe("refresh edge cases", () => {
+  const fetchedFor = (issueId: string, updatedAt: Date) => ({
+    issueId,
+    body: "@external x [s=4]",
+    parentCommentId: null,
+    authorId: STUB_STAFF_ID,
+    authorName: "Ada",
+    createdAt: at(1),
+    updatedAt,
+  });
+
+  async function stored(issueId: string, updatedAt: Date | undefined) {
+    const commentId = `edge-${crypto.randomUUID()}`;
+    await persistInboundComment(p.h.db, {
+      deliveryId: crypto.randomUUID(),
+      commentId,
+      issueId,
+      parentCommentId: null,
+      authorId: STUB_STAFF_ID,
+      authorName: "Ada",
+      body: "@external x [s=4]",
+      sourceCreatedAt: at(1),
+      sourceUpdatedAt: updatedAt,
+    });
+    return (await inboundOf(commentId)) as NonNullable<
+      Awaited<ReturnType<typeof inboundOf>>
+    >;
+  }
+
+  test("a fetched comment from another issue is ignored and stripped of text", async () => {
+    const s = await p.scenario();
+    const row = await stored(s.issueId, at(1));
+    const outcome = await applyFetchedComment(
+      p.h.db,
+      row.id,
+      fetchedFor("another-issue", at(2)),
+    );
+    expect(outcome.status).toBe("issue_mismatch");
+    expect(await inboundOf(row.commentId)).toMatchObject({
+      status: "processed",
+      disposition: "ignored:issue_mismatch",
+      body: "",
+    });
+  });
+
+  test("a removed comment with no hold is marked removed", async () => {
+    const s = await p.scenario();
+    const row = await stored(s.issueId, at(1));
+    await p.h.db
+      .update(inboundComments)
+      .set({ status: "processed", disposition: "internal" })
+      .where(eq(inboundComments.id, row.id));
+    expect((await applyFetchedComment(p.h.db, row.id, null)).status).toBe(
+      "removed",
+    );
+  });
+
+  test("a comment with no stored updatedAt needs a refresh once any change is recorded", async () => {
+    const s = await p.scenario();
+    const row = await stored(s.issueId, undefined);
+    expect(await commentNeedsRefresh(p.h.db, row)).toBe(false);
+    await p.h.db.insert(commentChanges).values({
+      commentId: row.commentId,
+      action: "update",
+      updatedAt: at(3),
+    });
+    expect(await commentNeedsRefresh(p.h.db, row)).toBe(true);
   });
 });
