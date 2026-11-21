@@ -18,7 +18,7 @@ description: Work in the api module: the Hono HTTP server on Bun. Use when you a
 | `intake-service.ts` | Persist, then run checks, store files, record rejections, shape responses                                |
 | `middleware.ts`     | `identify` resolves the key and upserts the customer. `rateLimit` counts per key and per user            |
 | `file-type.ts`      | `detectFile` by magic bytes and `preflightAttachment` for count, size, and empty checks                  |
-| `message-checks.ts` | `checkMessage` strips markup and enforces the length cap                                                 |
+| `message-checks.ts` | `checkMessage` strips markup in linear time and enforces the length caps                                 |
 | `storage.ts`        | `ObjectStorage` interface and the S3 implementation                                                      |
 | `config.ts`         | `loadConfig(env)` with local defaults for the Compose stack                                              |
 | `server.ts`         | Process entry. It is glue and no test loads it                                                           |
@@ -34,6 +34,8 @@ description: Work in the api module: the Hono HTTP server on Bun. Use when you a
 - Persist the request, the message, and the event in one transaction before any processing. Never reorder this.
 - Scope every customer query by project and customer. Use the repository functions in `@pw-support/db`.
 - Append state changes through `appendEvent`. Add new event types to `@pw-support/contracts` first.
+- Cap inbound text at `MAX_STORED_MESSAGE_CHARS` before any strip work. Persist the truncated text, flag `too_long`, and answer `truncated: true`. Return 413 for a text field above `MAX_TEXT_FIELD_BYTES`, a transport limit applied before persistence.
+- Never add a regex with unbounded repetition over user text. Use a linear scanner.
 - Decide attachment type by magic bytes, never by filename or declared type.
 - Never store a rejected file in S3. Record the rejection and append `attachment.rejected`.
 - Return 404 for a request or attachment outside the caller's scope. Never return another scope's rows.
