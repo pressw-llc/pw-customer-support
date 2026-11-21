@@ -1,3 +1,5 @@
+import { signLinearWebhook } from "../linear/webhook";
+
 export interface StubTeam {
   id: string;
   key: string;
@@ -26,6 +28,103 @@ export interface StubComment {
   id: string;
   issueId: string;
   body: string;
+  userId: string;
+  userName: string;
+  parentId: string | null;
+}
+
+export interface StubWebhookTarget {
+  url: string;
+  secret: string;
+}
+
+export interface StubDelivery {
+  deliveryId: string;
+  commentId: string;
+  status: number;
+  body: string;
+}
+
+export interface StaffCommentInput {
+  issueId: string;
+  body: string;
+  userId?: string;
+  userName?: string;
+  parentId?: string;
+}
+
+export interface WebhookOverrides {
+  deliveryId?: string;
+  timestamp?: number;
+  secret?: string;
+  signature?: string | null;
+  omitDelivery?: boolean;
+  rawBody?: string;
+}
+
+export const STUB_VIEWER_ID = "user-integration";
+export const STUB_VIEWER_NAME = "PressW Support Integration";
+export const STUB_STAFF_ID = "user-staff-ada";
+export const STUB_STAFF_NAME = "Ada Staff";
+
+export function commentWebhookPayload(
+  comment: StubComment,
+  timestamp: number = Date.now(),
+): Record<string, unknown> {
+  const createdAt = new Date(timestamp).toISOString();
+  return {
+    action: "create",
+    type: "Comment",
+    actor: { id: comment.userId, name: comment.userName, type: "user" },
+    createdAt,
+    data: {
+      id: comment.id,
+      createdAt,
+      updatedAt: createdAt,
+      body: comment.body,
+      issueId: comment.issueId,
+      parentId: comment.parentId,
+      userId: comment.userId,
+      user: { id: comment.userId, name: comment.userName },
+    },
+    url: `https://linear.app/stub/issue/${comment.issueId}#comment-${comment.id}`,
+    organizationId: "org-stub",
+    webhookTimestamp: timestamp,
+    webhookId: "webhook-stub",
+  };
+}
+
+export async function deliverCommentWebhook(
+  target: StubWebhookTarget,
+  comment: StubComment,
+  overrides: WebhookOverrides = {},
+): Promise<StubDelivery> {
+  const deliveryId = overrides.deliveryId ?? crypto.randomUUID();
+  const rawBody =
+    overrides.rawBody ??
+    JSON.stringify(commentWebhookPayload(comment, overrides.timestamp));
+  const signature =
+    overrides.signature === undefined
+      ? signLinearWebhook(overrides.secret ?? target.secret, rawBody)
+      : overrides.signature;
+  const headers: Record<string, string> = {
+    "Content-Type": "application/json; charset=utf-8",
+    "Linear-Event": "Comment",
+    "User-Agent": "Linear-Webhook",
+  };
+  if (signature !== null) headers["Linear-Signature"] = signature;
+  if (!overrides.omitDelivery) headers["Linear-Delivery"] = deliveryId;
+  const response = await fetch(target.url, {
+    method: "POST",
+    headers,
+    body: rawBody,
+  });
+  return {
+    deliveryId,
+    commentId: comment.id,
+    status: response.status,
+    body: await response.text(),
+  };
 }
 
 export interface StubCall {
@@ -42,6 +141,13 @@ export interface LinearStub {
   labels: StubLabel[];
   comments: StubComment[];
   teams: StubTeam[];
+  deliveries: StubDelivery[];
+  viewerId: string;
+  configureWebhook(target: StubWebhookTarget | null): void;
+  staffComment(input: StaffCommentInput): Promise<{
+    comment: StubComment;
+    delivery: StubDelivery | null;
+  }>;
   failNext(count: number, message?: string): void;
   reset(): void;
   stop(): Promise<void>;
@@ -57,6 +163,8 @@ export const DEFAULT_STUB_TEAMS: StubTeam[] = [
 ];
 
 const OPERATIONS: [string, RegExp][] = [
+  ["viewer", /\bviewer\s*\{/],
+  ["issueComments", /\bissue\s*\(\s*id/],
   ["issueLabelCreate", /\bissueLabelCreate\s*\(/],
   ["issueLabels", /\bissueLabels\s*\(/],
   ["issueCreate", /\bissueCreate\s*\(/],
@@ -95,6 +203,25 @@ export function startLinearStub(options: StubOptions = {}): LinearStub {
     labels: [],
     comments: [],
     teams,
+    deliveries: [],
+    viewerId: STUB_VIEWER_ID,
+    configureWebhook(target) {
+      webhook = target;
+    },
+    async staffComment(input) {
+      const issue = stub.issues.find((i) => i.id === input.issueId);
+      if (!issue) throw new GraphQlFailure("Entity not found: Issue");
+      const comment: StubComment = {
+        id: crypto.randomUUID(),
+        issueId: issue.id,
+        body: input.body,
+        userId: input.userId ?? STUB_STAFF_ID,
+        userName: input.userName ?? STUB_STAFF_NAME,
+        parentId: input.parentId ?? null,
+      };
+      stub.comments.push(comment);
+      return { comment, delivery: await emit(comment) };
+    },
     failNext(count, message = "Internal server error") {
       failures = { count, message };
     },
@@ -103,6 +230,7 @@ export function startLinearStub(options: StubOptions = {}): LinearStub {
       stub.issues.length = 0;
       stub.labels.length = 0;
       stub.comments.length = 0;
+      stub.deliveries.length = 0;
       counters.clear();
     },
     stop: async () => {
@@ -110,7 +238,19 @@ export function startLinearStub(options: StubOptions = {}): LinearStub {
     },
   };
   let failures = { count: 0, message: "" };
+  let webhook: StubWebhookTarget | null = null;
   const counters = new Map<string, number>();
+
+  async function emit(comment: StubComment): Promise<StubDelivery | null> {
+    if (!webhook) return null;
+    try {
+      const delivery = await deliverCommentWebhook(webhook, comment);
+      stub.deliveries.push(delivery);
+      return delivery;
+    } catch {
+      return null;
+    }
+  }
 
   function team(id: unknown): StubTeam {
     const found = teams.find((t) => t.id === id || t.key === id);
@@ -253,13 +393,45 @@ export function startLinearStub(options: StubOptions = {}): LinearStub {
           "Argument Validation Error: body must not be empty",
         );
       }
-      const comment = {
+      const parentId =
+        typeof input.parentId === "string" ? input.parentId : null;
+      if (
+        parentId !== null &&
+        !stub.comments.some((c) => c.id === parentId && c.issueId === issue.id)
+      ) {
+        throw new GraphQlFailure("Entity not found: Comment");
+      }
+      const comment: StubComment = {
         id: crypto.randomUUID(),
         issueId: issue.id,
         body: input.body,
+        userId: stub.viewerId,
+        userName: STUB_VIEWER_NAME,
+        parentId,
       };
       stub.comments.push(comment);
+      void emit(comment);
       return { commentCreate: { success: true, comment: { id: comment.id } } };
+    },
+    viewer() {
+      return { viewer: { id: stub.viewerId } };
+    },
+    issueComments(vars, query) {
+      const issue = stub.issues.find((i) => i.id === vars.issueId);
+      if (!issue) return { issue: null };
+      const marker = String(vars.marker ?? "");
+      const operator = /body:\s*\{\s*(\w+)\s*:/.exec(query)?.[1];
+      const nodes = stub.comments
+        .filter(
+          (c) =>
+            c.issueId === issue.id &&
+            marker !== "" &&
+            (operator === "endsWith"
+              ? c.body.endsWith(marker)
+              : c.body.includes(marker)),
+        )
+        .map(({ id, body }) => ({ id, body }));
+      return { issue: { comments: { nodes } } };
     },
   };
 

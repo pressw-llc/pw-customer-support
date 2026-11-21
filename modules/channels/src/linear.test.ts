@@ -187,7 +187,7 @@ describe("linear client against the stub", () => {
     const unknown = await fetch(h.stub.url, {
       method: "POST",
       headers: { Authorization: "k" },
-      body: JSON.stringify({ query: "{ viewer { id } }" }),
+      body: JSON.stringify({ query: "{ organization { id } }" }),
     });
     expect(unknown.status).toBe(400);
     const html = createLinearClient({
@@ -723,6 +723,7 @@ describe("C2 redelivery of completed jobs without a ticket", () => {
     return {
       ...h.adapter,
       name,
+      subscribes: ["triage.result.accepted"] as const,
       redeliver: () =>
         claimTicketRedeliveries(h.db, { now: h.clock.now(), requestId }),
     };

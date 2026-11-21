@@ -2,6 +2,7 @@ import { z } from "zod";
 
 export const LINEAR_API_URL = "https://api.linear.app/graphql";
 export const LINEAR_KEY_SECRET = "linear-api-key";
+export const LINEAR_WEBHOOK_SECRET = "linear-webhook-secret";
 
 export interface SecretsProvider {
   get(name: string): Promise<string>;
@@ -12,6 +13,7 @@ export function envSecrets(
 ): SecretsProvider {
   const names: Record<string, string> = {
     [LINEAR_KEY_SECRET]: "LINEAR_API_KEY",
+    [LINEAR_WEBHOOK_SECRET]: "LINEAR_WEBHOOK_SECRET",
   };
   return {
     async get(name) {
@@ -57,7 +59,16 @@ export interface LinearClient {
     marker: string,
   ): Promise<LinearIssue | null>;
   createIssue(input: CreateIssueInput): Promise<LinearIssue>;
-  createComment(issueId: string, body: string): Promise<{ id: string }>;
+  createComment(
+    issueId: string,
+    body: string,
+    parentId?: string,
+  ): Promise<{ id: string }>;
+  findCommentByMarker(
+    issueId: string,
+    marker: string,
+  ): Promise<{ id: string } | null>;
+  viewerId(): Promise<string>;
   archiveIssue(issueId: string): Promise<boolean>;
 }
 
@@ -89,6 +100,7 @@ export function createLinearClient(options: LinearClientOptions): LinearClient {
   const fetcher = options.fetcher ?? fetch;
   const apiUrl = options.apiUrl ?? LINEAR_API_URL;
   const timeoutMs = options.timeoutMs ?? 20_000;
+  let cachedViewerId: string | undefined;
 
   async function request<T>(
     query: string,
@@ -204,10 +216,10 @@ export function createLinearClient(options: LinearClientOptions): LinearClient {
       return issue;
     },
 
-    async createComment(issueId, body) {
+    async createComment(issueId, body, parentId) {
       const data = await request(
         "mutation CommentCreate($input: CommentCreateInput!) { commentCreate(input: $input) { success comment { id } } }",
-        { input: { issueId, body } },
+        { input: { issueId, body, ...(parentId ? { parentId } : {}) } },
         z.object({
           commentCreate: z.object({
             success: z.boolean(),
@@ -220,6 +232,37 @@ export function createLinearClient(options: LinearClientOptions): LinearClient {
         throw new LinearError("Linear did not create the comment");
       }
       return comment;
+    },
+
+    async findCommentByMarker(issueId, marker) {
+      const data = await request(
+        "query IssueComments($issueId: String!, $marker: String!) { issue(id: $issueId) { comments(first: 50, filter: { body: { endsWith: $marker } }) { nodes { id body } } } }",
+        { issueId, marker },
+        z.object({
+          issue: z
+            .object({
+              comments: z.object({
+                nodes: z.array(z.object({ id: z.string(), body: z.string() })),
+              }),
+            })
+            .nullable(),
+        }),
+      );
+      const match = data.issue?.comments.nodes.find(
+        (node) => lastLine(node.body) === marker,
+      );
+      return match ? { id: match.id } : null;
+    },
+
+    async viewerId() {
+      if (cachedViewerId) return cachedViewerId;
+      const data = await request(
+        "query Viewer { viewer { id } }",
+        {},
+        z.object({ viewer: z.object({ id: z.string() }) }),
+      );
+      cachedViewerId = data.viewer.id;
+      return cachedViewerId;
     },
 
     async archiveIssue(issueId) {

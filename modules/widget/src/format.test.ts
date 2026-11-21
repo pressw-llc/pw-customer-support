@@ -26,6 +26,9 @@ describe("format helpers", () => {
   test("labels authors, channels, and rejection reasons", () => {
     expect(authorLabel("customer")).toBe("You");
     expect(authorLabel("staff")).toBe("Support");
+    expect(authorLabel("staff", " Ada Staff ")).toBe("Ada Staff (Support)");
+    expect(authorLabel("staff", "  ")).toBe("Support");
+    expect(authorLabel("customer", "Ada")).toBe("You");
     expect(channelLabel("claude_code")).toBe("Claude Code");
     expect(rejectionMessage("executable")).toContain("programs");
     expect(rejectionMessage(undefined)).toContain("not accepted");

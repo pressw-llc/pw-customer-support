@@ -266,7 +266,7 @@ function MessageItem(props: { client: SupportClient; message: ThreadMessage }) {
   return (
     <li className={mine ? "message mine" : "message"}>
       <p className="message-head">
-        <strong>{authorLabel(message.author)}</strong>
+        <strong>{authorLabel(message.author, message.authorName)}</strong>
         {message.originChannel !== "widget" && (
           <span> via {channelLabel(message.originChannel)}</span>
         )}

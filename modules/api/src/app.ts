@@ -1,4 +1,8 @@
+import type { LinearWebhookIntake } from "@pw-support/channels";
 import {
+  LINEAR_DELIVERY_HEADER,
+  LINEAR_SIGNATURE_HEADER,
+  LINEAR_WEBHOOK_MAX_BYTES,
   SUPPORT_KEY_HEADER,
   SUPPORT_USER_HEADER,
   type TriageTiming,
@@ -27,6 +31,7 @@ export interface AppDeps {
   checks?: Checks;
   wake?: WakeSender;
   timing?: TriageTiming;
+  linearWebhook?: LinearWebhookIntake;
   now?: () => Date;
 }
 
@@ -141,6 +146,25 @@ export function createApp(deps: AppDeps): Hono {
     rateLimit(deps.db, deps.config.rateLimit),
   );
   app.route("/v1", intakeRoutes(service));
+
+  app.post(
+    "/webhooks/linear",
+    bodyLimit({
+      maxSize: LINEAR_WEBHOOK_MAX_BYTES,
+      onError: (c) => c.json({ error: "payload_too_large" }, 413),
+    }),
+    async (c) => {
+      if (!deps.linearWebhook) {
+        return c.json({ error: "webhook_not_configured" }, 503);
+      }
+      const result = await deps.linearWebhook.handle({
+        rawBody: new Uint8Array(await c.req.arrayBuffer()),
+        signature: c.req.header(LINEAR_SIGNATURE_HEADER),
+        delivery: c.req.header(LINEAR_DELIVERY_HEADER),
+      });
+      return c.json(result.body, result.status);
+    },
+  );
 
   app.onError((error, c) => {
     if (error instanceof ProcessingError) {

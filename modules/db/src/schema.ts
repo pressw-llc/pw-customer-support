@@ -107,7 +107,11 @@ export const messages = support.table(
     sanitizedBody: text("sanitized_body"),
     originChannel: text("origin_channel").notNull(),
     author: text("author").notNull(),
+    authorName: text("author_name"),
     audience: text("audience").notNull(),
+    intakeCompletedAt: timestamp("intake_completed_at", {
+      withTimezone: true,
+    }),
     createdAt: createdAt(),
   },
   (t) => [index("messages_request_created_idx").on(t.requestId, t.createdAt)],
@@ -270,3 +274,89 @@ export const ticketDeliveries = support.table("ticket_deliveries", {
     withTimezone: true,
   }).notNull(),
 });
+
+export const webhookDeliveries = support.table("webhook_deliveries", {
+  deliveryId: text("delivery_id").primaryKey(),
+  provider: text("provider").notNull(),
+  receivedAt: timestamp("received_at", { withTimezone: true })
+    .notNull()
+    .defaultNow(),
+});
+
+export const inboundComments = support.table(
+  "inbound_comments",
+  {
+    id: id(),
+    provider: text("provider").notNull().default("linear"),
+    commentId: text("comment_id").notNull(),
+    issueId: text("issue_id").notNull(),
+    parentCommentId: text("parent_comment_id"),
+    authorId: text("author_id"),
+    authorName: text("author_name"),
+    body: text("body").notNull(),
+    requestId: uuid("request_id")
+      .notNull()
+      .references(() => requests.id, { onDelete: "cascade" }),
+    status: text("status").notNull().default("pending"),
+    disposition: text("disposition"),
+    messageId: uuid("message_id").references(() => messages.id, {
+      onDelete: "set null",
+    }),
+    createdAt: createdAt(),
+    processedAt: timestamp("processed_at", { withTimezone: true }),
+  },
+  (t) => [unique("inbound_comments_comment_uq").on(t.provider, t.commentId)],
+);
+
+export const replies = support.table(
+  "replies",
+  {
+    id: id(),
+    requestId: uuid("request_id")
+      .notNull()
+      .references(() => requests.id, { onDelete: "cascade" }),
+    inboundCommentId: uuid("inbound_comment_id")
+      .notNull()
+      .references(() => inboundComments.id, { onDelete: "cascade" })
+      .unique("replies_inbound_uq"),
+    threadRootId: text("thread_root_id").notNull(),
+    authorId: text("author_id"),
+    authorName: text("author_name"),
+    body: text("body").notNull(),
+    status: text("status").notNull(),
+    holdReason: text("hold_reason"),
+    wordingScore: doublePrecision("wording_score").notNull(),
+    flagged: boolean("flagged").notNull().default(false),
+    messageId: uuid("message_id").references(() => messages.id, {
+      onDelete: "set null",
+    }),
+    confirmedBy: text("confirmed_by"),
+    warningCommentId: text("warning_comment_id"),
+    heldAt: timestamp("held_at", { withTimezone: true }),
+    expiresAt: timestamp("expires_at", { withTimezone: true }),
+    sentAt: timestamp("sent_at", { withTimezone: true }),
+    createdAt: createdAt(),
+  },
+  (t) => [index("replies_thread_idx").on(t.threadRootId, t.status)],
+);
+
+export const messageDeliveries = support.table(
+  "message_deliveries",
+  {
+    messageId: uuid("message_id")
+      .primaryKey()
+      .references(() => messages.id, { onDelete: "cascade" }),
+    requestId: uuid("request_id")
+      .notNull()
+      .references(() => requests.id, { onDelete: "cascade" }),
+    via: text("via"),
+    linearCommentId: text("linear_comment_id").unique(
+      "message_deliveries_comment_uq",
+    ),
+    deliveryAttempts: integer("delivery_attempts").notNull().default(0),
+    lastEnqueuedAt: timestamp("last_enqueued_at", { withTimezone: true }),
+    deliveredAt: timestamp("delivered_at", { withTimezone: true }),
+    createdAt: createdAt(),
+  },
+  (t) => [index("message_deliveries_request_idx").on(t.requestId)],
+);

@@ -6,6 +6,7 @@ import {
   type TriagePriority,
   type TriageResult,
 } from "@pw-support/contracts";
+import { FOLLOW_UP_HEADER_PREFIX } from "../reply/marker";
 
 export const QUOTE_MAX_CHARS = 4_000;
 export const TITLE_MAX_CHARS = 120;
@@ -109,6 +110,33 @@ export function safeFilename(filename: string): string {
     .trim()
     .slice(0, FILENAME_MAX_CHARS);
   return cleaned === "" ? "file" : cleaned;
+}
+
+export function messageMarker(messageId: string): string {
+  return `Support message ID: ${messageId}`;
+}
+
+export interface FollowUpInput {
+  messageId: string;
+  originChannel: string;
+  text: string;
+  attachmentNames: string[];
+}
+
+export function buildFollowUpComment(input: FollowUpInput): string {
+  const sections = [
+    `${FOLLOW_UP_HEADER_PREFIX} ${safeFilename(input.originChannel)}`,
+    quoteCustomerText(input.text),
+  ];
+  if (input.attachmentNames.length > 0) {
+    sections.push(
+      `Attachments:\n${input.attachmentNames
+        .map((name) => `- \`${safeFilename(name)}\``)
+        .join("\n")}`,
+    );
+  }
+  sections.push(messageMarker(input.messageId));
+  return sections.join("\n\n");
 }
 
 export interface TicketInput {

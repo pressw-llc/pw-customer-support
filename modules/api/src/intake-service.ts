@@ -15,6 +15,7 @@ import {
   listCustomerRequests,
   type MessageRow,
   markIntakeComplete,
+  markMessageIntakeComplete,
   markThreadRead,
   persistInboundMessage,
   persistInboundRequest,
@@ -183,6 +184,7 @@ export function createIntakeService(deps: IntakeDeps) {
         results.push(outcome.result);
         if (outcome.stored) stored.push(outcome.stored);
       }
+      await markMessageIntakeComplete(db, message.id, deps.now?.());
       return {
         requestId: request.id,
         message: toThreadMessage(checked, stored),

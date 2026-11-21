@@ -14,6 +14,7 @@ export const eventTypes = [
   "triage.result.rejected",
   "ticket.created",
   "ticket.blocked",
+  "comment.received",
   "reply.held",
   "reply.sent",
   "reply.flagged",

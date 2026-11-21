@@ -28,7 +28,11 @@ const REJECTION_MESSAGES: Record<RejectionReason, string> = {
   storage_failed: "the upload failed, so try again",
 };
 
-export const authorLabel = (author: Author): string => AUTHOR_LABELS[author];
+export function authorLabel(author: Author, name?: string | null): string {
+  const label = AUTHOR_LABELS[author];
+  const trimmed = name?.trim();
+  return author === "staff" && trimmed ? `${trimmed} (${label})` : label;
+}
 
 export const channelLabel = (channel: OriginChannel): string =>
   CHANNEL_LABELS[channel];
