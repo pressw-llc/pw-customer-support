@@ -90,7 +90,11 @@ export async function databaseView(email: string) {
           .where(eq(messages.requestId, requestId))
       : [];
     const requestEvents = requestId
-      ? await db.select().from(events).where(eq(events.requestId, requestId))
+      ? await db
+          .select()
+          .from(events)
+          .where(eq(events.requestId, requestId))
+          .orderBy(events.seq)
       : [];
     return {
       projectId: resolved.project.id,
