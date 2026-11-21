@@ -18,7 +18,7 @@ bun run build                       # widget dist: ESM, d.ts, global browser bun
 bun run typecheck                   # tsc across modules, example app, and e2e
 bun run test                        # root tests, then widget tests under happy-dom
 bun test modules/db/src/db.test.ts  # single root test file
-bun run e2e                         # Playwright, starts the API and the example app
+bun run e2e                         # Playwright, starts the API, the example app, and a worker with a Linear stub
 bun run stack:up                    # Postgres and LocalStack, ports from .env.local
 bun run stack:setup                 # S3 bucket and SQS queues in LocalStack
 bun run stack:down
@@ -32,6 +32,7 @@ bun run dev:linear-stub             # local Linear GraphQL stub
 bun run agent:sync                  # publish the triage agent, writes a gitignored lock file
 bun run seed:settings <teamId>      # set linear_team_id on the seed project
 bun run validate:phase-2            # live Jev and Managed Agents validation, add --partial without an Anthropic key
+bun run validate:phase-3            # live Jev validation of the reply loop, needs no Anthropic key
 bun run env set NAME[=VALUE]        # manage .env.example and .env.local
 ```
 
@@ -50,9 +51,11 @@ A Bun workspace with nine modules under `modules/*`. Packages are `@pw-support/<
 - `triage` runs the cloud side of a triage job: text extraction (linear scanners, run in a terminable Worker), the Jev injection filter, the agent session with its remote-definition guard, the worker (`handleWake`, `sweepOnce`), and the config. The claim protocol SQL lives in `db` (`triage-jobs.ts`). `claimJob`, `submitResult` (sends a wake when an invalid result reopens the job), and `renewLease` are exported for the laptop plugin. It pins `@pressw-llc/pipeline`, `@pressw-llc/managed-agents`, and `@anthropic-ai/sdk` at exact versions. `agents/support-triage` holds the agent definition. `corpus` holds the injection payloads.
 - `db` also owns `triage_jobs`, `channel_delays`, `judgments`, `event_cursors`, `tickets`, and `ticket_deliveries`. `persistInboundRequest` opens the job in the request transaction.
 - `infra` defines the CDK stack in `us-east-1`.
-- `channels` holds the dispatcher with its ticket redelivery, the Linear client, ticket builder, and adapter. The adapter contract lives in `contracts`. The Linear stub and fixtures live behind `@pw-support/channels/testing`, and the triage harness and file fixtures behind `@pw-support/triage/testing`.
+- `channels` holds the dispatcher with its redelivery, the Linear client, ticket builder, adapter, webhook intake, and the reply gate. The adapter contract lives in `contracts`. The Linear stub and fixtures live behind `@pw-support/channels/testing`, and the triage harness and file fixtures behind `@pw-support/triage/testing`.
+- The reply loop: `POST /webhooks/linear` in `api` hands the raw body to the `channels` webhook intake, which verifies it and commits the comment and `comment.received`. The Linear adapter then applies the `@external` marker rule, scores the wording with Jev (hold below 2, flag from 2 to below 3, send from 3), and releases a customer message. `@confirm` in the thread releases a held reply. The same adapter posts widget follow-ups to the ticket.
+- `db` also owns `inbound_comments`, `replies`, `webhook_deliveries`, and `message_deliveries`, in `replies.ts`.
 - `admin` and `plugin` are shells until their phases land.
-- `pipelines/` at the root holds the `support-triage` Fargate pipeline and the `linear-outbound` Lambda pipeline. `bun run validate:pipelines` checks them and runs in the `lint` stage of `bun run check`. `tests/` holds cross-module criterion tests.
+- `pipelines/` at the root holds the `support-triage` Fargate pipeline and the `linear-outbound` Lambda pipeline. The Lambda step runs the one Linear adapter for tickets, follow-ups, and inbound comments. `bun run validate:pipelines` checks them and runs in the `lint` stage of `bun run check`. `tests/` holds cross-module criterion tests.
 - `examples/host-app` is a stock Vite React app that embeds the widget. `e2e` runs Playwright against it and the API.
 
 A module imports another module only through `@pw-support/contracts`, another module's bare package name, or a subpath that module declares in its `exports`. `scripts/lint-boundaries.ts` enforces this inside `bun run lint` and rejects `/src/` deep imports.

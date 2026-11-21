@@ -29,11 +29,14 @@ description: Work in the api module: the Hono HTTP server on Bun. Use when you a
 
 `POST /v1/requests`, `GET /v1/requests`, `GET /v1/requests/:id`, `POST /v1/requests/:id/messages`, `POST /v1/requests/:id/read`, `GET /v1/attachments/:id`. Each needs `X-Support-Key` and `X-Support-User`.
 
+`POST /webhooks/linear` takes the Linear `Comment` webhook. It sits outside `/v1`, skips key identity, and caps the body at `LINEAR_WEBHOOK_MAX_BYTES`. The route hands the raw bytes and two headers to the `LinearWebhookIntake` from `@pw-support/channels`. Without an intake it answers 503.
+
 ## Rules
 
+- Never parse the webhook body before the signature check. Pass raw bytes to the intake.
 - Build the app in `createApp` so tests call `app.request` without a socket.
 - Persist the request, the message, and the event in one transaction before any processing. Never reorder this.
-- The same transaction opens the triage job. After the checks and uploads finish, call `markIntakeComplete`, then send the wake message. A failed wake send never fails the request. The worker sweeper recovers the job.
+- The same transaction opens the triage job. After the checks and uploads finish, call `markIntakeComplete`, then send the wake message. Call `markMessageIntakeComplete` for every message when its checks and uploads end. The follow-up sync waits for it. A failed wake send never fails the request. The worker sweeper recovers the job.
 - Scope every customer query by project and customer. Use the repository functions in `@pw-support/db`.
 - Append state changes through `appendEvent`. Add new event types to `@pw-support/contracts` first.
 - Cap inbound text at `MAX_STORED_MESSAGE_CHARS` before any strip work. Persist the truncated text, flag `too_long`, and answer `truncated: true`. Return 413 for a text field above `MAX_TEXT_FIELD_BYTES`, a transport limit applied before persistence.

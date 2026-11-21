@@ -116,7 +116,7 @@ Script-tag use loads `dist/support-widget.global.js` and calls `window.PressWSup
 | `bun run typecheck`             | Run `tsc --noEmit` in every module, the example app, and e2e              |
 | `bun run test`                  | Run root tests, then the widget tests under happy-dom                     |
 | `bun test path/to/file.test.ts` | Run one root test file                                                    |
-| `bun run e2e`                   | Run the Playwright suite. It starts the API and the example app           |
+| `bun run e2e`                   | Run the Playwright suite. It starts the API, the app, and a stub backend  |
 | `bun run stack:up`              | Start Postgres and LocalStack                                             |
 | `bun run stack:setup`           | Create the S3 bucket and SQS queues in LocalStack                         |
 | `bun run stack:down`            | Stop the stack and delete its volumes                                     |
@@ -131,6 +131,7 @@ Script-tag use loads `dist/support-widget.global.js` and calls `window.PressWSup
 | `bun run seed:settings <team>`  | Route the seed project to a Linear team                                   |
 | `bun run validate:pipelines`    | Run `bunx pw-pipeline validate`                                           |
 | `bun run validate:phase-2`      | Run the live Phase 2 validation against Jev and Managed Agents            |
+| `bun run validate:phase-3`      | Run the live Phase 3 validation against Jev                               |
 | `bun run synth`                 | Run `cdk synth` with no AWS credentials                                   |
 
 `bun run check` leaves the stack running. Run `bun run stack:down` to stop it. The e2e stage installs Chromium when it is missing. Screenshots land in `e2e/artifacts`.
@@ -147,6 +148,7 @@ Every `/v1` route needs the header `X-Support-Key` with the project key and `X-S
 | `POST /v1/requests/:id/messages` | Send a follow-up with the same checks                 |
 | `POST /v1/requests/:id/read`     | Mark the thread read                                  |
 | `GET /v1/attachments/:id`        | Stream a stored attachment                            |
+| `POST /webhooks/linear`          | Linear `Comment` webhook. See the reply loop          |
 | `GET /health`                    | Return `{ "status": "ok" }`                           |
 
 The API commits the request, the first message, and a `request.created` event before it runs any static check. A message with markup or over 10,000 characters stays stored and gets `body_flagged`. An attachment is accepted by magic bytes, not by name. Each rejected file returns a reason: `too_many_files`, `too_large`, `empty`, `executable`, `video`, `type_not_allowed`, or `storage_failed`. Rate limits use fixed windows in Postgres per project key and per hashed ID, and return 429 with `Retry-After`.
@@ -230,7 +232,7 @@ The last line of the description is the marker `Support request ID: <id>`. The a
 
 The Linear key comes from a `SecretsProvider`. Phase 2 reads `LINEAR_API_KEY`. Phase 4 swaps in Secrets Manager.
 
-`bun run dev:linear-stub` serves a GraphQL stub for `issueCreate`, `issueLabels`, `issueLabelCreate`, `team`, `issues`, `commentCreate`, and `issueArchive`. Set `LINEAR_API_URL` to the printed URL and `LINEAR_API_KEY` to any value. The override applies only outside production. A live test in `modules/channels` creates and archives one ticket when `LINEAR_API_KEY` and `LINEAR_TEST_TEAM_ID` are set.
+`bun run dev:linear-stub` serves a GraphQL stub for `issueCreate`, `issueLabels`, `issueLabelCreate`, `team`, `issues`, `viewer`, issue comments, `commentCreate` with `parentId`, and `issueArchive`. Set `LINEAR_API_URL` to the printed URL and `LINEAR_API_KEY` to any value. The override applies only outside production. A live test in `modules/channels` creates and archives one ticket when `LINEAR_API_KEY` and `LINEAR_TEST_TEAM_ID` are set.
 
 ### T15: Lambda steps locally
 
@@ -243,6 +245,79 @@ The Lambda step runs locally through an SQS poller that invokes the same `lambda
 Test helpers live behind `@pw-support/channels/testing` and `@pw-support/triage/testing`. `scripts/lint-boundaries.ts` allows only the subpaths a module declares in `exports`.
 
 The injection corpus in `modules/triage/corpus` runs against live Jev when `TYPESAFE_API_KEY` is set and skips otherwise.
+
+## Reply loop
+
+A staff member replies in Linear and the customer reads the reply in the widget. A customer follow-up in the widget lands on the Linear ticket as a comment.
+
+```mermaid
+flowchart TD
+    W[POST /webhooks/linear] --> V{Signature, 60 s window, delivery id}
+    V -- invalid --> X[401, nothing stored]
+    V -- valid --> P[Transaction: inbound comment and comment.received]
+    P --> A[Adapter: comment.received]
+    A --> O{Own comment?}
+    O -- yes --> S[Ignore]
+    O -- no --> C{Reply with parent, body is exactly @confirm?}
+    C -- yes --> H2{Same author, hold alive?}
+    H2 -- yes --> SEND
+    H2 -- no --> S
+    C -- no --> M{Starts with @external?}
+    M -- no --> I[Store as internal message]
+    M -- yes --> J{Jev wording score 0 to 5}
+    J -- 3 or more --> SEND[Customer message, reply.sent]
+    J -- 2 to below 3 --> F[Customer message, reply.sent and reply.flagged]
+    J -- below 2, error, or no key --> D[Hold, reply.held, warning comment in the thread]
+    D -- author sends @confirm --> H2
+```
+
+### Marker rule
+
+A comment is a customer reply only when its body, after leading ASCII whitespace, starts with the literal `@external` and the next character is ASCII whitespace or the end of the body. Matching is case sensitive. Whitespace means space, tab, CR, and LF. Every other character before the marker keeps the comment internal. That covers a quote mark, a code fence, a list dash, a zero-width character, a byte order mark, a no-break space, and a marker on line 2. A marker with no text after it stays internal. The customer sees the text with the marker removed.
+
+An internal comment becomes a message with `audience=internal`, `origin_channel=linear`, and `author=staff`. No customer route returns it.
+
+### Wording score
+
+Jev answers one yes or no question: is the reply fit to send to a customer as written. The score is the yes probability times 5. The raw judgment lands in `support.judgments` with kind `wording`.
+
+| Score        | Outcome                                                        |
+| ------------ | -------------------------------------------------------------- |
+| 3 or more    | Send. Appends `reply.sent`                                     |
+| 2 to below 3 | Send and flag. Appends `reply.sent` and `reply.flagged`        |
+| below 2      | Hold. Appends `reply.held` and posts a warning in the thread   |
+| Jev error    | Hold with reason `wording_unavailable`. A missing key does too |
+| over 10,000  | Hold with reason `too_long`. The text is not sent to Jev       |
+
+The `noul` question separated the sample replies better than a `score` question with six levels. It gave rude and internal-leak replies 0.05 and good replies 4.5 or more. The six-level score gave a reply that leaks a password 0.99, which a hold needs to catch. `bun run validate:phase-3` prints the live distribution.
+
+`listFlaggedReplies(db, { projectId })` in `@pw-support/db` returns flagged replies for the Phase 4 admin UI.
+
+### Hold and confirm
+
+A hold posts a fixed warning comment as a reply in the thread of the held comment. The warning names the score and carries no model text. The author confirms by replying in that thread with a comment whose whole trimmed body is `@confirm`. Matching is case sensitive.
+
+A confirm sends the latest held reply of the same author in that thread and records `confirmed_by`. A confirm from another user, in another thread, or after the 24 hour hold lifetime does nothing. A held reply never sends twice. A held comment edited in Linear is out of scope for V1. The edit changes nothing, and the author posts a new reply.
+
+### Customer follow-ups
+
+A `message.created` event from the widget makes the adapter post one comment on the ticket. The comment starts with `Customer follow-up via widget`, quotes the text with markup stripped and links defanged, lists attachment filenames, and ends with `Support message ID: <id>`. The adapter looks for that last line before it posts, so a retry never posts twice. Messages already inside the ticket description count as delivered. A follow-up that lands while the ticket is created is posted after `ticket.created`. Failed deliveries retry with the ticket backoff.
+
+Follow-ups get the static checks and no Jev injection judgment. No agent reads them in V1, and deterministic code writes them to Linear only as quoted text.
+
+The adapter ignores its own comments. It matches the follow-up header, the hold warning opening, a recorded comment id, and the integration user id.
+
+### Webhook setup
+
+Create a Linear webhook for the `Comment` resource and point it at `POST <api>/webhooks/linear`. Set `LINEAR_WEBHOOK_SECRET` to the signing secret Linear shows. The route needs a public URL. For a local API, run a tunnel such as `cloudflared tunnel --url http://localhost:8787` or `ngrok http 8787` and use its address. The route returns 503 and stores nothing while the secret is missing.
+
+The route checks the `Linear-Signature` header against an HMAC SHA-256 of the raw body, rejects a `webhookTimestamp` older than 60 seconds, treats `Linear-Delivery` as an idempotency key, and caps the body at 256 KiB.
+
+The Linear stub sends signed `Comment` webhooks for tests. `stub.configureWebhook({ url, secret })` sets the target, and `stub.staffComment({ issueId, body, parentId })` creates a staff comment and sends the webhook.
+
+### Validation
+
+`bun run validate:phase-3` needs `TYPESAFE_API_KEY`. It starts the API, the worker, and the Linear stub, then prints one PASS or FAIL line for A14, A15, and A16, plus a table of live wording scores for 17 sample replies. It seeds its ticket through the human triage path, so it needs no Anthropic key. The e2e suite in `e2e/reply-loop.spec.ts` forces scores through an injected scorer in `e2e/backend.ts`.
 
 ## Modules
 

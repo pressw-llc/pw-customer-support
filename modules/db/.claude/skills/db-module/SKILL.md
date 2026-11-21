@@ -28,6 +28,10 @@ description: Work in the db module: Postgres schema, hand-written migrations, th
 - Complete a job through `submitTriageResult` or `submitHumanTriage`. Both validate against the contracts schema. An invalid result reopens the job for the cloud.
 - A job is claimable only after `markIntakeComplete` or the intake grace period. This stops a worker from reading attachments the API has not stored yet.
 - `support.judgments` keeps every raw Jev judgment for V2. `support.tickets` holds one row per request. `support.event_cursors` holds one cursor per adapter.
+- `replies.ts` owns the reply loop. `persistInboundComment` stores the delivery id, the raw comment, and `comment.received` in one transaction. `storeInternalComment`, `resolveExternalReply`, and `confirmHeldReply` each lock the pending inbound row and finish it once, so a repeat does nothing.
+- `support.replies` holds one row per marked comment: `held`, `sent`, or `expired`, the wording score, and `flagged`. `listFlaggedReplies` is the query for the admin UI. A hold expires after `REPLY_HOLD_TTL_SECONDS`.
+- Messages carry `author_name` and `intake_completed_at`. `support.message_deliveries` records which messages reached Linear, through the ticket description or a comment. `claimFollowUpRedeliveries` applies the ticket backoff to undelivered follow-ups.
+- Keep a customer visible reply as a message with audience `external`. Internal staff comments use audience `internal` and never pass the customer queries.
 - Test against the Compose Postgres. Do not mock the database.
 
 ## Commands
