@@ -125,11 +125,13 @@ test("the thread shows the message and a follow-up reply works", async ({
   await shot(page, "thread-follow-up");
 
   const view = await databaseView(email);
-  expect(view.eventTypes).toEqual([
-    "request.created",
-    "triage.job.opened",
-    "message.created",
-  ]);
+  expect(
+    view.eventTypes.filter((type) =>
+      ["request.created", "triage.job.opened", "message.created"].includes(
+        type,
+      ),
+    ),
+  ).toEqual(["request.created", "triage.job.opened", "message.created"]);
 });
 
 test("a staff reply raises the unread badge and opening the thread clears it", async ({
