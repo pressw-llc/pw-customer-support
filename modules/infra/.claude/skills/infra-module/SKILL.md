@@ -6,6 +6,12 @@ description: Work in the infra module: the AWS CDK stack. Use when you add or ch
 
 # infra module
 
+## Admin hosting and secrets
+
+`AdminSite` creates a private S3 bucket and a CloudFront distribution with origin access control, security headers, and an index.html fallback for client routes. Pass the Cognito issuer and audience with the `cognitoIssuer` and `cognitoAudience` context keys. Commit no real ids.
+
+`SecretsAccess` creates a read and a write managed policy scoped to `arn:...:secret:pw-support/*`. Attach them to the API and worker roles in Phase 6.
+
 ## Ownership
 
 `modules/infra` owns the CDK app and `SupportStack` in `us-east-1`. The stack holds the attachments bucket, the triage wake queue with its DLQ, and the Secrets Manager prefix constant.

@@ -36,6 +36,9 @@ description: Work in the db module: Postgres schema, hand-written migrations, th
 - `support.comment_changes` holds one row per comment: the action and `updated_at`, never text. `applyCommentChange` and `persistInboundComment` take a per-comment advisory lock so a create and a change cannot miss each other. `applyFetchedComment` applies a comment fetched from Linear and cancels a held reply whose text changed. `purgeStaleRecords` deletes change rows after 7 days.
 - `inbound_comments.source_updated_at` is the `updatedAt` of the stored body. An update applies only when strictly newer. `support.tickets.linear_issue_id` is unique. `expireHeldReplies` and `purgeStaleRecords` run from the adapter redelivery tick.
 - Keep a customer visible reply as a message with audience `external`. Internal staff comments use audience `internal` and never pass the customer queries.
+- `admin.ts` holds the admin reads and writes. `ACK_STAFF_PREDICATE` defines the first staff action: author `staff` and origin `linear` or audience `external`. Every settings write appends an `admin.*` event with the actor in the same transaction.
+- `support.integrations` holds a Secrets Manager reference per scope and kind. A check constraint requires the reference to start with `pw-support/`. Never store a secret value.
+- `support.projects.severe_cc_emails` holds the CC list for a project.
 - Test against the Compose Postgres. Do not mock the database.
 
 ## Commands

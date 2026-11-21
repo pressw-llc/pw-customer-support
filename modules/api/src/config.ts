@@ -1,8 +1,12 @@
 import {
   ATTACHMENT_LIMITS,
+  DEFAULT_ADMIN_DEV_PORT,
+  LOCAL_OIDC_CLIENT_ID,
   RESOURCE_NAMES,
+  resolveSecretsScope,
   resolveStackEnv,
 } from "@pw-support/contracts";
+import type { AuthConfig } from "./auth";
 
 export interface ApiConfig {
   port: number;
@@ -13,6 +17,13 @@ export interface ApiConfig {
     perKey: number;
     perUser: number;
   };
+  auth: AuthConfig;
+  adminOrigins: string[];
+  admin: {
+    maxBodyBytes: number;
+    mutationsPerWindow: number;
+  };
+  secretsScope: string;
   s3: {
     region: string;
     endpoint: string | undefined;
@@ -26,6 +37,13 @@ const BODY_OVERHEAD_BYTES = 1024 * 1024;
 function positiveInt(value: string | undefined, fallback: number): number {
   const parsed = Number(value);
   return Number.isInteger(parsed) && parsed > 0 ? parsed : fallback;
+}
+
+function csv(value: string | undefined): string[] {
+  return (value ?? "")
+    .split(",")
+    .map((item) => item.trim())
+    .filter((item) => item !== "");
 }
 
 export function loadConfig(env: NodeJS.ProcessEnv = process.env): ApiConfig {
@@ -47,6 +65,33 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): ApiConfig {
       perKey: positiveInt(env.RATE_LIMIT_PER_KEY, 600),
       perUser: positiveInt(env.RATE_LIMIT_PER_USER, 120),
     },
+    auth: {
+      issuer: env.COGNITO_ISSUER || (local ? stack.localIssuer : undefined),
+      audiences: env.COGNITO_AUDIENCE
+        ? csv(env.COGNITO_AUDIENCE)
+        : local
+          ? [LOCAL_OIDC_CLIENT_ID]
+          : [],
+      allowedEmailDomains: csv(env.ADMIN_ALLOWED_EMAIL_DOMAINS).map((domain) =>
+        domain.toLowerCase(),
+      ),
+      requiredGroup: env.ADMIN_REQUIRED_GROUP || undefined,
+      clockToleranceSeconds: 30,
+      fetchTimeoutMs: positiveInt(env.AUTH_FETCH_TIMEOUT_MS, 5000),
+    },
+    adminOrigins: env.ADMIN_ORIGINS
+      ? csv(env.ADMIN_ORIGINS)
+      : local
+        ? [
+            `http://127.0.0.1:${env.ADMIN_DEV_PORT || DEFAULT_ADMIN_DEV_PORT}`,
+            `http://localhost:${env.ADMIN_DEV_PORT || DEFAULT_ADMIN_DEV_PORT}`,
+          ]
+        : [],
+    admin: {
+      maxBodyBytes: positiveInt(env.ADMIN_MAX_BODY_BYTES, 16 * 1024),
+      mutationsPerWindow: positiveInt(env.ADMIN_RATE_LIMIT_PER_WINDOW, 60),
+    },
+    secretsScope: resolveSecretsScope(env),
     s3: {
       region: env.AWS_REGION ?? "us-east-1",
       endpoint: local ? stack.awsEndpointUrl : env.AWS_ENDPOINT_URL,

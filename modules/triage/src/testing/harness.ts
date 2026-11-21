@@ -113,7 +113,11 @@ export async function createTriageHarness(options: HarnessOptions = {}) {
   await migrate();
   const db: SupportDb = createDb();
   const clock = new TestClock();
-  const apiConfig = loadConfig({});
+  const apiConfig = loadConfig({
+    SUPPORT_LOCALSTACK_PORT: process.env.SUPPORT_LOCALSTACK_PORT,
+    SUPPORT_OIDC_PORT: process.env.SUPPORT_OIDC_PORT,
+    AWS_ENDPOINT_URL: process.env.AWS_ENDPOINT_URL,
+  });
   const storage = options.storage ?? createS3Storage(apiConfig);
   const config: TriageConfig = loadTriageConfig(options.env ?? {});
   config.timing = { ...config.timing, ...options.timing };

@@ -18,14 +18,15 @@ bun run build                       # widget dist: ESM, d.ts, global browser bun
 bun run typecheck                   # tsc across modules, example app, and e2e
 bun run test                        # root tests, then widget tests under happy-dom
 bun test modules/db/src/db.test.ts  # single root test file
-bun run e2e                         # Playwright, starts the API, the example app, and a worker with a Linear stub
-bun run stack:up                    # Postgres and LocalStack, ports from .env.local
+bun run e2e                         # Playwright, starts the API, the admin app, the example app, and a worker with a Linear stub
+bun run stack:up                    # Postgres, LocalStack, and the mock OIDC issuer, ports from .env.local
 bun run stack:setup                 # S3 bucket and SQS queues in LocalStack
 bun run stack:down
 bun run db:migrate
 bun run seed:dev                    # demo project acme/portal, prints its key
 bun run dev:api                     # API on API_PORT, default 8787
 bun run dev:example                 # Vite host app with the widget
+bun run dev:admin                   # Vite admin app, defaults to the local API and mock issuer
 bun run synth                       # cdk synth, no AWS credentials needed
 bun run dev:worker                  # triage worker, sweeper, dispatcher, adapter poller
 bun run dev:linear-stub             # local Linear GraphQL stub
@@ -33,6 +34,7 @@ bun run agent:sync                  # publish the triage agent, writes a gitigno
 bun run seed:settings <teamId>      # set linear_team_id on the seed project
 bun run validate:phase-2            # live Jev and Managed Agents validation, add --partial without an Anthropic key
 bun run validate:phase-3            # live Jev validation of the reply loop, needs no Anthropic key
+bun run validate:phase-4            # live admin validation: 401s, Secrets Manager, pg_dump scan, CC list
 bun run env set NAME[=VALUE]        # manage .env.example and .env.local
 ```
 
@@ -54,7 +56,11 @@ A Bun workspace with nine modules under `modules/*`. Packages are `@pw-support/<
 - `channels` holds the dispatcher with its redelivery, the Linear client, ticket builder, adapter, webhook intake, and the reply gate. The adapter contract lives in `contracts`. The Linear stub and fixtures live behind `@pw-support/channels/testing`, and the triage harness and file fixtures behind `@pw-support/triage/testing`.
 - The reply loop: `POST /webhooks/linear` in `api` hands the raw body to the `channels` webhook intake, which verifies it and commits the comment and `comment.received`. The Linear adapter then applies the `@external` marker rule, scores the wording with Jev (hold below 2, flag from 2 to below 3, send from 3), and releases a customer message. `@confirm` in the thread releases a held reply that is older than the confirm and already warned. Editing or deleting a held comment cancels the hold and posts one `Reply hold cancelled.` notice in the thread. Changes order by the payload `updatedAt`: a change before its create goes to `support.comment_changes`, and a stale or superseded create refetches the current comment from Linear. A comment on an issue with no ticket stores ids only and fetches its body when the ticket appears. A comment with no human Linear user is always internal, and released staff text is converted to plain text. The same adapter posts widget follow-ups to the ticket.
 - `db` also owns `inbound_comments`, `comment_changes`, `replies`, `webhook_deliveries`, and `message_deliveries`, in `replies.ts`. `comment-refresh.ts` applies a comment fetched from Linear. `redelivery.ts` holds the follow-up and inbound redelivery claims, orphan comment resolution, hold expiry, and the purge.
-- `admin` and `plugin` are shells until their phases land.
+- `admin` is a Vite React app: Tailwind v4, shadcn/ui, TanStack Query, `oidc-client-ts`. Pure helpers in `src/lib` carry the unit tests. The React app under `src/app` and `src/components` is covered by Playwright. `plugin` is a shell until Phase 5.
+- `api` also validates staff tokens in `auth.ts` (`createTokenValidator`, exported for the MCP route) and serves `/admin/*` from `admin.ts` behind `requireStaff`. `testing/oidc.ts` and `testing/dump.ts` are exported as `@pw-support/api/testing`.
+- `db` also holds `admin.ts` (request list with the acknowledgement query, project, key, CC list, and integration writes with audit events) and the `integrations` table. An integration row holds a Secrets Manager reference, never a value.
+- `channels` also holds `secrets.ts`: `createManagedSecrets`, `createSecretWriter`, and `createSecretsManagerClient`. The Linear client, the Jev client, and the admin save route use them.
+- `infra` also defines `AdminSite` (private S3 bucket, CloudFront with OAC) and `SecretsAccess` (read and write managed policies scoped to the secrets prefix).
 - `pipelines/` at the root holds the `support-triage` Fargate pipeline and the `linear-outbound` Lambda pipeline. The Lambda step runs the one Linear adapter for tickets, follow-ups, and inbound comments. `bun run validate:pipelines` checks them and runs in the `lint` stage of `bun run check`. `tests/` holds cross-module criterion tests.
 - `examples/host-app` is a stock Vite React app that embeds the widget. `e2e` runs Playwright against it and the API.
 
@@ -62,7 +68,7 @@ A module imports another module only through `@pw-support/contracts`, another mo
 
 `events` is an append-only table. A trigger rejects UPDATE, DELETE, and TRUNCATE. Append events through `appendEvent`.
 
-Coverage runs through `bun test --coverage` with an 85 percent line and function floor set in `bunfig.toml`. Bun applies the floor per file. The widget has its own `bunfig.toml` with the same floor and ignores `modules/contracts`. The server entry, the example app, the e2e suite, and `scripts/` glue that no test loads are outside coverage.
+Coverage runs through `bun test --coverage` with an 85 percent line and function floor set in `bunfig.toml`. Bun applies the floor per file. The widget has its own `bunfig.toml` with the same floor and ignores `modules/contracts`. The server entry, the example app, the e2e suite, and `scripts/` glue that no test loads are outside coverage. The admin React app (`modules/admin/src/app`, `components`, `main.tsx`) is excluded by `coveragePathIgnorePatterns` and covered by Playwright. The pure admin helpers in `modules/admin/src/lib` stay under the floor.
 
 The API persists the request, the first message, and `request.created` in one transaction before any static check or S3 upload runs. Keep that order.
 

@@ -44,7 +44,7 @@ const answerSchema = z.object({
 });
 
 export interface JevClientOptions {
-  apiKey: string;
+  apiKey: string | (() => Promise<string>);
   timeoutMs?: number;
   endpoint?: string;
   fetcher?: typeof fetch;
@@ -56,8 +56,12 @@ export function createJevClient(options: JevClientOptions): JevClient {
   const timeoutMs = options.timeoutMs ?? 15_000;
   return {
     async judgeInjection(subject) {
+      const apiKey =
+        typeof options.apiKey === "string"
+          ? options.apiKey
+          : await options.apiKey();
       const headers: Record<string, string> = {
-        Authorization: `Bearer ${options.apiKey}`,
+        Authorization: `Bearer ${apiKey}`,
         "Content-Type": "application/json",
       };
       const body: Record<string, unknown> = {

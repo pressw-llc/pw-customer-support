@@ -21,6 +21,12 @@ export const eventTypes = [
   "reply.flagged",
   "reply.cancelled",
   "reply.expired",
+  "admin.project.created",
+  "admin.project.updated",
+  "admin.cc_list.updated",
+  "admin.key.minted",
+  "admin.key.revoked",
+  "admin.integration.updated",
 ] as const;
 
 export const eventTypeSchema = z.enum(eventTypes);

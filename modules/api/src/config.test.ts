@@ -64,3 +64,54 @@ test("an explicit endpoint and credentials win", () => {
     credentials: { accessKeyId: "id", secretAccessKey: "secret" },
   });
 });
+
+test("local auth defaults to the mock issuer and its client id", () => {
+  const config = loadConfig({ SUPPORT_OIDC_PORT: "4594" });
+  expect(config.auth.issuer).toBe("http://127.0.0.1:4594/support");
+  expect(config.auth.audiences).toEqual(["pw-support-admin"]);
+  expect(config.adminOrigins).toEqual([
+    "http://127.0.0.1:5183",
+    "http://localhost:5183",
+  ]);
+  expect(config.secretsScope).toBe("global");
+  expect(config.admin).toEqual({ maxBodyBytes: 16384, mutationsPerWindow: 60 });
+});
+
+test("production auth has no default and fails closed", () => {
+  const config = loadConfig({ NODE_ENV: "production" });
+  expect(config.auth.issuer).toBeUndefined();
+  expect(config.auth.audiences).toEqual([]);
+  expect(config.adminOrigins).toEqual([]);
+});
+
+test("auth settings come from the environment", () => {
+  const config = loadConfig({
+    NODE_ENV: "production",
+    COGNITO_ISSUER: "https://idp.example/pool",
+    COGNITO_AUDIENCE: "client-a, client-b",
+    ADMIN_ALLOWED_EMAIL_DOMAINS: "PressW.test, other.test",
+    ADMIN_REQUIRED_GROUP: "staff",
+    ADMIN_ORIGINS: "https://admin.example, https://admin2.example",
+    ADMIN_MAX_BODY_BYTES: "512",
+    ADMIN_RATE_LIMIT_PER_WINDOW: "5",
+    SECRETS_SCOPE: "acme",
+    AUTH_FETCH_TIMEOUT_MS: "900",
+  });
+  expect(config.auth).toEqual({
+    issuer: "https://idp.example/pool",
+    audiences: ["client-a", "client-b"],
+    allowedEmailDomains: ["pressw.test", "other.test"],
+    requiredGroup: "staff",
+    clockToleranceSeconds: 30,
+    fetchTimeoutMs: 900,
+  });
+  expect(config.adminOrigins).toEqual([
+    "https://admin.example",
+    "https://admin2.example",
+  ]);
+  expect(config.admin).toEqual({ maxBodyBytes: 512, mutationsPerWindow: 5 });
+  expect(config.secretsScope).toBe("acme");
+  expect(loadConfig({ ADMIN_DEV_PORT: "6000" }).adminOrigins[0]).toBe(
+    "http://127.0.0.1:6000",
+  );
+});

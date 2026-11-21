@@ -1,23 +1,43 @@
 ---
 
 name: admin-module
-description: Work in the admin module: the staff admin UI. Use when you build request views, settings, or the acknowledgement timer.
+description: Work in the admin module: the staff admin UI. Use when you build request views, settings, the acknowledgement timer, or the login flow.
 ---
 
 # admin module
 
 ## Ownership
 
-`modules/admin` owns the admin app. The intended app is a Vite React app with shadcn and Tailwind behind Cognito login. It shows the request list and detail, the acknowledgement timer, and settings for projects, keys, integrations, and the severe-request CC list.
+`modules/admin` owns the admin app. It is a Vite React app with Tailwind v4, shadcn/ui, TanStack Query, `react-router-dom`, and `oidc-client-ts`. It shows the request list and detail, the acknowledgement timer, and settings for projects, keys, integrations, and the severe-request CC list.
+
+## Layout
+
+| Path                    | Role                                                                       |
+| ----------------------- | -------------------------------------------------------------------------- |
+| `src/main.tsx`          | Loads config, builds the providers, and gates the app on login             |
+| `src/app/auth.tsx`      | `AuthProvider`: code flow with PKCE, session storage, silent renew, logout |
+| `src/app/api.ts`        | Bearer fetch client, query options, and mutation hooks                     |
+| `src/app/ack-timer.tsx` | `AckTimer` and the shared one second clock                                 |
+| `src/app/pages/*`       | Requests, request detail, settings, projects panel, integrations panel     |
+| `src/components/ui/*`   | shadcn components committed in the repository                              |
+| `src/lib/*`             | Pure helpers with unit tests: config resolution and formatting             |
 
 ## Rules
 
-- Call admin API routes with a Cognito token.
-- Never show or store an integration secret. The API returns a reference only.
+- Call admin API routes with the ID token from the session. Never use `localStorage` for tokens.
+- Start the login once. `AuthProvider` guards the effect with a `WeakSet`, because a second code exchange makes the issuer return a different user.
+- A 401 starts a fresh login through `onUnauthorized`.
+- Never show or store an integration secret. The settings fields are write-only. The API returns `configured` and update metadata.
+- Take the timer thresholds from `ACK_WARN_MINUTES` and `ACK_CRITICAL_MINUTES` in `@pw-support/contracts`.
+- Keep logic in `src/lib` with a `bun test` file. The React code under `src/app` and `src/components` is outside the bun coverage run and has Playwright coverage in `e2e/admin.spec.ts`.
+- Add shadcn components with `bunx --bun shadcn@latest add <name>` from this directory. The CLI rewrites the `cn` import, so check that it points at `@/lib/utils`.
 - Import other modules only through their package entrypoint.
 
 ## Commands
 
 ```bash
+bun run dev:admin
 bun test modules/admin
+bun run --filter @pw-support/admin build
+bun run e2e
 ```

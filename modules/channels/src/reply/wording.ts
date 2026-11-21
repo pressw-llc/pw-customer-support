@@ -31,7 +31,7 @@ const answerSchema = z.object({
 });
 
 export interface JevWordingOptions {
-  apiKey: string;
+  apiKey: string | (() => Promise<string>);
   timeoutMs?: number;
   endpoint?: string;
   fetcher?: typeof fetch;
@@ -41,12 +41,17 @@ export function createJevWordingScorer(
   options: JevWordingOptions,
 ): WordingScorer {
   const fetcher = options.fetcher ?? fetch;
+  const resolveKey =
+    typeof options.apiKey === "function"
+      ? options.apiKey
+      : async () => options.apiKey as string;
   return {
     async score(text) {
+      const apiKey = await resolveKey();
       const response = await fetcher(options.endpoint ?? WORDING_ENDPOINT, {
         method: "POST",
         headers: {
-          Authorization: `Bearer ${options.apiKey}`,
+          Authorization: `Bearer ${apiKey}`,
           "Content-Type": "application/json",
         },
         body: JSON.stringify({

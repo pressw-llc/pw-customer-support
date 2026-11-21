@@ -12,6 +12,7 @@
     ]
   },
   "assist": { "actions": { "source": { "organizeImports": "on" } } },
+  "css": { "parser": { "tailwindDirectives": true } },
   "linter": { "enabled": true, "rules": { "preset": "recommended" } },
   "formatter": { "enabled": true, "indentStyle": "space", "indentWidth": 2 }
 }

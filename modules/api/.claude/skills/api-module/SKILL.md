@@ -8,22 +8,25 @@ description: Work in the api module: the Hono HTTP server on Bun. Use when you a
 
 ## Ownership
 
-`modules/api` owns the HTTP surface. It serves `GET /health` and the public intake routes under `/v1`. Later phases add the Linear webhook, admin routes, and the MCP route.
+`modules/api` owns the HTTP surface. It serves `GET /health`, the public intake routes under `/v1`, and the staff routes under `/admin`. Later phases add the Linear webhook and the MCP route.
 
 ## Layout
 
-| File                | Role                                                                                                                                                                 |
-| ------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `app.ts`            | `createApp(deps)`: CORS, body limit, identity, rate limit, thin routes, error handler                                                                                |
-| `intake-service.ts` | Persist, then run checks, store files, record rejections, shape responses                                                                                            |
-| `middleware.ts`     | `identify` resolves the key and upserts the customer. `rateLimit` counts per key and per user                                                                        |
-| `file-type.ts`      | `detectFile` by magic bytes and `preflightAttachment` for count, size, and empty checks                                                                              |
-| `message-checks.ts` | `checkMessage` strips real HTML in linear time and enforces the length caps. Flag `markup` only when HTML was removed. The stripper lives in `@pw-support/contracts` |
-| `storage.ts`        | `ObjectStorage` interface and the S3 implementation                                                                                                                  |
-| `config.ts`         | `loadConfig(env)` with local defaults for the Compose stack                                                                                                          |
-| `wake.ts`           | SQS client, queue lookup, and the wake sender that sends `DelaySeconds`. Triage reuses it                                                                            |
-| `server.ts`         | Process entry. It is glue and no test loads it                                                                                                                       |
-| `testing/`          | `fixtures.ts` builds magic-byte buffers. `harness.ts` builds an app against real Postgres and LocalStack                                                             |
+| File                  | Role                                                                                                                                                                                                                                     |
+| --------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `app.ts`              | `createApp(deps)`: CORS, body limit, identity, rate limit, thin routes, error handler                                                                                                                                                    |
+| `intake-service.ts`   | Persist, then run checks, store files, record rejections, shape responses                                                                                                                                                                |
+| `middleware.ts`       | `identify` resolves the key and upserts the customer. `rateLimit` counts per key and per user                                                                                                                                            |
+| `file-type.ts`        | `detectFile` by magic bytes and `preflightAttachment` for count, size, and empty checks                                                                                                                                                  |
+| `message-checks.ts`   | `checkMessage` strips markup in linear time and enforces the length caps                                                                                                                                                                 |
+| `storage.ts`          | `ObjectStorage` interface and the S3 implementation                                                                                                                                                                                      |
+| `config.ts`           | `loadConfig(env)` with local defaults for the Compose stack                                                                                                                                                                              |
+| `wake.ts`             | SQS client, queue lookup, and the wake sender that sends `DelaySeconds`. Triage reuses it                                                                                                                                                |
+| `auth.ts`             | `createTokenValidator` and `parseBearer`. The Phase 5 MCP route reuses them                                                                                                                                                              |
+| `admin.ts`            | `adminRoutes` and `requireStaff`: CORS, token check, body cap, mutation rate limit, `/admin/*` handlers                                                                                                                                  |
+| `admin-presenters.ts` | Map db rows to the admin contracts                                                                                                                                                                                                       |
+| `server.ts`           | Process entry. It is glue and no test loads it                                                                                                                                                                                           |
+| `testing/`            | `fixtures.ts` builds magic-byte buffers. `harness.ts` builds an app against real Postgres and LocalStack. `oidc.ts` is a local issuer with signing helpers. `dump.ts` dumps the database. Both are exported as `@pw-support/api/testing` |
 
 ## Routes
 
@@ -44,6 +47,10 @@ description: Work in the api module: the Hono HTTP server on Bun. Use when you a
 - Decide attachment type by magic bytes, never by filename or declared type.
 - Never store a rejected file in S3. Record the rejection and append `attachment.rejected`.
 - Return 404 for a request or attachment outside the caller's scope. Never return another scope's rows.
+- Fail closed on `/admin/*`. A missing header, a bad token, a missing setting, or a JWKS outage returns 401. There is no bypass flag. Local login uses the mock issuer.
+- Verify tokens with RS256 only. Accept `COGNITO_AUDIENCE` in `aud`, or in `client_id` when `aud` is absent.
+- Never log or return an admin request body or an error message that could echo it. The admin error handler logs the error name and the path.
+- Write an integration secret to Secrets Manager first, then store the reference in Postgres. Never store the value.
 - Import other modules only through their package entrypoint.
 
 ## Tests

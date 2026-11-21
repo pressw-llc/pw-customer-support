@@ -11,6 +11,7 @@
     "@playwright/test": "1.65.1",
     "@pw-support/contracts": "workspace:*",
     "@pw-support/db": "workspace:*",
-    "drizzle-orm": "^0.36.4"
+    "drizzle-orm": "^0.36.4",
+    "jose": "6.2.3"
   }
 }

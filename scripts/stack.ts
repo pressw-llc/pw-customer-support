@@ -18,6 +18,7 @@ export function composeEnv(
   }
   merged.SUPPORT_POSTGRES_PORT = stack.postgresPort;
   merged.SUPPORT_LOCALSTACK_PORT = stack.localstackPort;
+  merged.SUPPORT_OIDC_PORT = stack.oidcPort;
   return merged;
 }
 

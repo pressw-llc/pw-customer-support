@@ -32,6 +32,7 @@ const stages: Stage[] = [
     commands: [
       ["bun", "scripts/ensure-chromium.ts"],
       ["bun", "run", "e2e"],
+      ["bun", "run", "validate:phase-4"],
     ],
   },
   { name: "synth", commands: [["bun", "run", "synth"]] },
