@@ -31,7 +31,7 @@ A Bun workspace with nine modules under `modules/*`. Packages are `@pw-support/<
 - `contracts` holds the zod 3 schemas that every module shares.
 - `db` owns the Postgres schema `support`, hand-written SQL migrations, and `appendEvent`. `migrations/pipeline/` holds the copied pipeline migrations. They run first.
 - `api` serves a Hono app on Bun.
-- `triage` pins `@pressw-llc/pipeline` and `@pressw-llc/managed-agents` to exact versions.
+- `triage` adds `@pressw-llc/pipeline` and `@pressw-llc/managed-agents` at exact versions in Phase 2.
 - `infra` defines the CDK stack in `us-east-1`.
 - `widget`, `admin`, `channels`, and `plugin` are shells until their phases land.
 

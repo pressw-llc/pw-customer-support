@@ -15,7 +15,7 @@ description: Work in the triage module: job claim protocol, Jev filter, sandboxe
 - Give the agent zero tools, zero MCP servers, and restricted networking.
 - Let deterministic code call Linear. Agent output fills enum and length-bounded fields only.
 - Validate every result with the contracts triage result schema, laptop or cloud.
-- Pin `@pressw-llc/pipeline` and `@pressw-llc/managed-agents` to exact versions.
+- Add `@pressw-llc/pipeline` and `@pressw-llc/managed-agents` in Phase 2. Pin both to exact versions.
 - Set the pipeline tenant explicitly on every run.
 - Use the pipelines authoring skills in the root `.claude/skills`.
 
