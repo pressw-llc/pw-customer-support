@@ -10,14 +10,15 @@ import {
   secretId,
 } from "@pw-support/contracts";
 import {
-  appendEvent,
   attachments,
   events,
+  inboundComments,
   integrations,
   messages,
   projects,
   recordAttachmentRejection,
   recordJudgments,
+  replies,
   requests,
 } from "@pw-support/db";
 import { eq, like } from "drizzle-orm";
@@ -280,11 +281,28 @@ describe("admin requests", () => {
       author: "staff",
       audience: "internal",
     });
-    await appendEvent(harness.db, {
-      type: "reply.held",
-      channelKey: `${clientSlug}:detail`,
+    const [inbound] = await harness.db
+      .insert(inboundComments)
+      .values({
+        commentId: `c-${crypto.randomUUID()}`,
+        issueId: "issue-detail",
+        body: "@external hold me",
+        requestId: id,
+        status: "processed",
+      })
+      .returning();
+    await harness.db.insert(replies).values({
       requestId: id,
-      payload: { score: 1.2 },
+      inboundCommentId: (inbound as NonNullable<typeof inbound>).id,
+      threadRootId: "root-detail",
+      authorName: "Ada Staff",
+      body: "hold me",
+      status: "held",
+      holdReason: "wording_low",
+      wordingScore: 1.2,
+      heldAt: new Date(),
+      expiresAt: new Date(Date.now() + 3_600_000),
+      warningCommentId: "w-detail",
     });
 
     const [firstMessage] = await harness.db
@@ -334,9 +352,14 @@ describe("admin requests", () => {
     expect(detail.messages[1]?.originChannel).toBe("linear");
     expect(detail.request.heldReplies).toBe(true);
     expect(detail.request.acknowledgedAt).not.toBeNull();
-    expect(detail.replyFlags.map((event) => event.type)).toEqual([
-      "reply.held",
-    ]);
+    expect(detail.replies).toHaveLength(1);
+    expect(detail.replies[0]).toMatchObject({
+      status: "held",
+      score: 1.2,
+      holdReason: "wording_low",
+      authorName: "Ada Staff",
+      warningPosted: true,
+    });
     expect(detail.events.map((event) => event.type)).toContain(
       "request.created",
     );

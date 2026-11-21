@@ -13,6 +13,7 @@ import { eventLabel, formatBytes } from "@/lib/format";
 import { cn } from "@/lib/utils";
 
 type Message = AdminRequestDetail["messages"][number];
+type Reply = AdminRequestDetail["replies"][number];
 
 function Section({
   title,
@@ -49,7 +50,9 @@ function MessageItem({ message, api }: { message: Message; api: ApiClient }) {
         <Badge
           variant={message.author === "customer" ? "secondary" : "default"}
         >
-          {message.author}
+          {message.authorName
+            ? `${message.authorName} (${message.author})`
+            : message.author}
         </Badge>
         <Badge variant="outline">via {message.originChannel}</Badge>
         <Badge
@@ -93,6 +96,80 @@ function MessageItem({ message, api }: { message: Message; api: ApiClient }) {
           ))}
         </ul>
       ) : null}
+    </li>
+  );
+}
+
+const REPLY_STATE: Record<Reply["status"], string> = {
+  held: "Held, not sent to the customer",
+  sent: "Sent to the customer",
+  cancelled: "Hold cancelled",
+  expired: "Hold expired",
+};
+
+function ReplyItem({ reply }: { reply: Reply }) {
+  return (
+    <li
+      data-testid="reply-item"
+      data-status={reply.status}
+      data-flagged={reply.flagged}
+      className="space-y-1 rounded-lg border p-3 text-sm"
+    >
+      <div className="flex flex-wrap items-center gap-2">
+        <Badge
+          variant="outline"
+          className={cn(
+            reply.status === "held" && "border-critical/60 text-critical",
+            reply.status === "sent" &&
+              reply.flagged &&
+              "border-warn/60 text-warn-foreground",
+          )}
+        >
+          {REPLY_STATE[reply.status]}
+        </Badge>
+        {reply.flagged && reply.status === "sent" ? (
+          <Badge
+            variant="outline"
+            className="border-warn/60 text-warn-foreground"
+          >
+            Flagged
+          </Badge>
+        ) : null}
+        <span className="ml-auto tabular-nums" data-testid="reply-score">
+          score {reply.score.toFixed(2)}
+        </span>
+      </div>
+      <p className="whitespace-pre-wrap break-words text-muted-foreground">
+        {reply.body}
+      </p>
+      <dl className="grid grid-cols-[auto_1fr] gap-x-3 text-xs text-muted-foreground">
+        <dt>Author</dt>
+        <dd>{reply.authorName ?? "unknown"}</dd>
+        {reply.holdReason ? (
+          <>
+            <dt>Reason</dt>
+            <dd>{reply.holdReason.replaceAll("_", " ")}</dd>
+          </>
+        ) : null}
+        {reply.cancelReason ? (
+          <>
+            <dt>Cancelled</dt>
+            <dd>{reply.cancelReason}</dd>
+          </>
+        ) : null}
+        {reply.expiresAt ? (
+          <>
+            <dt>Expires</dt>
+            <dd>{new Date(reply.expiresAt).toLocaleString()}</dd>
+          </>
+        ) : null}
+        {reply.status === "held" ? (
+          <>
+            <dt>Warning</dt>
+            <dd>{reply.warningPosted ? "posted in the thread" : "pending"}</dd>
+          </>
+        ) : null}
+      </dl>
     </li>
   );
 }
@@ -219,13 +296,17 @@ function Detail({
         </Section>
 
         <div className="space-y-6">
-          <Section title="Reply flags and holds">
-            {detail.replyFlags.length === 0 ? (
+          <Section title="Replies">
+            {detail.replies.length === 0 ? (
               <p className="text-sm text-muted-foreground">
-                No replies were held or flagged.
+                No @external replies yet.
               </p>
             ) : (
-              <EventList events={detail.replyFlags} />
+              <ul className="space-y-2">
+                {detail.replies.map((reply) => (
+                  <ReplyItem key={reply.id} reply={reply} />
+                ))}
+              </ul>
             )}
           </Section>
           <Section title="Triage">

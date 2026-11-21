@@ -14,8 +14,10 @@ import {
   getAdminProject,
   getAdminRequestDetail,
   getIntegration,
+  inboundComments,
   listAdminProjects,
   listAdminRequests,
+  listFlaggedReplies,
   listIntegrations,
   messages,
   migrate,
@@ -26,6 +28,7 @@ import {
   recordAttachmentRejection,
   recordIntegration,
   recordJudgments,
+  replies,
   revokeProjectKey,
   setProjectCcList,
   triageJobs,
@@ -62,6 +65,52 @@ async function seedRequest(projectSlug: string, body: string) {
     body,
   });
   return { project, customer, ...created };
+}
+
+async function seedReply(
+  requestId: string,
+  fields: Partial<typeof replies.$inferInsert> = {},
+) {
+  const commentId = `c-${crypto.randomUUID()}`;
+  const [inbound] = await db
+    .insert(inboundComments)
+    .values({
+      commentId,
+      issueId: "issue-1",
+      body: "@external hello",
+      requestId,
+      status: "processed",
+    })
+    .returning();
+  const status = fields.status ?? "sent";
+  const [sent] =
+    status === "sent"
+      ? await db
+          .insert(messages)
+          .values({
+            requestId,
+            body: "hello",
+            originChannel: "linear",
+            author: "staff",
+            audience: "external",
+          })
+          .returning()
+      : [];
+  const [row] = await db
+    .insert(replies)
+    .values({
+      requestId,
+      inboundCommentId: (inbound as NonNullable<typeof inbound>).id,
+      threadRootId: commentId,
+      body: "hello",
+      status,
+      messageId: sent?.id,
+      sentAt: sent ? new Date() : undefined,
+      wordingScore: 4,
+      ...fields,
+    })
+    .returning();
+  return row as NonNullable<typeof row>;
 }
 
 describe("admin projects and keys", () => {
@@ -297,30 +346,40 @@ describe("admin requests", () => {
   test("filters by reply flags and human triage and reports them", async () => {
     const seeded = await seedRequest("flags", "flag me");
     const other = await seedRequest("flags", "plain");
+    const quiet = await seedRequest("flags", "quiet");
     const projectId = seeded.project.id;
-    await appendEvent(db, {
-      type: "reply.flagged",
-      channelKey: seeded.request.channelKey,
-      requestId: seeded.request.id,
-      payload: { score: 2.5 },
+    await seedReply(seeded.request.id, { flagged: true, wordingScore: 2.5 });
+    await seedReply(other.request.id, {
+      status: "held",
+      wordingScore: 1,
+      holdReason: "wording_low",
+      heldAt: new Date(),
+      expiresAt: new Date(Date.now() + 60_000),
     });
-    await appendEvent(db, {
-      type: "reply.held",
-      channelKey: other.request.channelKey,
-      requestId: other.request.id,
-      payload: { score: 1 },
-    });
+    await seedReply(quiet.request.id);
     const flagged = await listAdminRequests(db, {
       projectId,
       limit: 10,
       flaggedReplies: true,
     });
-    expect(flagged.rows).toHaveLength(2);
+    expect(flagged.rows.map((row) => row.id).sort()).toEqual(
+      [seeded.request.id, other.request.id].sort(),
+    );
+    const real = await listFlaggedReplies(db, { projectId });
+    expect(real.map((row) => row.reply.requestId)).toEqual([seeded.request.id]);
     const seededRow = flagged.rows.find((row) => row.id === seeded.request.id);
     expect(seededRow).toMatchObject({
       flaggedReplies: true,
       heldReplies: false,
     });
+    const heldRow = flagged.rows.find((row) => row.id === other.request.id);
+    expect(heldRow).toMatchObject({ flaggedReplies: false, heldReplies: true });
+    const unflagged = await listAdminRequests(db, {
+      projectId,
+      limit: 10,
+      flaggedReplies: false,
+    });
+    expect(unflagged.rows.map((row) => row.id)).toEqual([quiet.request.id]);
     await db
       .update(triageJobs)
       .set({ status: "completed", outcome: "human_triage" })
@@ -337,13 +396,46 @@ describe("admin requests", () => {
     });
     expect(human.rows.map((row) => row.id)).toEqual([seeded.request.id]);
     expect(human.rows[0]?.needsHumanTriage).toBe(true);
-    expect(notHuman.rows.map((row) => row.id)).toEqual([other.request.id]);
-    const clear = await listAdminRequests(db, {
-      projectId,
-      limit: 10,
-      flaggedReplies: false,
+    expect(notHuman.rows.map((row) => row.id).sort()).toEqual(
+      [other.request.id, quiet.request.id].sort(),
+    );
+  });
+
+  test("a lapsed hold stops counting as held, and detail lists every reply state", async () => {
+    const seeded = await seedRequest("lapsed", "lapsed hold");
+    const soon = new Date(Date.now() - 1000);
+    await seedReply(seeded.request.id, {
+      status: "held",
+      wordingScore: 0.5,
+      holdReason: "wording_low",
+      heldAt: soon,
+      expiresAt: soon,
+      warningCommentId: "w-1",
     });
-    expect(clear.rows).toHaveLength(0);
+    await seedReply(seeded.request.id, {
+      status: "cancelled",
+      cancelReason: "edited",
+      wordingScore: 1,
+    });
+    const row = await listAdminRequests(db, {
+      projectId: seeded.project.id,
+      limit: 5,
+    });
+    expect(row.rows[0]).toMatchObject({
+      flaggedReplies: false,
+      heldReplies: false,
+    });
+    const filtered = await listAdminRequests(db, {
+      projectId: seeded.project.id,
+      limit: 5,
+      flaggedReplies: true,
+    });
+    expect(filtered.rows).toHaveLength(0);
+    const detail = await getAdminRequestDetail(db, seeded.request.id);
+    expect(detail?.replies.map((reply) => reply.status)).toEqual([
+      "held",
+      "cancelled",
+    ]);
   });
 
   test("returns the full detail and the admin attachment", async () => {

@@ -12,11 +12,13 @@ import {
   recordIntegration,
 } from "@pw-support/db";
 import { eq } from "drizzle-orm";
+import { createLinearWebhookIntake } from "./linear/webhook";
 import {
   createManagedSecrets,
   createSecretsManagerClient,
   createSecretWriter,
 } from "./secrets";
+import { signLinearWebhook } from "./testing/sign";
 
 const db = createDb();
 const client = createSecretsManagerClient();
@@ -156,6 +158,81 @@ describe("managed secrets", () => {
     await expect(
       empty.get(INTEGRATIONS.linear_webhook_secret.secretName),
     ).rejects.toThrow(/empty/);
+  });
+});
+
+describe("the Linear webhook secret comes from the shared provider", () => {
+  const raw = () =>
+    new TextEncoder().encode(
+      JSON.stringify({
+        action: "create",
+        type: "Issue",
+        webhookTimestamp: Date.now(),
+      }),
+    );
+
+  function request(secret: string) {
+    const body = raw();
+    return {
+      rawBody: body,
+      signature: signLinearWebhook(secret, new TextDecoder().decode(body)),
+      delivery: crypto.randomUUID(),
+    };
+  }
+
+  test("verifies against the Secrets Manager value and falls back to the environment", async () => {
+    const own = `t-${crypto.randomUUID().slice(0, 8)}`;
+    const name = INTEGRATIONS.linear_webhook_secret.secretName;
+    await writer.put(own, name, "stored-secret");
+    await recordIntegration(
+      db,
+      {
+        scope: own,
+        kind: "linear_webhook_secret",
+        secretRef: secretId(own, name),
+      },
+      actor,
+    );
+    try {
+      const stored = createLinearWebhookIntake({
+        db,
+        secrets: createManagedSecrets({
+          db,
+          client,
+          env: { LINEAR_WEBHOOK_SECRET: "env-secret" },
+          scope: own,
+        }),
+      });
+      expect((await stored.handle(request("stored-secret"))).status).toBe(200);
+      expect((await stored.handle(request("env-secret"))).status).toBe(401);
+
+      const fallback = createLinearWebhookIntake({
+        db,
+        secrets: createManagedSecrets({
+          db,
+          client,
+          env: { LINEAR_WEBHOOK_SECRET: "env-secret" },
+          scope: `t-${crypto.randomUUID().slice(0, 8)}`,
+        }),
+      });
+      expect((await fallback.handle(request("env-secret"))).status).toBe(200);
+    } finally {
+      await db.delete(integrations).where(eq(integrations.scope, own));
+    }
+  });
+
+  test("fails closed when neither Secrets Manager nor the environment has a secret", async () => {
+    const intake = createLinearWebhookIntake({
+      db,
+      secrets: createManagedSecrets({
+        db,
+        client,
+        env: {},
+        scope: `t-${crypto.randomUUID().slice(0, 8)}`,
+      }),
+    });
+    const result = await intake.handle(request("anything"));
+    expect(result.status).toBe(503);
   });
 });
 

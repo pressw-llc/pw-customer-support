@@ -74,7 +74,6 @@ export default defineConfig({
         E2E_STUB_PORT: String(E2E.stubPort),
         E2E_CONTROL_PORT: String(E2E.controlPort),
         LINEAR_WEBHOOK_SECRET: E2E.webhookSecret,
-        SECRETS_SCOPE: secretsScope,
         SEED_CLIENT_SLUG: E2E.clientSlug,
         SEED_PROJECT_SLUG: E2E.projectSlug,
         SEED_PROJECT_KEY: E2E.projectKey,

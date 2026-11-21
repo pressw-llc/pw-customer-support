@@ -2,11 +2,19 @@ import { expect, type Page, test } from "@playwright/test";
 import { hashCustomerId } from "@pw-support/contracts";
 import { generateKeyPair, SignJWT } from "jose";
 import { ADMIN, E2E } from "./playwright.config";
-import { shot } from "./support";
+import {
+  postStaffComment,
+  shot,
+  waitForInboundProcessed,
+  waitForIssue,
+  waitForStubComment,
+} from "./support";
 
 test.describe.configure({ mode: "serial" });
 
-async function seedRequest(text: string): Promise<{ customer: string }> {
+async function seedRequest(
+  text: string,
+): Promise<{ customer: string; requestId: string }> {
   const email = `grace-${crypto.randomUUID().slice(0, 6)}@acme.test`;
   const hashed = await hashCustomerId(email, E2E.projectKey);
   const body = new FormData();
@@ -17,7 +25,12 @@ async function seedRequest(text: string): Promise<{ customer: string }> {
     body,
   });
   expect(response.status).toBe(201);
-  return { customer: hashed.slice(0, 8) };
+  const created = (await response.json()) as { requestId: string };
+  return { customer: hashed.slice(0, 8), requestId: created.requestId };
+}
+
+async function ticketFor(requestId: string) {
+  return waitForIssue(`Support request ID: ${requestId}`);
 }
 
 async function signIn(page: Page): Promise<void> {
@@ -209,4 +222,99 @@ test("the layout works on a phone and in the dark theme", async ({ page }) => {
   expect(overflow).toBe(false);
   await page.waitForTimeout(400);
   await shot(page, "admin-mobile-dark");
+});
+
+test("A15: a reply scored 2.5 sends and shows a flag in the admin UI", async ({
+  page,
+}) => {
+  const { customer, requestId } = await seedRequest(
+    `Flag question ${crypto.randomUUID().slice(0, 8)}`,
+  );
+  const issue = await ticketFor(requestId);
+  await postStaffComment(
+    issue.id,
+    "@external Thanks for waiting, we are on it. [BORDER]",
+  );
+  await waitForInboundProcessed(requestId, 1);
+
+  await signIn(page);
+  await page.getByLabel("Flagged replies").check();
+  const row = page.getByRole("row").filter({ hasText: customer });
+  await expect(row).toBeVisible();
+  await expect(row.getByText("Flagged reply")).toBeVisible();
+  await expect(row.getByText("Held reply")).toHaveCount(0);
+
+  await row.getByRole("link").first().click();
+  const reply = page.getByTestId("reply-item");
+  await expect(reply).toHaveAttribute("data-status", "sent");
+  await expect(reply).toHaveAttribute("data-flagged", "true");
+  await expect(reply.getByTestId("reply-score")).toHaveText("score 2.50");
+  await expect(reply.getByText("Flagged", { exact: true })).toBeVisible();
+  await expect(page.getByText("Ada Staff").first()).toBeVisible();
+  await shot(page, "admin-a15-flag");
+});
+
+test("A15: a held reply shows as held with its score until it is confirmed", async ({
+  page,
+}) => {
+  const { customer, requestId } = await seedRequest(
+    `Hold question ${crypto.randomUUID().slice(0, 8)}`,
+  );
+  const issue = await ticketFor(requestId);
+  const held = await postStaffComment(
+    issue.id,
+    "@external Not our problem at all. [RUDE]",
+  );
+  await waitForInboundProcessed(requestId, 1);
+  await waitForStubComment(issue.id, (comment) => comment.parentId === held.id);
+
+  await signIn(page);
+  const row = page.getByRole("row").filter({ hasText: customer });
+  await expect(row.getByText("Held reply")).toBeVisible();
+  await row.getByRole("link").first().click();
+  const reply = page.getByTestId("reply-item");
+  await expect(reply).toHaveAttribute("data-status", "held");
+  await expect(reply.getByTestId("reply-score")).toHaveText("score 1.00");
+  await expect(reply.getByText("wording low")).toBeVisible();
+  await expect(reply.getByText("posted in the thread")).toBeVisible();
+  await expect(page.getByText("Customer visible")).toHaveCount(1);
+  await shot(page, "admin-a15-hold");
+
+  await postStaffComment(issue.id, "@confirm", held.id);
+  await expect(async () => {
+    await page.reload();
+    await expect(page.getByTestId("reply-item")).toHaveAttribute(
+      "data-status",
+      "sent",
+    );
+  }).toPass({ timeout: 20_000 });
+});
+
+test("thread bodies, author names, and event payloads render as inert text", async ({
+  page,
+}) => {
+  const marker = crypto.randomUUID().slice(0, 8);
+  const img = `<img src=x onerror="window.__xss='img'">`;
+  const custom = `<x-a onmouseover="window.__xss='custom'">hover ${marker}</x-a>`;
+  const { requestId } = await seedRequest(
+    `Customer ${marker} ${img} ${custom}`,
+  );
+  const issue = await ticketFor(requestId);
+  await postStaffComment(issue.id, `Internal note ${marker} ${img} ${custom}`);
+  await waitForInboundProcessed(requestId, 1);
+
+  await signIn(page);
+  await page.goto(`${ADMIN.url}/requests/${requestId}`);
+  const thread = page.getByRole("heading", { name: "Thread" }).locator("..");
+  const internal = thread.locator('[data-audience="internal"]');
+  await expect(internal).toContainText(`Internal note ${marker}`);
+  await expect(internal).toContainText(img);
+  await expect(internal).toContainText(custom);
+  await internal.getByText(`hover ${marker}`).hover();
+  await expect(page.locator("main img, x-a")).toHaveCount(0);
+  await page.waitForTimeout(300);
+  expect(await page.evaluate(() => (window as { __xss?: string }).__xss)).toBe(
+    undefined,
+  );
+  await shot(page, "admin-xss-inert");
 });

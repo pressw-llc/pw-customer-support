@@ -2,6 +2,7 @@ import {
   type AdminEvent,
   type AdminKey,
   type AdminProject,
+  type AdminReply,
   type AdminRequestDetail,
   type AdminRequestItem,
   INTEGRATIONS,
@@ -21,7 +22,6 @@ import {
 } from "@pw-support/db";
 
 const CLAIM_PREFIX = "triage.job.";
-const REPLY_FLAG_TYPES = new Set(["reply.held", "reply.flagged"]);
 
 export function toRequestItem(row: AdminRequestRow): AdminRequestItem {
   return {
@@ -55,8 +55,30 @@ function toEvent(row: AdminEventRow): AdminEvent {
   };
 }
 
+type ReplyRow = AdminRequestDetailRows["replies"][number];
+
+export function toAdminReply(row: ReplyRow, now: Date): AdminReply {
+  const lapsed = row.status === "held" && row.expiresAt && row.expiresAt <= now;
+  return {
+    id: row.id,
+    status: (lapsed ? "expired" : row.status) as AdminReply["status"],
+    score: row.wordingScore,
+    flagged: row.flagged,
+    holdReason: row.holdReason,
+    cancelReason: row.cancelReason,
+    authorName: row.authorName,
+    body: row.body,
+    warningPosted: row.warningCommentId !== null,
+    heldAt: row.heldAt?.toISOString() ?? null,
+    expiresAt: row.expiresAt?.toISOString() ?? null,
+    sentAt: row.sentAt?.toISOString() ?? null,
+    createdAt: row.createdAt.toISOString(),
+  };
+}
+
 export function toRequestDetail(
   rows: AdminRequestDetailRows,
+  now: Date = new Date(),
 ): AdminRequestDetail {
   const events = rows.events.map(toEvent);
   return {
@@ -67,6 +89,7 @@ export function toRequestDetail(
       bodyFlagged: message.bodyFlagged,
       originChannel: message.originChannel,
       author: message.author,
+      authorName: message.authorName,
       audience: message.audience,
       createdAt: message.createdAt.toISOString(),
       attachments: attachments.map((file) => ({
@@ -100,7 +123,7 @@ export function toRequestDetail(
         }
       : null,
     claims: events.filter((event) => event.type.startsWith(CLAIM_PREFIX)),
-    replyFlags: events.filter((event) => REPLY_FLAG_TYPES.has(event.type)),
+    replies: rows.replies.map((row) => toAdminReply(row, now)),
   };
 }
 

@@ -19,6 +19,7 @@ import {
   messages,
   projectKeys,
   projects,
+  replies,
   triageJobs,
 } from "./schema";
 
@@ -95,10 +96,11 @@ const SELECT_REQUEST = sql`
     t.identifier as ticket_identifier, t.url as ticket_url,
     j.outcome as triage_outcome,
     coalesce(j.outcome = 'human_triage' or j.result->>'needs_human' = 'true', false) as needs_human,
-    exists (select 1 from support.events e
-      where e.request_id = r.id and e.type = 'reply.flagged') as flagged,
-    exists (select 1 from support.events e
-      where e.request_id = r.id and e.type = 'reply.held') as held,
+    exists (select 1 from support.replies rp
+      where rp.request_id = r.id and rp.flagged) as flagged,
+    exists (select 1 from support.replies rp
+      where rp.request_id = r.id and rp.status = 'held'
+        and rp.expires_at > now()) as held,
     first_message.body
   from support.requests r
   join support.projects p on p.id = r.project_id
@@ -143,8 +145,9 @@ export async function listAdminRequests(
     conditions.push(sql`r.project_id = ${filters.projectId}`);
   if (filters.status) conditions.push(sql`r.status = ${filters.status}`);
   if (filters.flaggedReplies !== undefined) {
-    const exists = sql`exists (select 1 from support.events e
-      where e.request_id = r.id and e.type in ('reply.flagged', 'reply.held'))`;
+    const exists = sql`exists (select 1 from support.replies rp
+      where rp.request_id = r.id
+        and (rp.flagged or (rp.status = 'held' and rp.expires_at > now())))`;
     conditions.push(filters.flaggedReplies ? exists : sql`not ${exists}`);
   }
   if (filters.needsHuman !== undefined) {
@@ -195,6 +198,7 @@ export interface AdminRequestDetailRows {
   rejections: (typeof attachmentRejections.$inferSelect)[];
   events: AdminEventRow[];
   judgments: (typeof judgments.$inferSelect)[];
+  replies: (typeof replies.$inferSelect)[];
   job: typeof triageJobs.$inferSelect | null;
 }
 
@@ -210,33 +214,39 @@ export async function getAdminRequestDetail(
     .where(eq(messages.requestId, requestId))
     .orderBy(asc(messages.createdAt), asc(messages.id));
   const ids = thread.map((message) => message.id);
-  const [files, rejections, timeline, scored, [job]] = await Promise.all([
-    ids.length === 0
-      ? []
-      : db
-          .select()
-          .from(attachments)
-          .where(inArray(attachments.messageId, ids))
-          .orderBy(asc(attachments.createdAt), asc(attachments.id)),
-    ids.length === 0
-      ? []
-      : db
-          .select()
-          .from(attachmentRejections)
-          .where(inArray(attachmentRejections.messageId, ids))
-          .orderBy(asc(attachmentRejections.createdAt)),
-    db
-      .select()
-      .from(events)
-      .where(eq(events.requestId, requestId))
-      .orderBy(asc(events.seq)),
-    db
-      .select()
-      .from(judgments)
-      .where(eq(judgments.requestId, requestId))
-      .orderBy(asc(judgments.createdAt)),
-    db.select().from(triageJobs).where(eq(triageJobs.requestId, requestId)),
-  ]);
+  const [files, rejections, timeline, scored, replyRows, [job]] =
+    await Promise.all([
+      ids.length === 0
+        ? []
+        : db
+            .select()
+            .from(attachments)
+            .where(inArray(attachments.messageId, ids))
+            .orderBy(asc(attachments.createdAt), asc(attachments.id)),
+      ids.length === 0
+        ? []
+        : db
+            .select()
+            .from(attachmentRejections)
+            .where(inArray(attachmentRejections.messageId, ids))
+            .orderBy(asc(attachmentRejections.createdAt)),
+      db
+        .select()
+        .from(events)
+        .where(eq(events.requestId, requestId))
+        .orderBy(asc(events.seq)),
+      db
+        .select()
+        .from(judgments)
+        .where(eq(judgments.requestId, requestId))
+        .orderBy(asc(judgments.createdAt)),
+      db
+        .select()
+        .from(replies)
+        .where(eq(replies.requestId, requestId))
+        .orderBy(asc(replies.createdAt), asc(replies.id)),
+      db.select().from(triageJobs).where(eq(triageJobs.requestId, requestId)),
+    ]);
   return {
     request,
     messages: thread.map((message) => ({
@@ -246,6 +256,7 @@ export async function getAdminRequestDetail(
     rejections,
     events: timeline,
     judgments: scored,
+    replies: replyRows,
     job: job ?? null,
   };
 }

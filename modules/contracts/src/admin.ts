@@ -161,6 +161,7 @@ export const adminMessageSchema = z.object({
   bodyFlagged: z.boolean(),
   originChannel: z.string(),
   author: z.string(),
+  authorName: z.string().nullable(),
   audience: z.string(),
   createdAt: isoDate,
   attachments: z.array(adminAttachmentSchema),
@@ -181,6 +182,30 @@ export const adminJudgmentSchema = z.object({
   flagged: z.boolean(),
   createdAt: isoDate,
 });
+
+export const adminReplyStatuses = [
+  "held",
+  "sent",
+  "cancelled",
+  "expired",
+] as const;
+
+export const adminReplySchema = z.object({
+  id: z.string().uuid(),
+  status: z.enum(adminReplyStatuses),
+  score: z.number(),
+  flagged: z.boolean(),
+  holdReason: z.string().nullable(),
+  cancelReason: z.string().nullable(),
+  authorName: z.string().nullable(),
+  body: z.string(),
+  warningPosted: z.boolean(),
+  heldAt: isoDate.nullable(),
+  expiresAt: isoDate.nullable(),
+  sentAt: isoDate.nullable(),
+  createdAt: isoDate,
+});
+export type AdminReply = z.infer<typeof adminReplySchema>;
 
 export const adminJobSchema = z.object({
   status: z.string(),
@@ -205,7 +230,7 @@ export const adminRequestDetailSchema = z.object({
   judgments: z.array(adminJudgmentSchema),
   job: adminJobSchema.nullable(),
   claims: z.array(adminEventSchema),
-  replyFlags: z.array(adminEventSchema),
+  replies: z.array(adminReplySchema),
 });
 export type AdminRequestDetail = z.infer<typeof adminRequestDetailSchema>;
 

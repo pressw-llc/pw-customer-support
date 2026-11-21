@@ -249,6 +249,37 @@ describe("Jev wording scorer", () => {
     await expect(malformed.score("x")).rejects.toThrow();
   });
 
+  test("resolves the key from the shared secrets provider on every call", async () => {
+    const seen: string[] = [];
+    let key = "first";
+    const scorer = createJevWordingScorer({
+      apiKey: async () => key,
+      fetcher: (async (_url: unknown, init?: RequestInit) => {
+        seen.push(
+          String((init?.headers as Record<string, string>).Authorization),
+        );
+        return new Response(
+          JSON.stringify({ answers: { wording: { noul: 1 } } }),
+        );
+      }) as unknown as typeof fetch,
+    });
+    await scorer.score("a");
+    key = "second";
+    await scorer.score("b");
+    expect(seen).toEqual(["Bearer first", "Bearer second"]);
+    const failing = createJevWordingScorer({
+      apiKey: async () => {
+        throw new Error("secret typesafe-api-key is not configured");
+      },
+    });
+    await expect(failing.score("x")).rejects.toThrow(/not configured/);
+  });
+
+  test("a secrets provider always yields a scorer, even with no key in the env", () => {
+    const secrets = { get: async () => "k" };
+    expect(wordingScorerFor({}, secrets)).not.toBeNull();
+  });
+
   test("the runtime builds a scorer only when the key is set", () => {
     expect(wordingScorerFor({})).toBeNull();
     expect(wordingScorerFor({ TYPESAFE_API_KEY: "" })).toBeNull();
