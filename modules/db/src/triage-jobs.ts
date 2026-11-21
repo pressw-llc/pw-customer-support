@@ -3,7 +3,6 @@ import {
   defaultTiming,
   delayChannelFor,
   type HumanTriageReason,
-  halveDelay,
   humanTriageResult,
   type TriageOutcome,
   type TriageResult,
@@ -183,6 +182,49 @@ export function cloudAvailability(
   return { state: "claimable" };
 }
 
+export async function resetChannelDelay(
+  tx: SupportExecutor,
+  delayChannel: string,
+  timing: TriageTiming,
+  now: Date,
+): Promise<void> {
+  await tx
+    .insert(channelDelays)
+    .values({
+      delayChannel,
+      currentDelaySeconds: timing.initialDelaySeconds,
+      updatedAt: now,
+    })
+    .onConflictDoUpdate({
+      target: channelDelays.delayChannel,
+      set: {
+        currentDelaySeconds: timing.initialDelaySeconds,
+        updatedAt: now,
+      },
+    });
+}
+
+export async function halveChannelDelay(
+  tx: SupportExecutor,
+  job: Pick<TriageJob, "delayChannel" | "createdAt">,
+  now: Date,
+): Promise<boolean> {
+  const rows = await tx
+    .update(channelDelays)
+    .set({
+      currentDelaySeconds: sql`${channelDelays.currentDelaySeconds} / 2`,
+      updatedAt: now,
+    })
+    .where(
+      and(
+        eq(channelDelays.delayChannel, job.delayChannel),
+        lte(channelDelays.updatedAt, job.createdAt),
+      ),
+    )
+    .returning({ delayChannel: channelDelays.delayChannel });
+  return rows.length > 0;
+}
+
 export interface ClaimInput extends JobOptions {
   jobId: string;
   kind: ClaimantKind;
@@ -270,29 +312,9 @@ export async function claimTriageJob(
       },
     });
     if (input.kind === "laptop") {
-      await tx
-        .update(channelDelays)
-        .set({
-          currentDelaySeconds: timing.initialDelaySeconds,
-          updatedAt: now,
-        })
-        .where(eq(channelDelays.delayChannel, job.delayChannel));
+      await resetChannelDelay(tx, job.delayChannel, timing, now);
     } else if (job.attempts === 1 && job.laptopClaimedAt === null) {
-      const current = (
-        await tx
-          .select()
-          .from(channelDelays)
-          .where(eq(channelDelays.delayChannel, job.delayChannel))
-      )[0];
-      if (current) {
-        await tx
-          .update(channelDelays)
-          .set({
-            currentDelaySeconds: halveDelay(current.currentDelaySeconds),
-            updatedAt: now,
-          })
-          .where(eq(channelDelays.delayChannel, job.delayChannel));
-      }
+      await halveChannelDelay(tx, job, now);
     }
     return { won: true, job, tookOverExpiredLease: tookOver };
   };

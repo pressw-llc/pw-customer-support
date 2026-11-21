@@ -3,6 +3,7 @@ import { defaultTiming, humanTriageResult } from "@pw-support/contracts";
 import { eq, is } from "drizzle-orm";
 import { getTableConfig, PgTable } from "drizzle-orm/pg-core";
 import {
+  channelDelays,
   claimTriageJob,
   closeDb,
   cloudAvailability,
@@ -238,6 +239,70 @@ describe("A10 delay and backoff", () => {
       now: at(10),
     });
     expect(laptop.won).toBe(true);
+  });
+});
+
+describe("channel delay atomicity", () => {
+  const claim = (jobId: string, kind: "cloud" | "laptop", seconds: number) =>
+    claimTriageJob(db, {
+      jobId,
+      kind,
+      claimant: kind === "laptop" ? "eng" : "w",
+      now: at(seconds),
+    });
+
+  test("a halving from a job opened before a later reset is skipped", async () => {
+    const channel = "reset-first";
+    const reset = await openJob(channel, 0);
+    const stale = await openJob(channel, 0);
+    expect((await claim(reset.job.id, "laptop", 100)).won).toBe(true);
+    expect((await claim(stale.job.id, "cloud", 100)).won).toBe(true);
+    expect(await getChannelDelay(db, `${slug}:${channel}`)).toBe(60);
+  });
+
+  test("two cloud claims of jobs opened in the same window halve once", async () => {
+    const channel = "same-window";
+    const first = await openJob(channel, 0);
+    const second = await openJob(channel, 0);
+    await claim(first.job.id, "cloud", 61);
+    expect(await getChannelDelay(db, `${slug}:${channel}`)).toBe(30);
+    await claim(second.job.id, "cloud", 61);
+    expect(await getChannelDelay(db, `${slug}:${channel}`)).toBe(30);
+  });
+
+  test("parallel cloud claims of one window halve exactly once", async () => {
+    const channel = "parallel-halve";
+    const jobs = await Promise.all(
+      Array.from({ length: 6 }, () => openJob(channel, 0)),
+    );
+    await Promise.all(
+      jobs.map((created) => claim(created.job.id, "cloud", 61)),
+    );
+    expect(await getChannelDelay(db, `${slug}:${channel}`)).toBe(30);
+  });
+
+  test("a laptop reset racing cloud halvings never ends below the initial delay", async () => {
+    for (let round = 0; round < 12; round++) {
+      const channel = `race-${round}`;
+      const laptop = await openJob(channel, 0);
+      const clouds = await Promise.all(
+        Array.from({ length: 3 }, () => openJob(channel, 0)),
+      );
+      await Promise.all([
+        claim(laptop.job.id, "laptop", 100),
+        ...clouds.map((created) => claim(created.job.id, "cloud", 100)),
+      ]);
+      expect(await getChannelDelay(db, `${slug}:${channel}`)).toBe(60);
+    }
+  });
+
+  test("a reset upserts the row when it does not exist", async () => {
+    const { job } = await openJob("upsert", 0);
+    await db
+      .delete(channelDelays)
+      .where(eq(channelDelays.delayChannel, job.delayChannel));
+    await claim(job.id, "laptop", 5);
+    expect(await getChannelDelay(db, job.delayChannel)).toBe(60);
   });
 });
 
