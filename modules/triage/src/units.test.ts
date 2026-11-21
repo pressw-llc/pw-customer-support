@@ -3,7 +3,13 @@ import { DEFAULT_AGENT_MODEL, loadTriageConfig } from "./config";
 import { chunkText, INJECTION_KIND, runInjectionFilter } from "./filter";
 import { createJevClient, JEV_ENDPOINT } from "./jev";
 import { parseAgentOutput } from "./parse";
-import { jevFromEnv, resolveAgentId } from "./runtime";
+import {
+  createWorkerRuntime,
+  getWorkerRuntime,
+  jevFromEnv,
+  resolveAgentId,
+  setWorkerRuntime,
+} from "./runtime";
 import { fakeJev } from "./testing/harness";
 
 function first<T>(items: T[]): T {
@@ -178,6 +184,47 @@ describe("runInjectionFilter", () => {
       unavailable: true,
       error: "timeout",
     });
+  });
+});
+
+describe("worker runtime", () => {
+  const input = { requestText: "x", images: [], documents: [], skipped: [] };
+
+  test("a runtime without a synced agent fails loudly when it runs one", async () => {
+    const runtime = createWorkerRuntime(
+      { TYPESAFE_API_KEY: "k", TRIAGE_WORKER_ID: "w-1" },
+      { lockPath: "/nonexistent/agent.lock.json" },
+    );
+    try {
+      expect(runtime.deps.jev).not.toBeNull();
+      expect(runtime.deps.claimant).toBe("w-1");
+      runtime.deps.log?.("hello", { a: 1 });
+      runtime.deps.log?.("hello");
+      await expect(runtime.deps.agent.run(input)).rejects.toThrow(/not synced/);
+    } finally {
+      await runtime.close();
+    }
+  });
+
+  test("a configured agent id builds the managed runner", async () => {
+    const runtime = createWorkerRuntime(
+      { TRIAGE_AGENT_ID: "agent_x" },
+      { lockPath: "/nonexistent/agent.lock.json" },
+    );
+    try {
+      expect(runtime.deps.jev).toBeNull();
+      expect(runtime.deps.claimant).toMatch(/^cloud-/);
+    } finally {
+      await runtime.close();
+    }
+  });
+
+  test("the shared runtime is built on first use and can be replaced", async () => {
+    setWorkerRuntime(undefined);
+    const built = getWorkerRuntime();
+    expect(getWorkerRuntime()).toBe(built);
+    await built.close();
+    setWorkerRuntime(undefined);
   });
 });
 

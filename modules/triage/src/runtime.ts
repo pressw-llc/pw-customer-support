@@ -24,9 +24,12 @@ const AGENT_DIR = join(
 
 export function resolveAgentId(
   config: TriageConfig,
-  lockPath = join(AGENT_DIR, "agent.lock.json"),
+  lockPath?: string,
 ): string | undefined {
-  return config.agent.id ?? readAgentLock(lockPath)?.id;
+  return (
+    config.agent.id ??
+    readAgentLock(lockPath ?? join(AGENT_DIR, "agent.lock.json"))?.id
+  );
 }
 
 export function jevFromEnv(
@@ -62,12 +65,15 @@ export function setWorkerRuntime(runtime: WorkerRuntime | undefined): void {
   sharedRuntime = runtime;
 }
 
-export function createWorkerRuntime(env: EnvLike = process.env) {
+export function createWorkerRuntime(
+  env: EnvLike = process.env,
+  options: { lockPath?: string } = {},
+) {
   const config = loadTriageConfig(env);
   const db = createDb();
   const apiConfig = loadConfig(env);
   const sqs = createSqsClient(env);
-  const agentId = resolveAgentId(config);
+  const agentId = resolveAgentId(config, options.lockPath);
   const deps: WorkerDeps = {
     db,
     storage: createS3Storage(apiConfig),

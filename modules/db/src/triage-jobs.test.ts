@@ -1,6 +1,7 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { defaultTiming, humanTriageResult } from "@pw-support/contracts";
-import { eq } from "drizzle-orm";
+import { eq, is } from "drizzle-orm";
+import { getTableConfig, PgTable } from "drizzle-orm/pg-core";
 import {
   claimTriageJob,
   closeDb,
@@ -22,6 +23,7 @@ import {
   submitTriageResult,
   upsertCustomer,
 } from "./index";
+import * as schemaModule from "./schema";
 
 const db = createDb();
 const slug = `acme-jobs-${crypto.randomUUID().slice(0, 8)}`;
@@ -76,6 +78,20 @@ beforeAll(async () => {
 afterAll(async () => {
   await db.delete(projects).where(eq(projects.clientSlug, slug));
   await closeDb(db);
+});
+
+describe("schema", () => {
+  test("every table resolves its foreign keys, indexes, and constraints", () => {
+    const tables = Object.values(schemaModule).filter((value) =>
+      is(value, PgTable),
+    ) as PgTable[];
+    expect(tables.length).toBeGreaterThanOrEqual(14);
+    for (const table of tables) {
+      const config = getTableConfig(table);
+      for (const key of config.foreignKeys) key.reference();
+      expect(config.name.length).toBeGreaterThan(0);
+    }
+  });
 });
 
 describe("job opening", () => {

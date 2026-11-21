@@ -1,9 +1,10 @@
 import { SendMessageCommand, type SQSClient } from "@aws-sdk/client-sqs";
-import type {
-  AdapterContext,
-  AdapterMessage,
-  ChannelAdapter,
-  EventEnvelope,
+import {
+  type AdapterContext,
+  type AdapterMessage,
+  type ChannelAdapter,
+  type EventEnvelope,
+  systemAdapterContext,
 } from "@pw-support/contracts";
 import {
   advanceEventCursor,
@@ -18,7 +19,7 @@ export interface AdapterTransport {
 }
 
 export function directTransport(
-  ctx: AdapterContext = { now: () => new Date() },
+  ctx: AdapterContext = systemAdapterContext,
 ): AdapterTransport {
   return {
     deliver: (adapter, event) => adapter.handle(event, ctx),

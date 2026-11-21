@@ -1,5 +1,9 @@
 import { describe, expect, test } from "bun:test";
-import { adapterDlqName, adapterQueueName } from "./channel-adapter";
+import {
+  adapterDlqName,
+  adapterQueueName,
+  systemAdapterContext,
+} from "./channel-adapter";
 import {
   buildWakeMessage,
   delayChannelFor,
@@ -58,6 +62,10 @@ describe("triage job contracts", () => {
       maxAttempts: 3,
       intakeGraceSeconds: 9,
     });
+  });
+
+  test("the system adapter context reads the clock", () => {
+    expect(systemAdapterContext.now()).toBeInstanceOf(Date);
   });
 
   test("adapter queue names follow one convention", () => {

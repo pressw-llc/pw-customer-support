@@ -370,6 +370,55 @@ describe("A27 attachments", () => {
   });
 });
 
+describe("processing details", () => {
+  test("a long agent run keeps its lease with a heartbeat", async () => {
+    const inner = fakeAgent();
+    const harness = await createTriageHarness({
+      timing: { leaseSeconds: 3 },
+      agent: {
+        async run(input, hooks) {
+          await new Promise((resolve) => setTimeout(resolve, 1300));
+          return inner.run(input, hooks);
+        },
+      },
+    });
+    try {
+      const who = await harness.tenant();
+      const { jobId } = await harness.submit(who, "slow one");
+      harness.clock.advance(61);
+      expect(await handleWake(harness.deps, jobId)).toMatchObject({
+        result: { outcome: "agent" },
+      });
+    } finally {
+      await harness.close();
+    }
+  });
+
+  test("images are judged by Jev when image judging is on", async () => {
+    const jev = fakeJev();
+    const harness = await createTriageHarness({
+      jev,
+      env: { JEV_JUDGE_IMAGES: "1" },
+    });
+    try {
+      const who = await harness.tenant();
+      const { jobId, requestId } = await harness.submit(who, "see image", [
+        { name: "a.png", bytes: makePng(), type: "image/png" },
+      ]);
+      harness.clock.advance(61);
+      await handleWake(harness.deps, jobId);
+      expect(jev.calls.some((call) => call.image?.format === "png")).toBe(true);
+      const judgments = await listJudgments(harness.db, requestId);
+      expect(judgments.map((j) => j.subject.split(":")[0]).sort()).toEqual([
+        "image",
+        "message",
+      ]);
+    } finally {
+      await harness.close();
+    }
+  });
+});
+
 describe("retries", () => {
   test("a storage failure releases the job and attempts are exhausted into human triage", async () => {
     const failing = {

@@ -1,5 +1,6 @@
 import { defineStep } from "@pressw-llc/pipeline/define";
 import { getAdapterRuntime } from "@pw-support/channels";
+import { systemAdapterContext } from "@pw-support/contracts";
 import { getEventBySeq } from "@pw-support/db";
 import { DeliverInput, DeliverOutput } from "./schema";
 
@@ -12,7 +13,7 @@ export default defineStep({
     if (!event || event.id !== input.eventId) {
       throw new Error(`event ${input.seq} not found`);
     }
-    await runtime.linearAdapter.handle(event, { now: () => new Date() });
+    await runtime.linearAdapter.handle(event, systemAdapterContext);
     return { delivered: true };
   },
 });

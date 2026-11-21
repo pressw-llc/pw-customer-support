@@ -13,6 +13,7 @@ function fakeClient(options: {
   events: Event[];
   hang?: boolean;
   failSession?: boolean;
+  cleanupFails?: boolean;
 }) {
   const log = {
     environments: [] as unknown[],
@@ -34,6 +35,7 @@ function fakeClient(options: {
           },
           archive: async (id: string) => {
             log.archivedEnvironments.push(id);
+            if (options.cleanupFails) throw new Error("archive failed");
           },
         },
         sessions: {
@@ -44,6 +46,7 @@ function fakeClient(options: {
           },
           archive: async (id: string) => {
             log.archivedSessions.push(id);
+            if (options.cleanupFails) throw new Error("archive failed");
           },
           events: {
             stream: async () => {
@@ -56,6 +59,11 @@ function fakeClient(options: {
             send: async (_id: string, params: unknown) => {
               if (streamOpened) log.streamOpenedBeforeSend = true;
               log.sent.push(params);
+              const type = (params as { events: { type: string }[] }).events[0]
+                ?.type;
+              if (options.cleanupFails && type === "user.interrupt") {
+                throw new Error("interrupt failed");
+              }
             },
           },
         },
@@ -210,6 +218,27 @@ describe("createManagedAgentRunner", () => {
     );
     expect(types).toContain("user.interrupt");
     expect(log.archivedSessions).toEqual(["sesn_1"]);
+  });
+
+  test("cleanup and interrupt failures do not mask the run result or the original error", async () => {
+    const ok = fakeClient({
+      events: [message("fine"), { type: "session.status_idle" }],
+      cleanupFails: true,
+    });
+    const result = await createManagedAgentRunner({
+      agentId: "a",
+      timeoutMs: 5000,
+      client: ok.client,
+    }).run(input);
+    expect(result.textOutput).toBe("fine");
+    const slow = fakeClient({ events: [], hang: true, cleanupFails: true });
+    await expect(
+      createManagedAgentRunner({
+        agentId: "a",
+        timeoutMs: 20,
+        client: slow.client,
+      }).run(input),
+    ).rejects.toThrow(/exceeded/);
   });
 
   test("a session creation failure still archives the environment", async () => {

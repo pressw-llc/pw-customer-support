@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import { strToU8, zipSync } from "fflate";
 import {
   type AttachmentInput,
   type ExtractLimits,
@@ -38,6 +39,15 @@ describe("document extractors", () => {
   test("docx paragraphs keep order and decode entities", () => {
     const text = extractDocx(makeDocx(["Error 500 & retry", "Second <line>"]));
     expect(text.trim()).toBe("Error 500 & retry\nSecond <line>");
+  });
+
+  test("numeric and unknown entities decode safely", () => {
+    const bytes = zipSync({
+      "word/document.xml": strToU8(
+        "<w:p><w:t>&#65;&#x42;&#0;&amp;&bogus;</w:t></w:p>",
+      ),
+    });
+    expect(extractDocx(bytes).trim()).toBe("AB&#0;&&bogus;");
   });
 
   test("pptx slides keep numeric order", () => {

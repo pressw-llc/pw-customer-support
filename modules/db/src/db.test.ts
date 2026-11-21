@@ -397,14 +397,19 @@ describe("migrate on an empty database", () => {
       expect(tables.map((t) => t.table_name)).toEqual([
         "attachment_rejections",
         "attachments",
+        "channel_delays",
         "customers",
+        "event_cursors",
         "events",
+        "judgments",
         "messages",
         "project_keys",
         "projects",
         "rate_limits",
         "requests",
         "schema_migrations",
+        "tickets",
+        "triage_jobs",
       ]);
     } finally {
       await admin.unsafe(`DROP DATABASE ${name} WITH (FORCE)`);

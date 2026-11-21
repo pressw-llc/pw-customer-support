@@ -49,13 +49,20 @@ export async function handleWake(
   if (!claim.won) return { action: "lost" };
   const token = claim.job.claimToken as string;
   const heartbeat = setInterval(
-    () => {
-      extendTriageLease(deps.db, {
-        jobId,
-        claimToken: token,
-        now: deps.now,
-        timing,
-      }).catch(() => {});
+    async () => {
+      try {
+        await extendTriageLease(deps.db, {
+          jobId,
+          claimToken: token,
+          now: deps.now,
+          timing,
+        });
+      } catch (error) {
+        deps.log?.("lease renewal failed", {
+          jobId,
+          error: error instanceof Error ? error.message : String(error),
+        });
+      }
     },
     Math.max(1000, (timing.leaseSeconds * 1000) / 3),
   );
@@ -85,7 +92,6 @@ export function startSweeper(
   deps: WorkerDeps,
   signal: AbortSignal,
 ): Promise<void> {
-  const log = deps.log ?? (() => {});
   return new Promise((resolve) => {
     let running = false;
     const tick = async () => {
@@ -94,7 +100,7 @@ export function startSweeper(
       try {
         await sweepOnce(deps);
       } catch (error) {
-        log("sweep failed", {
+        deps.log?.("sweep failed", {
           error: error instanceof Error ? error.message : String(error),
         });
       } finally {

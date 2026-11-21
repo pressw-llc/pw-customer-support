@@ -5,6 +5,10 @@ export interface AdapterContext {
   now: () => Date;
 }
 
+export const systemAdapterContext: AdapterContext = {
+  now: () => new Date(),
+};
+
 export interface ChannelAdapter {
   name: string;
   subscribes: readonly EventType[];
