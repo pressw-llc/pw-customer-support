@@ -189,7 +189,6 @@ A job is claimable only after the API stores the attachments, or after `TRIAGE_I
 ### Worker
 
 `bun run dev:worker` runs one process with four loops:
-
 - The Fargate worker. It uses `@pressw-llc/pipeline` `fargateMain` with the `support-triage` pipeline and one `triage` step on `runtime: "fargate"`. The pipeline runs without a repo, so the engine writes no run rows. The job table owns all state.
 - The sweeper. At start and on an interval it claims open jobs whose delay ended and jobs with expired leases. A job survives a stopped worker and a lost wake message.
 - The dispatcher. It reads `support.events` by `seq` with one durable cursor per adapter in `support.event_cursors`.

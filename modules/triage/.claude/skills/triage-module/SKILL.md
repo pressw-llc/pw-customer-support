@@ -12,18 +12,18 @@ description: Work in the triage module: job claim protocol, Jev filter, sandboxe
 
 ## Layout
 
-| File | Role |
-| --- | --- |
-| `config.ts` | `loadTriageConfig(env)`: timing, Jev threshold, extraction caps, agent model |
-| `extract.ts` | Deterministic text extraction: PDF, docx, xlsx, pptx, text. Images pass through. Zip is never read |
-| `jev.ts`, `filter.ts` | Jev client and the injection filter. Fails closed |
-| `agent-runner.ts` | Managed agent session: environment, stream, interrupt, archive |
-| `process.ts` | After a cloud claim: extract, filter, agent, validate, submit |
-| `worker.ts` | `handleWake`, `sweepOnce`, `startSweeper`, lease heartbeat |
-| `runtime.ts` | Builds the worker deps from the environment |
-| `testing/` | Harness, fake Jev, fake agent, generated PDF and Office files |
-| `agents/support-triage/` | `defineAgent` definition and `sync.ts` |
-| `corpus/` | Injection and benign payloads for the live Jev test |
+| File                     | Role                                                                                               |
+| ------------------------ | -------------------------------------------------------------------------------------------------- |
+| `config.ts`              | `loadTriageConfig(env)`: timing, Jev threshold, extraction caps, agent model                       |
+| `extract.ts`             | Deterministic text extraction: PDF, docx, xlsx, pptx, text. Images pass through. Zip is never read |
+| `jev.ts`, `filter.ts`    | Jev client and the injection filter. Fails closed                                                  |
+| `agent-runner.ts`        | Managed agent session: environment, stream, interrupt, archive                                     |
+| `process.ts`             | After a cloud claim: extract, filter, agent, validate, submit                                      |
+| `worker.ts`              | `handleWake`, `sweepOnce`, `startSweeper`, lease heartbeat                                         |
+| `runtime.ts`             | Builds the worker deps from the environment                                                        |
+| `testing/`               | Harness, fake Jev, fake agent, generated PDF and Office files                                      |
+| `agents/support-triage/` | `defineAgent` definition and `sync.ts`                                                             |
+| `corpus/`                | Injection and benign payloads for the live Jev test                                                |
 
 ## Rules
 
