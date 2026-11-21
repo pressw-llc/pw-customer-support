@@ -1,0 +1,18 @@
+PASS A3 A8 a request flows through the Fargate worker, the dispatcher, the Lambda handler, and the SQS poller to one ticket
+PASS A7 the definition has zero tools, zero MCP servers, and no skills
+PASS A7 the environment restricts networking to an empty allowlist
+PASS A3 the sweeper completes a stored job that no wake message reached
+PASS A11 a laptop claim that submits nothing defers the cloud until the lease expires, then the cloud completes
+PASS A5 a flagged request completes as human triage and never starts an agent session
+PASS A6 prose instead of JSON becomes human triage
+PASS A6 JSON with a field outside the schema becomes human triage
+PASS A6 JSON with an enum outside the schema becomes human triage
+PASS A27 the agent receives the screenshot and the extracted PDF text and the summary cites both
+PASS A27 a PDF whose text carries an injection payload becomes human triage with no agent session
+PASS A10 three consecutive unclaimed requests wake after 60, 30, and 15 seconds and a laptop claim returns to 60
+PASS A9 many parallel claims on one job yield exactly one winner
+PASS A9 a laptop and a cloud claim race to one winner
+PASS A10 three unclaimed jobs wait 60, 30, 15 seconds and a laptop claim resets to 60
+PASS A11 an expired laptop lease lets the cloud claim at once and a live lease blocks it
+PASS A8 a completed request becomes exactly one ticket in the project's team
+junit failures: 0

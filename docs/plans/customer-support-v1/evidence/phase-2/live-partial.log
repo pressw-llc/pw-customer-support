@@ -1,0 +1,24 @@
+$ bun scripts/validate/phase-2-live.ts --partial
+[validate:phase-2] time factor 0.14 (initial delay 8s instead of 60s, lease 17s instead of 120s) PARTIAL: no Anthropic key, criteria that need an agent session are BLOCKED
+[validate:phase-2] wake queue pw-support-triage-wake
+[validate:phase-2] BLOCKED A7 needs ANTHROPIC_API_KEY to read the synced agent and environment
+[validate:phase-2] PASS A5 request 93440e45-f922-41a7-b329-9c2705f97b38 ticket ACME-1 labels=["needs-human-triage"] outcome=human_triage agent_session_id=null judgments=message:0.99 flagged threshold=0.5 title="Support request needs human triage"
+[validate:phase-2] PASS A9 job b4dc7443-eed5-405d-8023-b8f322f04faa: 12 parallel claims, winners=1, refusals=11, winner=engineer-0, winner result accepted
+[validate:phase-2] PASS A10 scaled by 0.14: delays 8,4,2 (unscaled equivalent 60,30,15) wall time 10.1,6.1,4.1s; after a laptop claim the next job waits 8s (expected 8)
+[validate:phase-2] PASS A11 job 32c69f59-35c6-4572-a55f-d497db8a4276: laptop claimed with a 17s lease and submitted nothing; cloud completed 1.0s after lease expiry; claimed_by_kind=cloud; ticket ACME-8; events request.created>triage.job.opened>triage.job.claimed>triage.job.lease_expired>triage.job.claimed>triage.result.accepted>ticket.created
+[validate:phase-2] PASS A3 worker stopped (SIGKILL), request d616d819-df53-426c-8ab9-bcdb0043e470 stored (GET 200), job open with no ticket after 11s; worker restarted, job completed outcome=human_triage, ticket ACME-9
+[validate:phase-2] BLOCKED A8 needs ANTHROPIC_API_KEY for the normal path through the agent
+[validate:phase-2] BLOCKED A27 needs ANTHROPIC_API_KEY for the screenshot and PDF summary
+[validate:phase-2] BLOCKED A6 needs ANTHROPIC_API_KEY for the malformed-output fixture agent
+
+[validate:phase-2] summary
+BLOCKED A7
+PASS A5
+PASS A9
+PASS A10
+PASS A11
+PASS A3
+BLOCKED A8
+BLOCKED A27
+BLOCKED A6
+[validate:phase-2] 5 passed, 0 failed, 4 blocked
