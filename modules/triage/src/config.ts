@@ -1,5 +1,5 @@
 import {
-  defaultTiming,
+  loadTimingConfig,
   RESOURCE_NAMES,
   TRIAGE_DEFAULTS,
   type TriageTiming,
@@ -46,28 +46,6 @@ function flag(value: string | undefined, fallback: boolean): boolean {
 
 function text(value: string | undefined): string | undefined {
   return value === undefined || value === "" ? undefined : value;
-}
-
-export function loadTimingConfig(env: EnvLike = process.env): TriageTiming {
-  return {
-    initialDelaySeconds: Math.floor(
-      number(
-        env.TRIAGE_INITIAL_DELAY_SECONDS,
-        defaultTiming.initialDelaySeconds,
-      ),
-    ),
-    leaseSeconds: Math.max(
-      1,
-      Math.floor(number(env.TRIAGE_LEASE_SECONDS, defaultTiming.leaseSeconds)),
-    ),
-    maxAttempts: Math.max(
-      1,
-      Math.floor(number(env.TRIAGE_MAX_ATTEMPTS, defaultTiming.maxAttempts)),
-    ),
-    intakeGraceSeconds: Math.floor(
-      number(env.TRIAGE_INTAKE_GRACE_SECONDS, defaultTiming.intakeGraceSeconds),
-    ),
-  };
 }
 
 export function loadTriageConfig(env: EnvLike = process.env): TriageConfig {

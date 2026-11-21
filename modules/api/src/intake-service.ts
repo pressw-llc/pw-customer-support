@@ -42,6 +42,7 @@ export interface IntakeDeps {
   checks?: Checks;
   wake?: WakeSender;
   timing?: TriageTiming;
+  now?: () => Date;
 }
 
 export class ProcessingError extends Error {
@@ -200,10 +201,10 @@ export function createIntakeService(deps: IntakeDeps) {
         await persistInboundRequest(
           db,
           { scope, body: input.text },
-          { timing: deps.timing },
+          { timing: deps.timing, now: deps.now },
         );
       const result = await processInbound(scope, request, message, input.files);
-      await markIntakeComplete(db, request.id);
+      await markIntakeComplete(db, request.id, deps.now);
       await wakeCloud(job.id, delaySeconds);
       return result;
     },

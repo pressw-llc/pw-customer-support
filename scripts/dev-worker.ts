@@ -1,3 +1,4 @@
+import { resolveQueueUrl } from "@pw-support/api";
 import {
   createAdapterRuntime,
   createDispatcher,
@@ -5,11 +6,7 @@ import {
   sqsTransport,
 } from "@pw-support/channels";
 import { RESOURCE_NAMES } from "@pw-support/contracts";
-import {
-  createWorkerRuntime,
-  resolveQueueUrl,
-  startSweeper,
-} from "@pw-support/triage";
+import { createWorkerRuntime, startSweeper } from "@pw-support/triage";
 import { handler as deliver } from "../pipelines/linear-outbound/lambda-entries/deliver";
 import { runTriageWorker } from "../pipelines/support-triage/fargate-entries/worker";
 

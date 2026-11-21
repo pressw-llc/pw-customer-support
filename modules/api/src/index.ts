@@ -5,3 +5,9 @@ export {
   type ObjectStorage,
   readObjectBytes,
 } from "./storage";
+export {
+  clampDelay,
+  createSqsClient,
+  createSqsWakeSender,
+  resolveQueueUrl,
+} from "./wake";

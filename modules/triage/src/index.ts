@@ -18,5 +18,4 @@ export * from "./jev";
 export * from "./parse";
 export * from "./process";
 export * from "./runtime";
-export * from "./wake";
 export * from "./worker";

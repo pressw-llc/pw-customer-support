@@ -1,12 +1,16 @@
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { readAgentLock } from "@pressw-llc/managed-agents";
-import { createS3Storage, loadConfig } from "@pw-support/api";
+import {
+  createS3Storage,
+  createSqsClient,
+  createSqsWakeSender,
+  loadConfig,
+} from "@pw-support/api";
 import { closeDb, createDb } from "@pw-support/db";
 import { type AgentRunner, createManagedAgentRunner } from "./agent-runner";
 import { loadTriageConfig, type TriageConfig } from "./config";
 import { createJevClient, type JevClient } from "./jev";
-import { createSqsClient, createSqsWakeSender } from "./wake";
 import type { WorkerDeps } from "./worker";
 
 type EnvLike = Record<string, string | undefined>;

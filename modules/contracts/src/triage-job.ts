@@ -62,6 +62,41 @@ export const defaultTiming: TriageTiming = {
   intakeGraceSeconds: TRIAGE_DEFAULTS.intakeGraceSeconds,
 };
 
+function envNumber(value: string | undefined, fallback: number): number {
+  if (value === undefined || value === "") return fallback;
+  const parsed = Number(value);
+  return Number.isFinite(parsed) && parsed >= 0 ? parsed : fallback;
+}
+
+export function loadTimingConfig(
+  env: Record<string, string | undefined> = process.env,
+): TriageTiming {
+  return {
+    initialDelaySeconds: Math.floor(
+      envNumber(
+        env.TRIAGE_INITIAL_DELAY_SECONDS,
+        defaultTiming.initialDelaySeconds,
+      ),
+    ),
+    leaseSeconds: Math.max(
+      1,
+      Math.floor(
+        envNumber(env.TRIAGE_LEASE_SECONDS, defaultTiming.leaseSeconds),
+      ),
+    ),
+    maxAttempts: Math.max(
+      1,
+      Math.floor(envNumber(env.TRIAGE_MAX_ATTEMPTS, defaultTiming.maxAttempts)),
+    ),
+    intakeGraceSeconds: Math.floor(
+      envNumber(
+        env.TRIAGE_INTAKE_GRACE_SECONDS,
+        defaultTiming.intakeGraceSeconds,
+      ),
+    ),
+  };
+}
+
 export function halveDelay(current: number): number {
   return Math.floor(current / 2);
 }

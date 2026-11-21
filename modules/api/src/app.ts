@@ -26,6 +26,7 @@ export interface AppDeps {
   checks?: Checks;
   wake?: WakeSender;
   timing?: TriageTiming;
+  now?: () => Date;
 }
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
