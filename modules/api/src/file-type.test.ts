@@ -1,7 +1,12 @@
 import { describe, expect, test } from "bun:test";
 import type { AttachmentRejectionReason } from "@pw-support/contracts";
 import { detectFile, preflightAttachment, zipEntryNames } from "./file-type";
-import { checkMessage, stripMarkup } from "./message-checks";
+import {
+  capInboundText,
+  checkMessage,
+  MAX_STORED_MESSAGE_CHARS,
+  stripMarkup,
+} from "./message-checks";
 import { fixtures } from "./testing/fixtures";
 
 const docx = fixtures.zip(["[Content_Types].xml", "word/document.xml"]);
@@ -172,5 +177,59 @@ describe("checkMessage", () => {
 
   test("stripMarkup keeps newlines and tabs", () => {
     expect(stripMarkup("a\n\tb")).toBe("a\n\tb");
+  });
+
+  test.each([
+    ["a bare opener", "x<a", "x"],
+    ["an opener with a stray greater-than", "x<a>y", "xy"],
+    ["a closing tag", "x</b>y", "xy"],
+    ["an upper-case script block", "x<SCRIPT>bad</ScRiPt >y", "xy"],
+    [
+      "a script opener without a closer drops the tag and keeps the text",
+      "x<script>bad",
+      "xbad",
+    ],
+    ["a script prefix that is not a script tag", "x<scripts>y", "xy"],
+  ])("stripMarkup handles %s", (_label, raw, expected) => {
+    expect(stripMarkup(raw)).toBe(expected);
+  });
+});
+
+describe("markup stripping runs in linear time", () => {
+  const inputs: [string, string][] = [
+    ["unclosed anchors", "<a".repeat(500_000)],
+    ["unclosed script openers", "<script ".repeat(200_000)],
+    ["unclosed style openers", "<style ".repeat(200_000)],
+    ["unclosed comments", "<!--".repeat(250_000)],
+    [
+      "script closers without a greater-than",
+      "<script></script ".repeat(60_000),
+    ],
+    ["angle brackets only", "<".repeat(1_000_000)],
+  ];
+
+  test.each(inputs)("stripMarkup finishes quickly on %s", (_label, raw) => {
+    const started = performance.now();
+    stripMarkup(raw);
+    expect(performance.now() - started).toBeLessThan(500);
+  });
+
+  test("capInboundText truncates before any stripping and keeps whole code points", () => {
+    const raw = `${"a".repeat(MAX_STORED_MESSAGE_CHARS - 1)}\u{1F600}tail`;
+    const capped = capInboundText(raw);
+    expect(capped.truncated).toBe(true);
+    expect(capped.text).toHaveLength(MAX_STORED_MESSAGE_CHARS - 1);
+    expect(capInboundText("short")).toEqual({
+      text: "short",
+      truncated: false,
+    });
+  });
+
+  test("checkMessage bounds raw input and flags it as too_long", () => {
+    const started = performance.now();
+    const verdict = checkMessage("<a".repeat(500_000));
+    expect(performance.now() - started).toBeLessThan(500);
+    expect(verdict.flagged).toBe(true);
+    expect(verdict.reasons).toContain("too_long");
   });
 });

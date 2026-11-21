@@ -22,7 +22,7 @@ import {
   type SupportDb,
 } from "@pw-support/db";
 import { detectFile, preflightAttachment } from "./file-type";
-import { checkMessage } from "./message-checks";
+import { capInboundText, checkMessage } from "./message-checks";
 import { toRequestSummary, toThreadMessage } from "./presenters";
 import type { ObjectStorage, StoredObject } from "./storage";
 
@@ -150,9 +150,10 @@ export function createIntakeService(deps: IntakeDeps) {
     request: RequestRow,
     message: MessageRow,
     files: File[],
+    truncated: boolean,
   ): Promise<IntakeResult> {
     try {
-      const verdict = checks.checkMessage(message.body);
+      const verdict = checks.checkMessage(message.body, { truncated });
       const checked = await recordMessageChecks(db, {
         message,
         request,
@@ -171,6 +172,7 @@ export function createIntakeService(deps: IntakeDeps) {
         requestId: request.id,
         message: toThreadMessage(checked, stored),
         files: results,
+        truncated,
       };
     } catch (error) {
       throw new ProcessingError(request.id, error);
@@ -182,11 +184,18 @@ export function createIntakeService(deps: IntakeDeps) {
       scope: CustomerScope,
       input: InboundInput,
     ): Promise<IntakeResult> {
+      const capped = capInboundText(input.text);
       const { request, message } = await persistInboundRequest(db, {
         scope,
-        body: input.text,
+        body: capped.text,
       });
-      return processInbound(scope, request, message, input.files);
+      return processInbound(
+        scope,
+        request,
+        message,
+        input.files,
+        capped.truncated,
+      );
     },
 
     async addMessage(
@@ -194,10 +203,11 @@ export function createIntakeService(deps: IntakeDeps) {
       requestId: string,
       input: InboundInput,
     ): Promise<IntakeResult | null> {
+      const capped = capInboundText(input.text);
       const persisted = await persistInboundMessage(db, {
         scope,
         requestId,
-        body: input.text,
+        body: capped.text,
       });
       if (!persisted) return null;
       return processInbound(
@@ -205,6 +215,7 @@ export function createIntakeService(deps: IntakeDeps) {
         persisted.request,
         persisted.message,
         input.files,
+        capped.truncated,
       );
     },
 

@@ -65,6 +65,7 @@ export const intakeResultSchema = z.object({
   requestId: z.string().uuid(),
   message: threadMessageSchema,
   files: z.array(fileResultSchema),
+  truncated: z.boolean().default(false),
 });
 export type IntakeResult = z.infer<typeof intakeResultSchema>;
 

@@ -198,6 +198,59 @@ describe("POST /v1/requests", () => {
     expect(body?.message.body).toHaveLength(10_000);
   });
 
+  test.each([
+    ["unclosed anchors", "<a".repeat(500_000)],
+    ["unclosed script openers", "<script ".repeat(120_000)],
+  ])(
+    "D7/D9: %s are stored truncated, flagged, and answered quickly",
+    async (_label, raw) => {
+      const who = await tenant();
+      const started = performance.now();
+      const { response, body } = await submit(who, raw);
+      expect(performance.now() - started).toBeLessThan(3000);
+      expect(response.status).toBe(201);
+      expect(body?.truncated).toBe(true);
+      expect(body?.message.flagged).toBe(true);
+      const [stored] = await db
+        .select()
+        .from(messages)
+        .where(eq(messages.requestId, body?.requestId ?? ""));
+      expect(stored?.body).toHaveLength(40_000);
+      expect(stored?.bodyFlagged).toBe(true);
+      expect(await eventsFor(body?.requestId ?? "")).toEqual([
+        "request.created",
+        "message.flagged",
+      ]);
+      const [flagged] = await db
+        .select()
+        .from(events)
+        .where(
+          and(
+            eq(events.requestId, body?.requestId ?? ""),
+            eq(events.type, "message.flagged"),
+          ),
+        );
+      expect(flagged?.payload).toMatchObject({
+        reasons: expect.arrayContaining(["too_long"]),
+      });
+    },
+  );
+
+  test("a text field above the transport cap returns 413 before anything is stored", async () => {
+    const who = await tenant();
+    const response = await call(
+      who,
+      "POST",
+      "/requests",
+      form("x".repeat(1024 * 1024 + 1)),
+    );
+    expect(response.status).toBe(413);
+    const list = requestListSchema.parse(
+      await (await call(who, "GET", "/requests")).json(),
+    );
+    expect(list.requests).toHaveLength(0);
+  });
+
   test("A4: a renamed executable is rejected, recorded, and never stored in S3", async () => {
     const who = await tenant();
     const { body } = await submit(who, "see invoice", [
@@ -543,6 +596,48 @@ describe("POST /v1/requests/:id/messages", () => {
       await (await call(who, "GET", `/requests/${requestId}`)).json(),
     );
     expect(thread.messages).toHaveLength(2);
+  });
+
+  test("a follow-up with a huge unclosed-tag text is stored truncated and flagged", async () => {
+    const who = await tenant();
+    const { body } = await submit(who, "question");
+    const requestId = body?.requestId ?? "";
+    const started = performance.now();
+    const response = await call(
+      who,
+      "POST",
+      `/requests/${requestId}/messages`,
+      form("<a".repeat(500_000)),
+    );
+    expect(performance.now() - started).toBeLessThan(3000);
+    expect(response.status).toBe(201);
+    const result = intakeResultSchema.parse(await response.json());
+    expect(result.truncated).toBe(true);
+    expect(result.message.flagged).toBe(true);
+    const rows = await db
+      .select()
+      .from(messages)
+      .where(eq(messages.requestId, requestId))
+      .orderBy(messages.createdAt);
+    expect(rows[1]?.body).toHaveLength(40_000);
+    expect(rows[1]?.bodyFlagged).toBe(true);
+    expect(await eventsFor(requestId)).toEqual([
+      "request.created",
+      "message.created",
+      "message.flagged",
+    ]);
+  });
+
+  test("a follow-up text field above the transport cap returns 413", async () => {
+    const who = await tenant();
+    const { body } = await submit(who, "question");
+    const response = await call(
+      who,
+      "POST",
+      `/requests/${body?.requestId}/messages`,
+      form("x".repeat(1024 * 1024 + 1)),
+    );
+    expect(response.status).toBe(413);
   });
 
   test("a follow-up without text returns 400", async () => {
