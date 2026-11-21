@@ -55,7 +55,7 @@ export function loadTriageConfig(env: EnvLike = process.env): TriageConfig {
       threshold: number(env.JEV_INJECTION_THRESHOLD, 0.5),
       timeoutMs: number(env.JEV_TIMEOUT_MS, 15_000),
       chunkChars: Math.max(500, number(env.JEV_CHUNK_CHARS, 4_000)),
-      judgeImages: flag(env.JEV_JUDGE_IMAGES, false),
+      judgeImages: flag(env.JEV_JUDGE_IMAGES, true),
     },
     extract: {
       maxCharsPerFile: number(env.TRIAGE_MAX_CHARS_PER_FILE, 20_000),

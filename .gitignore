@@ -11,4 +11,5 @@ dist
 coverage
 cdk.out
 .env.local
+modules/triage/agents/**/agent*.lock.json
 e2e/artifacts

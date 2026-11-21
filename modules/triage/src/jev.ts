@@ -14,6 +14,13 @@ export const INJECTION_QUESTION = {
   },
 } as const;
 
+export class JevInputError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "JevInputError";
+  }
+}
+
 export interface JevSubject {
   text?: string;
   image?: { format: "png" | "jpeg"; base64: string };
@@ -76,6 +83,11 @@ export function createJevClient(options: JevClientOptions): JevClient {
         body: JSON.stringify(body),
         signal: AbortSignal.timeout(timeoutMs),
       });
+      if (response.status === 400 && subject.image) {
+        throw new JevInputError(
+          `Jev rejected the image: ${(await response.text()).slice(0, 200)}`,
+        );
+      }
       if (!response.ok) {
         throw new Error(
           `Jev answered ${response.status}: ${(await response.text()).slice(0, 200)}`,

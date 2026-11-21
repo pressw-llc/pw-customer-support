@@ -1,5 +1,5 @@
 import type { JudgmentInput } from "@pw-support/db";
-import type { JevClient, JevSubject } from "./jev";
+import { type JevClient, JevInputError, type JevSubject } from "./jev";
 
 export const INJECTION_KIND = "injection";
 
@@ -100,6 +100,18 @@ export async function runInjectionFilter(
           raw: { ...result.raw, chunk: unit.chunk, of: unit.of },
         });
       } catch (error) {
+        if (error instanceof JevInputError) {
+          judgments.push({
+            requestId: options.requestId,
+            kind: INJECTION_KIND,
+            subject: unit.subject,
+            score: 0,
+            threshold: options.threshold,
+            flagged: false,
+            raw: { skipped: true, reason: error.message },
+          });
+          continue;
+        }
         failure = error instanceof Error ? error.message : String(error);
       }
     }

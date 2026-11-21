@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { DEFAULT_AGENT_MODEL, loadTriageConfig } from "./config";
 import { chunkText, INJECTION_KIND, runInjectionFilter } from "./filter";
-import { createJevClient, JEV_ENDPOINT } from "./jev";
+import { createJevClient, JEV_ENDPOINT, JevInputError } from "./jev";
 import { parseAgentOutput } from "./parse";
 import {
   createWorkerRuntime,
@@ -121,6 +121,15 @@ describe("createJevClient", () => {
     await expect(failing.client.judgeInjection({ text: "x" })).rejects.toThrow(
       /503/,
     );
+    const badImage = clientWith(
+      () => new Response("bad dims", { status: 400 }),
+    );
+    await expect(
+      badImage.client.judgeInjection({ image: { format: "png", base64: "A" } }),
+    ).rejects.toBeInstanceOf(JevInputError);
+    await expect(
+      badImage.client.judgeInjection({ text: "x" }),
+    ).rejects.not.toBeInstanceOf(JevInputError);
     const malformed = clientWith(() => Response.json({ answers: {} }));
     await expect(
       malformed.client.judgeInjection({ text: "x" }),
@@ -167,6 +176,23 @@ describe("runInjectionFilter", () => {
       { ...base, jev },
     );
     expect(jev.calls[0]?.image?.format).toBe("png");
+  });
+
+  test("an image Jev cannot read is recorded as skipped and does not fail the filter", async () => {
+    const jev = fakeJev((subject) =>
+      subject.image ? new JevInputError("Invalid image dimensions.") : 0.01,
+    );
+    const verdict = await runInjectionFilter(
+      [
+        { subject: "message", text: "see image" },
+        { subject: "image:1", image: { format: "png", base64: "AAAA" } },
+      ],
+      { ...base, jev },
+    );
+    expect(verdict).toMatchObject({ flagged: false, unavailable: false });
+    const skipped = verdict.judgments.find((j) => j.subject === "image:1");
+    expect(skipped?.raw).toMatchObject({ skipped: true });
+    expect(skipped?.flagged).toBe(false);
   });
 
   test("fails closed without a client and on a client error", async () => {
