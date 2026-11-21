@@ -43,8 +43,18 @@ describe("SupportStack", () => {
     });
   });
 
+  test("creates the Linear adapter queue with a dead-letter queue", () => {
+    template.hasResourceProperties("AWS::SQS::Queue", {
+      QueueName: "pw-support-adapter-linear",
+      RedrivePolicy: { maxReceiveCount: 5 },
+    });
+    template.hasResourceProperties("AWS::SQS::Queue", {
+      QueueName: "pw-support-adapter-linear-dlq",
+    });
+  });
+
   test("creates the wake queue with a dead-letter queue", () => {
-    template.resourceCountIs("AWS::SQS::Queue", 2);
+    template.resourceCountIs("AWS::SQS::Queue", 4);
     template.hasResourceProperties("AWS::SQS::Queue", {
       QueueName: "pw-support-triage-wake",
       RedrivePolicy: { maxReceiveCount: 5 },

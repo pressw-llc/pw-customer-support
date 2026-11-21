@@ -14,6 +14,8 @@ export class SupportStack extends Stack {
   readonly attachmentsBucket: s3.Bucket;
   readonly triageWakeQueue: sqs.Queue;
   readonly triageWakeDlq: sqs.Queue;
+  readonly linearAdapterQueue: sqs.Queue;
+  readonly linearAdapterDlq: sqs.Queue;
 
   constructor(scope: Construct, id: string, props?: StackProps) {
     super(scope, id, props);
@@ -35,6 +37,20 @@ export class SupportStack extends Stack {
       encryption: sqs.QueueEncryption.SQS_MANAGED,
       deadLetterQueue: {
         queue: this.triageWakeDlq,
+        maxReceiveCount: TRIAGE_WAKE_MAX_RECEIVES,
+      },
+    });
+
+    this.linearAdapterDlq = new sqs.Queue(this, "LinearAdapterDlq", {
+      queueName: RESOURCE_NAMES.linearAdapterDlq,
+      encryption: sqs.QueueEncryption.SQS_MANAGED,
+    });
+
+    this.linearAdapterQueue = new sqs.Queue(this, "LinearAdapterQueue", {
+      queueName: RESOURCE_NAMES.linearAdapterQueue,
+      encryption: sqs.QueueEncryption.SQS_MANAGED,
+      deadLetterQueue: {
+        queue: this.linearAdapterDlq,
         maxReceiveCount: TRIAGE_WAKE_MAX_RECEIVES,
       },
     });
