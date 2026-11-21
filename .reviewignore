@@ -1,0 +1,22 @@
+# Paths the PR reviewer leaves out of its review, in .gitignore syntax.
+# The reviewer also leaves out every path that .gitignore matches.
+# A "!" line puts a path back in the review, including a path that .gitignore matches.
+# The reviewer reads this file from the default branch.
+
+# Documentation
+/docs/
+/doc/
+/CHANGELOG.md
+
+# Build output
+/dist/
+/build/
+/out/
+/coverage/
+/.next/
+/.turbo/
+
+# Vendored upstream skill copies
+/.claude/skills/pw-pipeline-*/
+/.claude/skills/pw-agents-*/
+/.claude/skills/README.md

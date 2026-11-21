@@ -6,3 +6,8 @@
 .delivery/ALLOW_FRONTIER
 .claude/worktrees
 .subagent-guard/
+node_modules
+dist
+coverage
+cdk.out
+.env.local
