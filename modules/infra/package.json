@@ -1,0 +1,21 @@
+{
+  "name": "@pw-support/infra",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "synth": "cdk synth --quiet --no-notices"
+  },
+  "dependencies": {
+    "@pw-support/contracts": "workspace:*",
+    "aws-cdk-lib": "^2.170.0",
+    "constructs": "^10.4.2"
+  },
+  "devDependencies": {
+    "aws-cdk": "^2.170.0"
+  }
+}

@@ -1,0 +1,17 @@
+{
+  "name": "@pw-support/db",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@pw-support/contracts": "workspace:*",
+    "drizzle-orm": "^0.36.4",
+    "postgres": "^3.4.9"
+  }
+}

@@ -1,0 +1,28 @@
+name: pw-support
+
+services:
+  postgres:
+    image: postgres:16
+    environment:
+      POSTGRES_USER: support
+      POSTGRES_PASSWORD: support
+      POSTGRES_DB: support
+    ports: ["127.0.0.1:${SUPPORT_POSTGRES_PORT:-5447}:5432"]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U support"]
+      interval: 2s
+      retries: 30
+
+  localstack:
+    image: localstack/localstack:3
+    environment:
+      SERVICES: sqs,s3,secretsmanager
+    ports: ["127.0.0.1:${SUPPORT_LOCALSTACK_PORT:-4577}:4566"]
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          'curl -sf localhost:4566/_localstack/health | grep -Eq ''"sqs": "(available|running)"'' && curl -sf localhost:4566/_localstack/health | grep -Eq ''"s3": "(available|running)"'' && curl -sf localhost:4566/_localstack/health | grep -Eq ''"secretsmanager": "(available|running)"''',
+        ]
+      interval: 2s
+      retries: 60
