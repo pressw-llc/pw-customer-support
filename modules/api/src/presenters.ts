@@ -15,6 +15,7 @@ export function toThreadMessage(
     body: displayBody(message),
     flagged: message.bodyFlagged,
     author: message.author as ThreadMessage["author"],
+    authorName: message.authorName,
     audience: message.audience as ThreadMessage["audience"],
     originChannel: message.originChannel as ThreadMessage["originChannel"],
     createdAt: message.createdAt.toISOString(),

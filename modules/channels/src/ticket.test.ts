@@ -1,6 +1,9 @@
 import { describe, expect, test } from "bun:test";
 import { HUMAN_TRIAGE_LABEL, humanTriageResult } from "@pw-support/contracts";
 import {
+  attachmentsMarker,
+  buildFollowUpParts,
+  buildLateAttachmentsComment,
   buildTicket,
   inertText,
   LABEL_NAMES,
@@ -76,7 +79,7 @@ describe("buildTicket", () => {
     requestId: REQUEST_ID,
     result: VALID_RESULT,
     outcome: "agent" as const,
-    customerText: "My export fails.",
+    messages: [{ id: "m1", text: "My export fails.", ready: true }],
     attachments: [],
   };
 
@@ -126,8 +129,10 @@ describe("buildTicket", () => {
     ].join("\n");
     const draft = buildTicket({
       ...base,
-      customerText: hostile,
-      attachments: [{ filename: "evil`name](x).png" }],
+      messages: [{ id: "m1", text: hostile, ready: true }],
+      attachments: [
+        { id: "a1", messageId: "m1", filename: "evil`name](x).png" },
+      ],
     });
     const quote = section(draft.description, "## Customer message");
     const quoted = quote.filter((line) => line.startsWith(">"));
@@ -238,14 +243,129 @@ describe("buildTicket", () => {
     const draft = buildTicket({
       ...base,
       attachments: [
-        { filename: "a.png", notAnalyzed: true },
-        { filename: "b.txt" },
+        { id: "a1", messageId: "m1", filename: "a.png", notAnalyzed: true },
+        { id: "a2", messageId: "m1", filename: "b.txt" },
       ],
     });
     expect(section(draft.description, "## Attachments").slice(0, 2)).toEqual([
       "- `a.png` (not analyzed)",
       "- `b.txt`",
     ]);
+  });
+
+  test("only ready messages that fit the quote cap count as delivered with the ticket", () => {
+    const draft = buildTicket({
+      ...base,
+      messages: [
+        { id: "m1", text: "first", ready: true },
+        { id: "m2", text: "not ready", ready: false },
+        { id: "m3", text: "third", ready: true },
+        { id: "m4", text: "z".repeat(QUOTE_MAX_CHARS), ready: true },
+        { id: "m5", text: "after the overflow", ready: true },
+      ],
+      attachments: [
+        { id: "a1", messageId: "m1", filename: "one.txt" },
+        { id: "a2", messageId: "m2", filename: "two.txt" },
+        { id: "a4", messageId: "m4", filename: "four.txt" },
+      ],
+    });
+    expect(draft.deliveredMessageIds).toEqual(["m1"]);
+    expect(draft.deliveredAttachmentIds).toEqual(["a1"]);
+    expect(draft.description).toContain("> first");
+    expect(draft.description).not.toContain("third");
+    expect(draft.description).not.toContain("not ready");
+    expect(draft.description).not.toContain("zzzz");
+    expect(draft.description).toContain(
+      "[further messages follow as comments]",
+    );
+    expect(draft.description).not.toContain("two.txt");
+  });
+
+  test("N2 a not-ready message stops the description so later messages keep their order", () => {
+    const draft = buildTicket({
+      ...base,
+      messages: [
+        { id: "m1", text: "first", ready: true },
+        { id: "m2", text: "second", ready: false },
+        { id: "m3", text: "third", ready: true },
+      ],
+    });
+    expect(draft.deliveredMessageIds).toEqual(["m1"]);
+    expect(draft.description).not.toContain("third");
+    expect(draft.description).toContain(
+      "[further messages follow as comments]",
+    );
+  });
+
+  test("a first message over the cap is cut and not counted as delivered", () => {
+    const draft = buildTicket({
+      ...base,
+      messages: [
+        { id: "m1", text: "x".repeat(QUOTE_MAX_CHARS + 10), ready: true },
+      ],
+    });
+    expect(draft.deliveredMessageIds).toEqual([]);
+    expect(draft.description).toContain(
+      `[text cut at ${QUOTE_MAX_CHARS} characters`,
+    );
+  });
+
+  test("C5 the rest of a long first message is posted as numbered parts without repeating the head", () => {
+    const text = `${"a".repeat(QUOTE_MAX_CHARS)}${"b".repeat(QUOTE_MAX_CHARS)}${"c".repeat(10)}`;
+    const parts = buildFollowUpParts({
+      messageId: "m1",
+      originChannel: "widget",
+      text,
+      attachmentNames: ["one.txt"],
+      headChars: QUOTE_MAX_CHARS,
+    });
+    expect(parts).toHaveLength(2);
+    expect(parts[0]?.body).toContain("(part 2 of 3)");
+    expect(parts[0]?.body).toContain(`> ${"b".repeat(QUOTE_MAX_CHARS)}`);
+    expect(parts[0]?.body).not.toContain("aaaa");
+    expect(parts[0]?.body).toContain("one.txt");
+    expect(parts[1]?.body).toContain("(part 3 of 3)");
+    expect(parts[1]?.body).toContain(`> ${"c".repeat(10)}`);
+    expect(parts[0]?.marker).toBe("Support message ID: m1 part 2 of 3");
+    expect(parts[1]?.body.endsWith(parts[1]?.marker ?? "?")).toBe(true);
+  });
+
+  test("C5 a follow-up over the cap splits at the cap and a short one keeps the plain marker", () => {
+    const parts = buildFollowUpParts({
+      messageId: "m2",
+      originChannel: "widget",
+      text: "x".repeat(QUOTE_MAX_CHARS + 5),
+      attachmentNames: [],
+    });
+    expect(parts.map((part) => part.marker)).toEqual([
+      "Support message ID: m2 part 1 of 2",
+      "Support message ID: m2 part 2 of 2",
+    ]);
+    const [single] = buildFollowUpParts({
+      messageId: "m3",
+      originChannel: "widget",
+      text: "short",
+      attachmentNames: [],
+      headChars: QUOTE_MAX_CHARS,
+    });
+    expect(single?.marker).toBe("Support message ID: m3");
+    expect(single?.body).toContain("> short");
+  });
+
+  test("C6 the late attachment marker names the exact attachment set", () => {
+    expect(attachmentsMarker(["a", "b"])).toBe(attachmentsMarker(["b", "a"]));
+    expect(attachmentsMarker(["a", "b"])).not.toBe(attachmentsMarker(["a"]));
+  });
+
+  test("late attachment comments carry the follow-up header and the marker last", () => {
+    const comment = buildLateAttachmentsComment({
+      originChannel: "widget",
+      attachmentNames: ["a`b.log"],
+      marker: attachmentsMarker(["att-1"]),
+    });
+    expect(comment.startsWith("Customer follow-up via widget\n\n")).toBe(true);
+    expect(comment).toContain("- `a_b.log`");
+    expect(comment.endsWith(attachmentsMarker(["att-1"]))).toBe(true);
   });
 
   test("a title with markup or newlines becomes one clean line", () => {

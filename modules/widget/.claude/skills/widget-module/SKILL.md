@@ -33,6 +33,7 @@ description: Work in the widget module: the React support widget that client app
 - Bundle `@pw-support/contracts` into `dist` for the hash helper. Never list it as a runtime dependency.
 - Poll for updates. Real-time push is out of scope for V1.
 - Opening a thread marks it read.
+- Show who replied and from which channel: `authorName (Support) via Linear`. Render every message body as plain text through React. Never use `dangerouslySetInnerHTML`.
 - Fetch attachments with the auth headers and download a blob. A plain link cannot send headers.
 - Keep labels, focus management, and keyboard support working: Escape closes the panel and returns focus to the launcher.
 

@@ -54,6 +54,7 @@ export const threadMessageSchema = z.object({
   body: z.string(),
   flagged: z.boolean(),
   author: messageAuthorSchema,
+  authorName: z.string().nullable().default(null),
   audience: messageAudienceSchema,
   originChannel: originChannelSchema,
   createdAt: z.string(),

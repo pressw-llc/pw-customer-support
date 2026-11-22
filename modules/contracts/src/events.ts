@@ -4,6 +4,7 @@ import { channelKeySchema } from "./channel-key";
 export const eventTypes = [
   "request.created",
   "message.created",
+  "message.intake_completed",
   "attachment.rejected",
   "message.flagged",
   "triage.job.opened",
@@ -14,9 +15,12 @@ export const eventTypes = [
   "triage.result.rejected",
   "ticket.created",
   "ticket.blocked",
+  "comment.received",
   "reply.held",
   "reply.sent",
   "reply.flagged",
+  "reply.cancelled",
+  "reply.expired",
 ] as const;
 
 export const eventTypeSchema = z.enum(eventTypes);

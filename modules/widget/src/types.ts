@@ -26,6 +26,7 @@ export interface ThreadMessage {
   body: string;
   flagged: boolean;
   author: Author;
+  authorName?: string | null;
   audience: "external" | "internal";
   originChannel: OriginChannel;
   createdAt: string;

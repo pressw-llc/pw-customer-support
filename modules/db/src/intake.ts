@@ -302,7 +302,7 @@ export async function listCustomerRequests(
         eq(messages.audience, CUSTOMER_VISIBLE),
         ne(messages.author, "customer"),
         gt(
-          messages.createdAt,
+          messages.insertedAt,
           sql`coalesce(${requests.customerLastReadAt}, '-infinity'::timestamptz)`,
         ),
       ),
@@ -378,7 +378,7 @@ export async function markThreadRead(
 ): Promise<boolean> {
   const rows = await db
     .update(requests)
-    .set({ customerLastReadAt: sql`now()` })
+    .set({ customerLastReadAt: sql`clock_timestamp()` })
     .where(
       and(
         eq(requests.id, requestId),

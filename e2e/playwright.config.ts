@@ -11,6 +11,9 @@ export const E2E = {
   projectKey: "pk_e2e_acme_portal",
   projectSlug: "e2e",
   clientSlug: "acme",
+  stubPort: Number(process.env.E2E_STUB_PORT) || 4591,
+  controlPort: Number(process.env.E2E_CONTROL_PORT) || 4592,
+  webhookSecret: "whsec_e2e_secret",
 } as const;
 
 const apiUrl = `http://127.0.0.1:${E2E.apiPort}`;
@@ -40,6 +43,28 @@ export default defineConfig({
         SEED_PROJECT_KEY: E2E.projectKey,
         RATE_LIMIT_PER_USER: "5000",
         RATE_LIMIT_PER_KEY: "50000",
+        LINEAR_WEBHOOK_SECRET: E2E.webhookSecret,
+        TRIAGE_INITIAL_DELAY_SECONDS: "0",
+      },
+    },
+    {
+      command: "bun scripts/stack-setup.ts && bun e2e/backend.ts",
+      cwd: root,
+      url: `http://127.0.0.1:${E2E.controlPort}/health`,
+      reuseExistingServer: false,
+      timeout: 90_000,
+      env: {
+        E2E_API_PORT: String(E2E.apiPort),
+        E2E_STUB_PORT: String(E2E.stubPort),
+        E2E_CONTROL_PORT: String(E2E.controlPort),
+        LINEAR_WEBHOOK_SECRET: E2E.webhookSecret,
+        SEED_CLIENT_SLUG: E2E.clientSlug,
+        SEED_PROJECT_SLUG: E2E.projectSlug,
+        SEED_PROJECT_KEY: E2E.projectKey,
+        TRIAGE_SWEEP_INTERVAL_SECONDS: "1",
+        TRIAGE_INITIAL_DELAY_SECONDS: "0",
+        TRIAGE_INTAKE_GRACE_SECONDS: "2",
+        TRIAGE_WORKER_ID: "e2e-worker",
       },
     },
     {

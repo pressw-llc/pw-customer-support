@@ -290,6 +290,30 @@ describe("thread", () => {
     );
   });
 
+  test("shows the staff name and renders reply markup as plain text", async () => {
+    api.requests = [summary("r1", "Export fails")];
+    api.threads.r1 = thread("r1", [
+      message("m1", "Export fails"),
+      message("m2", "<img src=x onerror=alert(1)> **fixed**", {
+        author: "staff",
+        authorName: "Ada Staff",
+        originChannel: "linear",
+      }),
+    ]);
+    const { ui } = await mountWidget();
+    await openPanel(ui);
+    fireEvent.click(await ui.findByRole("button", { name: /Export fails/ }));
+    const log = await ui.findByRole("log", { name: "Conversation" });
+    await waitFor(() =>
+      expect(within(log).getAllByRole("listitem").length).toBe(2),
+    );
+    expect(log.textContent).toContain("Ada Staff (Support)");
+    expect(log.textContent).toContain("via Linear");
+    expect(log.textContent).toContain("<img src=x onerror=alert(1)> **fixed**");
+    expect(log.querySelector("img")).toBeNull();
+    expect(log.querySelector("strong + strong")).toBeNull();
+  });
+
   test("a reply is sent and appears in the thread", async () => {
     api.requests = [summary("r1", "Question")];
     api.threads.r1 = thread("r1", [message("m1", "Question")]);

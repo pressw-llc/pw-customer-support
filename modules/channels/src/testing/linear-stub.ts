@@ -1,3 +1,5 @@
+import { signLinearWebhook } from "./sign";
+
 export interface StubTeam {
   id: string;
   key: string;
@@ -26,6 +28,126 @@ export interface StubComment {
   id: string;
   issueId: string;
   body: string;
+  userId: string | null;
+  userName: string;
+  parentId: string | null;
+  createdAt?: string;
+  updatedAt?: string;
+  payloadExtra?: PayloadExtra;
+}
+
+export interface PayloadExtra {
+  data?: Record<string, unknown>;
+  actor?: Record<string, unknown>;
+}
+
+export interface StubWebhookTarget {
+  url: string;
+  secret: string;
+}
+
+export interface StubDelivery {
+  deliveryId: string;
+  commentId: string;
+  status: number;
+  body: string;
+}
+
+export interface StaffCommentInput {
+  issueId: string;
+  body: string;
+  userId?: string | null;
+  userName?: string;
+  parentId?: string;
+  createdAt?: Date;
+  deliver?: boolean;
+  payloadExtra?: PayloadExtra;
+}
+
+export type CommentAction = "create" | "update" | "remove";
+
+export interface WebhookOverrides {
+  deliveryId?: string;
+  timestamp?: number;
+  secret?: string;
+  signature?: string | null;
+  omitDelivery?: boolean;
+  rawBody?: string;
+  action?: CommentAction;
+}
+
+export const STUB_VIEWER_ID = "user-integration";
+export const STUB_VIEWER_NAME = "PressW Support Integration";
+export const STUB_STAFF_ID = "user-staff-ada";
+export const STUB_STAFF_NAME = "Ada Staff";
+
+export function commentWebhookPayload(
+  comment: StubComment,
+  timestamp: number = Date.now(),
+  action: CommentAction = "create",
+): Record<string, unknown> {
+  const createdAt = comment.createdAt ?? new Date(timestamp).toISOString();
+  const human = comment.userId !== null;
+  return {
+    action,
+    type: "Comment",
+    actor: {
+      ...(human ? { id: comment.userId, name: comment.userName } : {}),
+      type: "user",
+      ...comment.payloadExtra?.actor,
+    },
+    createdAt,
+    data: {
+      id: comment.id,
+      createdAt,
+      updatedAt: comment.updatedAt ?? new Date(timestamp).toISOString(),
+      body: comment.body,
+      issueId: comment.issueId,
+      parentId: comment.parentId,
+      userId: comment.userId,
+      user: human ? { id: comment.userId, name: comment.userName } : null,
+      ...comment.payloadExtra?.data,
+    },
+    url: `https://linear.app/stub/issue/${comment.issueId}#comment-${comment.id}`,
+    organizationId: "org-stub",
+    webhookTimestamp: timestamp,
+    webhookId: "webhook-stub",
+  };
+}
+
+export async function deliverCommentWebhook(
+  target: StubWebhookTarget,
+  comment: StubComment,
+  overrides: WebhookOverrides = {},
+): Promise<StubDelivery> {
+  const deliveryId = overrides.deliveryId ?? crypto.randomUUID();
+  const rawBody =
+    overrides.rawBody ??
+    JSON.stringify(
+      commentWebhookPayload(comment, overrides.timestamp, overrides.action),
+    );
+  const signature =
+    overrides.signature === undefined
+      ? signLinearWebhook(overrides.secret ?? target.secret, rawBody)
+      : overrides.signature;
+  const headers: Record<string, string> = {
+    "Content-Type": "application/json; charset=utf-8",
+    "Linear-Event": "Comment",
+    "User-Agent": "Linear-Webhook",
+  };
+  if (signature !== null) headers["Linear-Signature"] = signature;
+  if (!overrides.omitDelivery) headers["Linear-Delivery"] = deliveryId;
+  const response = await fetch(target.url, {
+    method: "POST",
+    headers,
+    body: rawBody,
+  });
+  return {
+    deliveryId,
+    commentId: comment.id,
+    status: response.status,
+    body: await response.text(),
+  };
 }
 
 export interface StubCall {
@@ -42,6 +164,15 @@ export interface LinearStub {
   labels: StubLabel[];
   comments: StubComment[];
   teams: StubTeam[];
+  deliveries: StubDelivery[];
+  viewerId: string;
+  configureWebhook(target: StubWebhookTarget | null): void;
+  staffComment(input: StaffCommentInput): Promise<{
+    comment: StubComment;
+    delivery: StubDelivery | null;
+  }>;
+  editComment(commentId: string, body: string): Promise<StubDelivery | null>;
+  removeComment(commentId: string): Promise<StubDelivery | null>;
   failNext(count: number, message?: string): void;
   reset(): void;
   stop(): Promise<void>;
@@ -57,6 +188,9 @@ export const DEFAULT_STUB_TEAMS: StubTeam[] = [
 ];
 
 const OPERATIONS: [string, RegExp][] = [
+  ["viewer", /\bviewer\s*\{/],
+  ["comment", /\bcomment\s*\(\s*id/],
+  ["issueComments", /\bissue\s*\(\s*id/],
   ["issueLabelCreate", /\bissueLabelCreate\s*\(/],
   ["issueLabels", /\bissueLabels\s*\(/],
   ["issueCreate", /\bissueCreate\s*\(/],
@@ -73,6 +207,11 @@ class GraphQlFailure extends Error {
   ) {
     super(message);
   }
+}
+
+function nextUpdatedAt(previous: string | undefined): string {
+  const floor = previous ? new Date(previous).getTime() + 1 : 0;
+  return new Date(Math.max(Date.now(), floor)).toISOString();
 }
 
 function asRecord(value: unknown): Record<string, unknown> {
@@ -95,6 +234,45 @@ export function startLinearStub(options: StubOptions = {}): LinearStub {
     labels: [],
     comments: [],
     teams,
+    deliveries: [],
+    viewerId: STUB_VIEWER_ID,
+    configureWebhook(target) {
+      webhook = target;
+    },
+    async staffComment(input) {
+      const issue = stub.issues.find((i) => i.id === input.issueId);
+      if (!issue) throw new GraphQlFailure("Entity not found: Issue");
+      const comment: StubComment = {
+        id: crypto.randomUUID(),
+        issueId: issue.id,
+        body: input.body,
+        userId: input.userId === undefined ? STUB_STAFF_ID : input.userId,
+        userName: input.userName ?? STUB_STAFF_NAME,
+        parentId: input.parentId ?? null,
+        createdAt: (input.createdAt ?? new Date()).toISOString(),
+        updatedAt: (input.createdAt ?? new Date()).toISOString(),
+        payloadExtra: input.payloadExtra,
+      };
+      stub.comments.push(comment);
+      return {
+        comment,
+        delivery: input.deliver === false ? null : await emit(comment),
+      };
+    },
+    async editComment(commentId, body) {
+      const comment = stub.comments.find((c) => c.id === commentId);
+      if (!comment) throw new GraphQlFailure("Entity not found: Comment");
+      comment.body = body;
+      comment.updatedAt = nextUpdatedAt(comment.updatedAt);
+      return emit(comment, "update");
+    },
+    async removeComment(commentId) {
+      const index = stub.comments.findIndex((c) => c.id === commentId);
+      const comment = stub.comments[index];
+      if (!comment) throw new GraphQlFailure("Entity not found: Comment");
+      stub.comments.splice(index, 1);
+      return emit(comment, "remove");
+    },
     failNext(count, message = "Internal server error") {
       failures = { count, message };
     },
@@ -103,6 +281,7 @@ export function startLinearStub(options: StubOptions = {}): LinearStub {
       stub.issues.length = 0;
       stub.labels.length = 0;
       stub.comments.length = 0;
+      stub.deliveries.length = 0;
       counters.clear();
     },
     stop: async () => {
@@ -110,7 +289,24 @@ export function startLinearStub(options: StubOptions = {}): LinearStub {
     },
   };
   let failures = { count: 0, message: "" };
+  let webhook: StubWebhookTarget | null = null;
   const counters = new Map<string, number>();
+
+  async function emit(
+    comment: StubComment,
+    action: CommentAction = "create",
+  ): Promise<StubDelivery | null> {
+    if (!webhook) return null;
+    try {
+      const delivery = await deliverCommentWebhook(webhook, comment, {
+        action,
+      });
+      stub.deliveries.push(delivery);
+      return delivery;
+    } catch {
+      return null;
+    }
+  }
 
   function team(id: unknown): StubTeam {
     const found = teams.find((t) => t.id === id || t.key === id);
@@ -253,13 +449,69 @@ export function startLinearStub(options: StubOptions = {}): LinearStub {
           "Argument Validation Error: body must not be empty",
         );
       }
-      const comment = {
+      const parentId =
+        typeof input.parentId === "string" ? input.parentId : null;
+      if (
+        parentId !== null &&
+        !stub.comments.some((c) => c.id === parentId && c.issueId === issue.id)
+      ) {
+        throw new GraphQlFailure("Entity not found: Comment");
+      }
+      const comment: StubComment = {
         id: crypto.randomUUID(),
         issueId: issue.id,
         body: input.body,
+        userId: stub.viewerId,
+        userName: STUB_VIEWER_NAME,
+        parentId,
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
       };
       stub.comments.push(comment);
+      void emit(comment);
       return { commentCreate: { success: true, comment: { id: comment.id } } };
+    },
+    viewer() {
+      return { viewer: { id: stub.viewerId } };
+    },
+    comment(vars) {
+      const found = stub.comments.find((c) => c.id === vars.id);
+      if (!found) throw new GraphQlFailure("Entity not found: Comment");
+      const extra = found.payloadExtra?.data ?? {};
+      return {
+        comment: {
+          id: found.id,
+          body: found.body,
+          createdAt: found.createdAt ?? new Date().toISOString(),
+          updatedAt: found.updatedAt ?? new Date().toISOString(),
+          archivedAt: null,
+          issue: { id: found.issueId },
+          parent: found.parentId ? { id: found.parentId } : null,
+          user:
+            found.userId === null
+              ? null
+              : { id: found.userId, name: found.userName, app: false },
+          botActor: extra.botActor ?? null,
+          externalUser: extra.externalUser ?? null,
+        },
+      };
+    },
+    issueComments(vars, query) {
+      const issue = stub.issues.find((i) => i.id === vars.issueId);
+      if (!issue) return { issue: null };
+      const marker = String(vars.marker ?? "");
+      const operator = /body:\s*\{\s*(\w+)\s*:/.exec(query)?.[1];
+      const nodes = stub.comments
+        .filter(
+          (c) =>
+            c.issueId === issue.id &&
+            marker !== "" &&
+            (operator === "endsWith"
+              ? c.body.endsWith(marker)
+              : c.body.includes(marker)),
+        )
+        .map(({ id, body }) => ({ id, body }));
+      return { issue: { comments: { nodes } } };
     },
   };
 

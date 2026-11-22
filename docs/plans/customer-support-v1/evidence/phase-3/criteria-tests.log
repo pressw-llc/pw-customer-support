@@ -1,0 +1,20 @@
+PASS A14 an unmarked comment stays internal and an @external comment appears and raises unread
+PASS A14 near-miss and unmarked bodies never produce a customer-visible message
+PASS A14 the classifier agrees with an independent oracle on random bodies
+PASS A15 a reply scored 1.9 stays held until its author confirms
+PASS A15 a confirm after the hold expires sends nothing
+PASS A15 a confirm releases only the latest held reply of its author in the thread
+PASS A15 a reply scored 2.5 sends with a flag the admin query returns
+PASS A15 a reply scored 3.0 sends without a flag and 2.0 sends with one
+PASS A15 a Jev failure holds the reply with a distinct reason and warns the author
+PASS A15 a missing scorer and an overlong reply both hold
+PASS A15 a scorer that returns a non finite score holds the reply
+PASS A15 own comments never loop: warnings and follow-up comments are ignored
+PASS A16 a widget follow-up becomes one quoted comment on the ticket
+PASS A16 comments keep the order of the follow-ups and list attachment names
+PASS A16 a follow-up that lands during ticket creation is delivered after ticket.created
+PASS A16 a follow-up already in the ticket description is not posted again
+PASS A16 a failed delivery is retried with backoff and posts one comment
+PASS A16 a comment created before a crash is found by its marker and not posted twice
+PASS A16 a message whose intake has not finished waits for the grace period
+junit failures: 0

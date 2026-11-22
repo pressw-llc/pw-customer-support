@@ -1,8 +1,10 @@
 import { resolveQueueUrl } from "@pw-support/api";
 import {
+  type AdapterRuntime,
   createAdapterRuntime,
   createDispatcher,
   runPoller,
+  setAdapterRuntime,
   sqsTransport,
 } from "@pw-support/channels";
 import { RESOURCE_NAMES } from "@pw-support/contracts";
@@ -12,10 +14,13 @@ import { runTriageWorker } from "./worker";
 
 const SHUTDOWN_GRACE_MS = 30_000;
 
-export async function main(): Promise<void> {
+export async function main(
+  options: { channels?: AdapterRuntime } = {},
+): Promise<void> {
   const triage = createWorkerRuntime();
   setWorkerRuntime(triage);
-  const channels = createAdapterRuntime();
+  const channels = options.channels ?? createAdapterRuntime();
+  setAdapterRuntime(channels);
   const controller = new AbortController();
   const log = (message: string, detail?: Record<string, unknown>) =>
     console.log(`[worker] ${message}`, detail ? JSON.stringify(detail) : "");

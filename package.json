@@ -32,6 +32,7 @@
     "seed:settings": "bun scripts/seed-settings.ts",
     "validate:pipelines": "bunx pw-pipeline validate",
     "validate:phase-2": "bun scripts/validate/phase-2-live.ts",
+    "validate:phase-3": "bun scripts/validate/phase-3-live.ts",
     "synth": "bun run --filter @pw-support/infra synth",
     "prepare": "git config core.hooksPath .githooks || true"
   },

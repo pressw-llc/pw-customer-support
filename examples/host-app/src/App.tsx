@@ -1,8 +1,9 @@
 import { SupportWidget } from "@pressw-llc/support-react";
 
+const params = new URLSearchParams(window.location.search);
 const signedInEmail =
-  new URLSearchParams(window.location.search).get("email") ??
-  import.meta.env.VITE_SUPPORT_USER_EMAIL;
+  params.get("email") ?? import.meta.env.VITE_SUPPORT_USER_EMAIL;
+const pollIntervalMs = Number(params.get("poll")) || undefined;
 
 export default function App() {
   return (
@@ -22,6 +23,7 @@ export default function App() {
         projectKey={import.meta.env.VITE_SUPPORT_PROJECT_KEY}
         userEmail={signedInEmail}
         apiUrl={import.meta.env.VITE_SUPPORT_API_URL}
+        pollIntervalMs={pollIntervalMs}
       />
     </main>
   );
