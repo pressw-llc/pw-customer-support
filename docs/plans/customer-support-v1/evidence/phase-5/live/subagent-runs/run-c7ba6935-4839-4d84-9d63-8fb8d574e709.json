@@ -47,7 +47,7 @@
   "exitCode": 0,
   "permissionDenials": 0,
   "turns": 2,
-  "costUsd": 0.06634820000000001,
+  "costUsd": 0.0320826,
   "digest": [
     {
       "type": "system",
@@ -94,7 +94,7 @@
       "subtype": "success",
       "is_error": false,
       "num_turns": 1,
-      "total_cost_usd": 0.041024000000000005,
+      "total_cost_usd": 0.0068954,
       "permission_denials": 0
     },
     {
@@ -141,7 +141,7 @@
       "subtype": "success",
       "is_error": false,
       "num_turns": 2,
-      "total_cost_usd": 0.06634820000000001,
+      "total_cost_usd": 0.0320826,
       "permission_denials": 0
     }
   ]
