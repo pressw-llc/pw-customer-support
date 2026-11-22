@@ -87,22 +87,16 @@ The stack runs Postgres on `127.0.0.1:5447`, LocalStack on `127.0.0.1:4577`, and
 | `SEED_LINEAR_TEAM_ID`                        | blank                                               | Team id for `bun run seed:settings`                                                  |
 | `VALIDATE_TIME_FACTOR`                       | `1`                                                 | Scale for the delays in `validate:phase-2`                                           |
 | `MCP_AUDIENCE`                               | blank, `COGNITO_AUDIENCE` plus the local MCP client | Comma list of client ids the MCP route accepts                                       |
-| `MCP_RATE_LIMIT_PER_WINDOW`                  | `120`                                               | MCP requests per window per engineer                                                 |
+| `MCP_REQUIRED_GROUP`                         | blank, off                                          | Cognito group an `/mcp` token must carry. Never applies to `/admin`                  |
+| `MCP_RATE_LIMIT_PER_WINDOW`                  | `120`                                               | MCP tool calls per window per engineer. Pings and `tools/list` do not count          |
 | `MCP_MAX_BODY_BYTES`                         | `262144`                                            | Body cap for MCP requests                                                            |
 | `PW_SUPPORT_API_URL`                         | `http://127.0.0.1:8787`                             | Laptop plugin API base URL                                                           |
 | `PW_SUPPORT_ISSUER`                          | blank, mock issuer                                  | Laptop plugin token issuer URL                                                       |
 | `PW_SUPPORT_CLIENT_ID`                       | `pw-support-mcp`                                    | Laptop plugin OAuth client id                                                        |
-| `PW_SUPPORT_CLIENT_SECRET`                   | blank, secret                                       | Client secret for the non-interactive grant                                          |
-| `PW_SUPPORT_SCOPE`                           | blank, `openid email profile`                       | Laptop plugin OAuth scope                                                            |
-| `PW_SUPPORT_LOGIN_PORT`                      | `53682`                                             | Loopback port for the login callback                                                 |
 | `PW_SUPPORT_CONFIG_DIR`                      | blank, `~/.config/pw-support`                       | Token file and watcher state directory                                               |
-| `PW_SUPPORT_MODEL`                           | blank, Claude Code default                          | Model for the headless subagent                                                      |
 | `PW_SUPPORT_CLAUDE_BIN`                      | `claude`                                            | Claude Code executable the watcher starts                                            |
 | `PW_SUPPORT_POLL_SECONDS`                    | `10`                                                | Watcher poll interval                                                                |
 | `PW_SUPPORT_RUN_TIMEOUT_SECONDS`             | `90`                                                | Hard timeout for one subagent run                                                    |
-| `PW_SUPPORT_MAX_BUDGET_USD`                  | `0.5`                                               | Spend cap for one subagent run                                                       |
-| `PW_SUPPORT_MAX_TURNS`                       | `3`                                                 | Turn cap for one subagent run                                                        |
-| `PW_SUPPORT_RUN_REPORT_DIR`                  | blank, off                                          | Directory for redacted subagent run reports                                          |
 | `SUPPORT_API_URL`                            | `http://localhost:8787`                             | Widget build-time default API URL                                                    |
 | `VITE_SUPPORT_PROJECT_KEY`                   | blank                                               | Example app project key                                                              |
 | `VITE_SUPPORT_USER_EMAIL`                    | blank                                               | Example app signed-in email                                                          |
@@ -451,28 +445,30 @@ An engineer subscribes to channel keys and a background watcher on the laptop tr
 sequenceDiagram
     participant W as Watcher on the laptop
     participant M as API /mcp
+    participant X as API /mcp/laptop
     participant P as Server preparation
     participant H as Headless claude -p
     participant S as submit_result server
     participant L as Linear adapter
     W->>M: jobs_offers
     M-->>W: open jobs on my subscriptions
-    W->>M: job_claim
-    M->>P: extract text, Jev filter, judgments
+    W->>X: job_claim with token and watcher credential
+    X->>P: extract text, Jev filter, judgments
     alt flagged, unavailable, or error
-        P-->>M: human_triage, no content
-        M-->>W: nothingToDo
+        P-->>X: human_triage, no content
+        X-->>W: nothingToDo
     else clean
-        P-->>M: judged text and images, untrusted framing
-        M-->>W: claim token, lease, content
-        W->>H: start with one tool, content on stdin
+        P-->>X: judged text and images, untrusted framing
+        X->>X: extend the lease, issue a submit credential
+        X-->>W: claim token, submit credential, lease, content
+        W->>H: verify init, then the content on stdin
         loop every lease/3
-            W->>M: job_renew
+            W->>X: job_renew
         end
         H->>S: submit_result
-        S->>M: job_submit_result with the claim token
-        M-->>S: accepted or refused
-        M->>L: triage.result.accepted event
+        S->>X: job_submit_result with the submit credential
+        X-->>S: accepted or refused
+        X->>L: triage.result.accepted event
         L-->>L: create the ticket
     end
 ```
@@ -487,23 +483,45 @@ An offer is an open job that matches a subscription, has finished intake, and ha
 
 A laptop never receives unfiltered customer content. `prepareAgentInput` in `modules/triage` runs for the cloud path and the laptop path. It extracts text in the isolated worker, runs the Jev injection filter over the message, filenames, document text, and images, and records the judgments. A flagged request, an unavailable filter, an error, or exhausted attempts ends as `human_triage` through the normal path, and the claim returns `nothingToDo` with no content. A clean request returns the judged text and images in `<untrusted_*>` framing. A preparation error releases the job to the cloud.
 
-### MCP route
+### MCP routes
 
-`POST /mcp` serves Streamable HTTP in stateless mode with `@modelcontextprotocol/sdk` 1.32.2. Every request needs a bearer token that the shared validator accepts. `MCP_AUDIENCE` sets the accepted client ids and falls back to `COGNITO_AUDIENCE`. Cognito access tokens work through `client_id`. A missing or invalid token returns 401 with `WWW-Authenticate`. `GET` and `DELETE` return 405. Requests are rate limited per engineer. Identity always comes from the token and never from a tool argument.
+Two endpoints serve Streamable HTTP in stateless mode with `@modelcontextprotocol/sdk` 1.32.2. Both need a bearer token that the shared validator accepts. `MCP_AUDIENCE` sets the accepted client ids and falls back to `COGNITO_AUDIENCE`. Cognito access tokens work through `client_id`. A missing or invalid token returns 401 with `WWW-Authenticate`. `GET` and `DELETE` return 405. Identity comes from the token and never from a tool argument.
 
-| Tool                  | Action                                                                               |
-| --------------------- | ------------------------------------------------------------------------------------ |
-| `subscriptions_list`  | List your prefixes                                                                   |
-| `subscription_add`    | Add a prefix and append `mcp.subscription.added`                                     |
-| `subscription_remove` | Remove a prefix and append `mcp.subscription.removed`                                |
-| `requests_query`      | Query request state by prefix and status. Metadata only                              |
-| `request_get`         | Return state and event types. Message bodies only for a subscribed channel           |
-| `jobs_offers`         | List open jobs on your subscriptions with timing and no content                      |
-| `job_claim`           | Claim an offered job. Return the token, lease, and content, or `nothingToDo`         |
-| `job_renew`           | Extend the lease with your own live token                                            |
-| `job_submit_result`   | Submit through the shared submit path. A refusal reopens the job and wakes the cloud |
+`/mcp` is the interactive surface. The plugin declares it in `.mcp.json`, and the engineer's own Claude Code session uses it. It serves six tools and no customer text.
+
+| Tool                  | Action                                                                                                     |
+| --------------------- | ---------------------------------------------------------------------------------------------------------- |
+| `subscriptions_list`  | List your prefixes                                                                                         |
+| `subscription_add`    | Add a prefix and append `mcp.subscription.added`                                                           |
+| `subscription_remove` | Remove a prefix and append `mcp.subscription.removed`                                                      |
+| `requests_query`      | Query request state by prefix and status                                                                   |
+| `request_get`         | Return state, event types, counts of messages, attachments, and characters, and reply hold and flag states |
+| `jobs_offers`         | List open jobs on your subscriptions with timing                                                           |
+
+No interactive tool returns a message body, a sanitized body, a preview, an attachment filename, a ticket title or summary, or staff reply text. The ticket link drops the title slug. Every string field in an output schema is an id, a timestamp, a channel key, a state token, or a ticket identifier, and a contract test fails when a field can carry free text. Engineers read the message text in the admin UI. The interactive session holds the full tool set of the engineer, so customer text never enters it.
+
+`/mcp/laptop` is the watcher surface. No plugin config names it. It serves `job_claim`, `job_renew`, and `job_submit_result`. A call needs one of two credentials.
+
+| Credential                         | Sent as                                             | Allows                                                        |
+| ---------------------------------- | --------------------------------------------------- | ------------------------------------------------------------- |
+| Engineer token plus watcher secret | `Authorization: Bearer ...` and `X-Support-Watcher` | `job_claim`, `job_renew`, `job_submit_result`                 |
+| Submit credential                  | `X-Support-Submit`                                  | `job_renew` and `job_submit_result` for one job and one claim |
+
+Without the watcher header the endpoint answers 401. A header that does not match the engineer and machine answers 403. The submit credential is random, stored as a hash on the job, and valid while that claim holds the lease. A reopened or reclaimed job invalidates it.
+
+`job_claim` extends the lease after preparation. When the extension fails, it answers `nothingToDo` with `lease_lost` and returns no content. Otherwise the answer carries the fresh expiry. A renew needs a live lease and cannot revive an expired one. A submit stays tolerant of an expired claim that nobody took over.
 
 `job_submit_result` validates with the cloud schema. The schema is strict, so a result with an extra field is refused. A refusal returns the field paths and a short message, and never echoes the value. A valid result completes the job and the Linear adapter creates the ticket. Claims append `triage.job.claimed` with the engineer subject.
+
+The per-engineer limit counts `tools/call` requests only. `job_renew` and `job_submit_result` use their own bucket of 60 per window.
+
+`MCP_REQUIRED_GROUP` names a Cognito group that an `/mcp` token must carry. It is off by default. A valid token without the group gets 403. `ADMIN_ALLOWED_EMAIL_DOMAINS` and `ADMIN_REQUIRED_GROUP` never apply to `/mcp`, because a Cognito access token has no `email` claim.
+
+### Watcher credential
+
+`pw-support watch run` creates a random machine id and secret on first start. It stores them in `watcher-credential.json` in the config directory with mode 0600. It registers them with `PUT /laptop/watcher`, an authenticated call and not an MCP tool. The server stores the SHA-256 of the secret per engineer and machine. `pw-support logout` calls `DELETE /laptop/watcher`, stops the watcher, and deletes the file. `pw-support headers`, the helper for the interactive session, prints the `Authorization` header only.
+
+This credential raises the bar against an interactive session that is steered toward the laptop endpoint. The interactive model has no tool that returns the secret and no tool that reaches `/mcp/laptop`. The remaining boundary is the operating system. The interactive session runs as the same user and can read a file that user owns. Do not read the credential as protection against code that runs as the engineer.
 
 ### Install and login
 
@@ -516,7 +534,7 @@ export PW_SUPPORT_CLIENT_ID=<app client id>
 modules/plugin/bin/pw-support login
 ```
 
-`pw-support login` runs the authorization code flow with PKCE against the issuer discovered from `PW_SUPPORT_ISSUER`. It opens the browser, listens on `127.0.0.1:PW_SUPPORT_LOGIN_PORT`, and checks `state`. Register `http://127.0.0.1:53682/callback` as a callback URL on the app client. Tokens go to `tokens.json` in the config directory with mode 0600, and the directory has mode 0700. The command refreshes an expired access token with the refresh token. `pw-support token` prints a fresh access token. `pw-support logout` deletes the file. Nothing logs a token. Automation uses `pw-support login --client-credentials` with `PW_SUPPORT_CLIENT_SECRET` against the mock issuer.
+`pw-support login` runs the authorization code flow with PKCE against the issuer discovered from `PW_SUPPORT_ISSUER`. It opens the browser, listens on `127.0.0.1:53682`, and checks `state`. Register `http://127.0.0.1:53682/callback` as a callback URL on the app client. Tokens go to `tokens.json` in the config directory with mode 0600, and the directory has mode 0700. The command refreshes an expired access token with the refresh token. `pw-support token` prints a fresh access token. `pw-support logout` revokes the watcher credential, stops the watcher, and deletes both files. Nothing logs a token. The `--client-credentials` login exists for tests and validation against the mock issuer and takes its secret from injected options, not from the environment.
 
 The plugin declares the MCP server in `.mcp.json` as an HTTP server whose `headersHelper` runs `bin/pw-support headers`. The helper prints `{"Authorization":"Bearer <token>"}`. Claude Code runs it at connect time, so a refreshed token needs no restart. The route does not publish protected resource metadata. Claude Code skips OAuth discovery when a header source exists, and Cognito offers no dynamic client registration, so the helper is the supported path.
 
@@ -524,25 +542,50 @@ Slash commands: `/support:subscriptions`, `/support:subscribe <prefix>`, `/suppo
 
 ### Watcher
 
-`pw-support watch start` starts a detached process with its own session, no terminal, a pid file, and a log file under `<config dir>/watch`. `pw-support watch stop` sends SIGTERM and falls back to SIGKILL. `pw-support watch status` prints the state and the recent log. The watcher polls `jobs_offers` every `PW_SUPPORT_POLL_SECONDS`, claims one job at a time, renews the lease every third of the lease length, and runs the headless subagent. The log holds job ids, reasons, and counts, never request content. Set `PW_SUPPORT_RUN_REPORT_DIR` to keep a redacted event digest of each subagent run.
+`pw-support watch start` starts a detached process with its own session, no terminal, a pid file, and a log file under `<config dir>/watch`. The pid file holds the pid and a random nonce, and the process command line carries the same nonce. A live pid counts as the watcher only when both match, so a recycled pid never gets a signal. `pw-support watch stop` sends SIGTERM and falls back to SIGKILL. `pw-support watch status` prints the state and the recent log.
 
-The watcher starts this command in an empty temporary directory. The prepared content goes to stdin as one stream-json user message.
+The watcher polls `jobs_offers` every `PW_SUPPORT_POLL_SECONDS` and sleeps that interval after nothing to do or a skipped claim. It keeps one MCP client per endpoint. On a 429 it waits for `Retry-After`. It claims one job at a time, renews the lease every third of the lease length, and runs the headless subagent. The log holds job ids, reasons, and counts, never request content. A redacted run report for each subagent run goes to `<config dir>/watch/runs`, newest fifty kept.
+
+The watcher starts this command in an empty temporary directory.
 
 ```bash
 claude -p --input-format stream-json --output-format stream-json --verbose \
+  --include-hook-events \
   --mcp-config <private json file> --strict-mcp-config \
   --tools "" --allowedTools mcp__pw_submit__submit_result \
   --permission-mode dontAsk --permission-prompts none \
   --setting-sources "" --disable-slash-commands --no-session-persistence \
   --system-prompt <triage prompt, tool delivery> \
-  --max-budget-usd 0.5 --max-turns 3
+  --max-budget-usd 0.5 --max-turns 6
 ```
 
-The MCP config file has mode 0600 and names one stdio server, `bun cli.ts submit-server`. That server exposes `submit_result` only. It holds the job id, the claim token, and a short-lived access token in its environment, so the model never sees them. It forwards the whole argument object to `job_submit_result`, records the outcome in a private file, and accepts one call. The watcher reads the `system/init` event and kills the process unless the tool list is exactly `mcp__pw_submit__submit_result`, the only MCP server is `pw_submit`, and skills and slash commands are empty.
+The child gets an explicit environment allowlist. The names live in `CHILD_ENV_NAMES` in `runner.ts`: `PATH`, `HOME`, `TMPDIR`, `USER`, `LOGNAME`, `LANG`, `LC_*`, `TZ`, `XDG_CONFIG_HOME`, the Claude Code auth, model, and provider selectors, and the proxy and certificate variables. A name is passed only when it is set. `TYPESAFE_API_KEY`, `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, and every other variable stay out. Engineers who authenticate Bedrock with raw AWS keys must use `AWS_PROFILE`. The run report lists the child environment key names, never values.
+
+The MCP config and a second config file have mode 0600 and live in the run directory. The MCP config names one stdio server, `bun cli.ts submit-server <config file>`. That server exposes `submit_result` only. The second file holds the job id, the claim token, and the submit credential. The engineer access token never reaches the child or the server. The server forwards the whole argument object to `job_submit_result` with the submit credential. It records the outcome in a private file and accepts one successful call. After a transport error it accepts a retry. The run directory is deleted in a `finally`, on SIGTERM and SIGINT, and the watcher purges leftovers older than the run timeout at start.
+
+Claude Code emits the `system/init` event only after it reads the first user message. The watcher therefore sends a neutral primer message with no request content, verifies the init, and writes the request only then. The init must show these facts, and a missing field counts as a failure.
+
+| Field            | Required value                              |
+| ---------------- | ------------------------------------------- |
+| `tools`          | Exactly `mcp__pw_submit__submit_result`     |
+| `mcp_servers`    | One server, `pw_submit`, status `connected` |
+| `skills`         | Empty                                       |
+| `slash_commands` | Empty                                       |
+| `permissionMode` | `dontAsk`                                   |
+| `agents`         | Present. Recorded as a count. See below     |
+| `plugins`        | Present. Recorded as a count. See below     |
+
+For the whole session the watcher kills the child and lets the lease lapse on any of these events.
+- An assistant block that is a `tool_use` for any tool other than the submit tool.
+- A tool result for any tool other than the submit tool, or for an unknown call.
+- A hook event other than `SessionStart`, or one the watcher cannot read.
+- No verified init within 20 seconds.
+
+The run report records the verified init facts and the hook events seen, without content: tool names, MCP servers with status, and counts of plugins, skills, slash commands, and agents.
+
+Claude Code lists built-in agents and the agents of organization-managed plugins at init even with `--tools ""`. An agent definition does nothing without a tool that spawns it, and the exact tool list proves that no such tool exists. The watcher records the agent count and does not require it to be zero. Managed plugins stay loaded, and their count is recorded. They add no tool, skill, or command, which the checks above prove. Organization-managed `CLAUDE.md` content and `SessionStart` output can enter the headless context, and no flag disables them. `--safe-mode` drops the `--mcp-config` server as well, so the watcher does not use it. `--bare` would skip managed settings but accepts only API key authentication.
 
 A hard timeout kills the process. The watcher then stops renewing and lets the lease lapse, and the cloud completes the job. A refused result is never retried.
-
-Claude Code does not unload organization-managed plugins. A managed plugin can still load, and its agents and `SessionStart` hook stay present. They add no tool. The `init` tool list shows one tool, and `--safe-mode` would drop `--mcp-config` as well, so the watcher does not use it.
 
 ### Facts from the Claude Code documentation
 
@@ -556,7 +599,7 @@ Claude Code does not unload organization-managed plugins. A managed plugin can s
 
 ### Validation
 
-`bun run validate:phase-5 --evidence-dir <dir>` needs `TYPESAFE_API_KEY` and a logged-in `claude`. It starts the API, the worker with a 600 second cloud delay, and the Linear stub, then prints PASS or FAIL for A12, A13, A20, A28, and the injection case. It makes two real `claude -p` runs: one for A20 over the plugin MCP config and one for the A28 subagent. It writes the watcher log, the watcher process listing, and a redacted digest of each run to the evidence directory. The cloud path ends as human triage there, because no Anthropic key is set.
+`bun run validate:phase-5 --evidence-dir <dir>` needs `TYPESAFE_API_KEY` and a logged-in `claude`. It starts the API, the worker with a 600 second cloud delay, and the Linear stub, then prints PASS or FAIL for A12, A13, A20, A28, and the injection case. It also checks B1, no customer text on the interactive surface, and B2, the split between `/mcp` and `/mcp/laptop`. It makes two real `claude -p` runs: one for A20 over the plugin MCP config and one for the A28 subagent. A28 asserts that `TYPESAFE_API_KEY` is in the watcher's own environment and absent from the child environment key list, and that no tool other than the submit tool appears at init or later in the stream. The script scrubs the evidence of tokens, secrets, local paths, usernames, and any email address that does not end in `.test`. It writes the watcher log, the watcher process listing, and a redacted digest of each run to the evidence directory. The cloud path ends as human triage there, because no Anthropic key is set.
 
 ## Modules
 
@@ -571,8 +614,9 @@ Claude Code does not unload organization-managed plugins. A managed plugin can s
 | `modules/channels`  | Adapter contract, dispatcher, Linear      |
 | `modules/plugin`    | Claude Code plugin for laptop triage      |
 | `modules/infra`     | AWS CDK stack                             |
+| `apps/server`       | Process entry that wires api and triage   |
 
-`examples/host-app` is a fresh Vite React app that embeds the widget. `e2e` holds the Playwright suite. `pipelines` holds the `support-triage` and `linear-outbound` pipelines. `tests` holds cross-module criterion tests.
+`apps/server` starts the API with the triage laptop backend. `bun run dev:api` runs it, and `modules/api` has no dependency on `modules/triage`. `bun run lint` fails on a workspace dependency cycle. `examples/host-app` is a fresh Vite React app that embeds the widget. `e2e` holds the Playwright suite. `pipelines` holds the `support-triage` and `linear-outbound` pipelines. `tests` holds cross-module criterion tests.
 
 A module imports another module only through `@pw-support/contracts` or the other module's package name. `bun run lint` rejects deep imports.
 
