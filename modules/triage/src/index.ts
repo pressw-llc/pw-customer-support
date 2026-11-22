@@ -23,5 +23,6 @@ export * from "./parse";
 export * from "./prepare";
 export * from "./process";
 export * from "./runtime";
+export * from "./self-test";
 export * from "./submit";
 export * from "./worker";

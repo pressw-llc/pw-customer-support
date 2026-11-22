@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { resolveStackEnv } from "./stack-config";
+import { databaseUrlFromParts, resolveStackEnv } from "./stack-config";
 
 test("defaults derive both urls from the default ports", () => {
   const stack = resolveStackEnv({});
@@ -51,4 +51,35 @@ test("the local issuer derives from the oidc port", () => {
 
 test("reads process.env when no env is passed", () => {
   expect(resolveStackEnv().postgresPort).toBeTruthy();
+});
+
+test("database parts build a TLS url with encoded credentials", () => {
+  const env = {
+    DB_HOST: "db.internal",
+    DB_USER: "support",
+    DB_PASSWORD: "p@ss/word:1",
+    DB_NAME: "app",
+    DB_PORT: "6543",
+  };
+  expect(databaseUrlFromParts(env)).toBe(
+    "postgres://support:p%40ss%2Fword%3A1@db.internal:6543/app?sslmode=require",
+  );
+  expect(resolveStackEnv(env).databaseUrl).toContain("@db.internal:6543/app");
+});
+
+test("database parts default the port and name and need all three core parts", () => {
+  expect(
+    databaseUrlFromParts({ DB_HOST: "h", DB_USER: "u", DB_PASSWORD: "p" }),
+  ).toBe("postgres://u:p@h:5432/support?sslmode=require");
+  expect(databaseUrlFromParts({ DB_HOST: "h", DB_USER: "u" })).toBeUndefined();
+});
+
+test("an explicit database url wins over the parts", () => {
+  const stack = resolveStackEnv({
+    DATABASE_URL: "postgres://x/y",
+    DB_HOST: "h",
+    DB_USER: "u",
+    DB_PASSWORD: "p",
+  });
+  expect(stack.databaseUrl).toBe("postgres://x/y");
 });

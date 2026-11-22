@@ -8,15 +8,23 @@ import {
   sqsTransport,
 } from "@pw-support/channels";
 import { RESOURCE_NAMES } from "@pw-support/contracts";
-import { createWorkerRuntime, setWorkerRuntime } from "@pw-support/triage";
+import {
+  createWorkerRuntime,
+  runExtractionSelfTest,
+  setWorkerRuntime,
+} from "@pw-support/triage";
 import { handler as deliver } from "../../linear-outbound/lambda-entries/deliver";
 import { runTriageWorker } from "./worker";
 
 const SHUTDOWN_GRACE_MS = 30_000;
 
-export async function main(
-  options: { channels?: AdapterRuntime } = {},
-): Promise<void> {
+export interface MainOptions {
+  channels?: AdapterRuntime;
+  pollAdapterQueue?: boolean;
+}
+
+export async function main(options: MainOptions = {}): Promise<void> {
+  await runExtractionSelfTest();
   const triage = createWorkerRuntime();
   setWorkerRuntime(triage);
   const channels = options.channels ?? createAdapterRuntime();
@@ -70,17 +78,19 @@ export async function main(
       waitTimeSeconds: 5,
     }),
     dispatcher.run(triage.deps.config.sweepIntervalMs, controller.signal),
-    runPoller({
-      client: triage.sqs,
-      queueUrl: adapterUrl,
-      signal: controller.signal,
-      waitSeconds: 2,
-      log,
-      handler: async (event) =>
-        (await deliver(event as never, {} as never, () => {})) as {
-          batchItemFailures: { itemIdentifier: string }[];
-        },
-    }),
+    options.pollAdapterQueue === false
+      ? Promise.resolve()
+      : runPoller({
+          client: triage.sqs,
+          queueUrl: adapterUrl,
+          signal: controller.signal,
+          waitSeconds: 2,
+          log,
+          handler: async (event) =>
+            (await deliver(event as never, {} as never, () => {})) as {
+              batchItemFailures: { itemIdentifier: string }[];
+            },
+        }),
   ]);
   await triage.close();
   log("stopped");

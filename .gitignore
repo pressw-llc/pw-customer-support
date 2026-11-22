@@ -13,3 +13,7 @@ cdk.out
 .env.local
 modules/triage/agents/**/agent*.lock.json
 e2e/artifacts
+.deploy
+modules/infra/stage.*.json
+!modules/infra/stage.example.json
+modules/infra/cdk.context.json

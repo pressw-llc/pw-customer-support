@@ -39,9 +39,9 @@ The `./global` export is a self-contained script for pages without a build step.
 
 ## Props
 
-| Prop | Required | Meaning |
-| --- | --- | --- |
-| `projectKey` | yes | The project key from PressW. |
-| `userEmail` | yes | The customer email. |
-| `apiUrl` | no | Overrides the API URL baked in at build time. |
-| `pollIntervalMs` | no | Overrides the polling interval. |
+| Prop             | Required | Meaning                                       |
+| ---------------- | -------- | --------------------------------------------- |
+| `projectKey`     | yes      | The project key from PressW.                  |
+| `userEmail`      | yes      | The customer email.                           |
+| `apiUrl`         | no       | Overrides the API URL baked in at build time. |
+| `pollIntervalMs` | no       | Overrides the polling interval.               |

@@ -20,8 +20,10 @@ import {
   createLaptopBackend,
   jevFromSecrets,
   loadTriageConfig,
+  runExtractionSelfTest,
 } from "@pw-support/triage";
 
+await runExtractionSelfTest();
 const config = loadConfig();
 for (const warning of productionWarnings(config)) {
   console.warn(`[config] ${warning}`);

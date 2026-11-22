@@ -8,7 +8,7 @@
   },
   "scripts": {
     "typecheck": "tsc --noEmit",
-    "synth": "cdk synth --quiet --no-notices"
+    "synth": "cdk synth --quiet --no-notices -c placeholders=true"
   },
   "dependencies": {
     "@pw-support/contracts": "workspace:*",
@@ -16,6 +16,7 @@
     "constructs": "^10.4.2"
   },
   "devDependencies": {
-    "aws-cdk": "^2.170.0"
+    "aws-cdk": "^2.170.0",
+    "cdk-nag": "2.37.55"
   }
 }
