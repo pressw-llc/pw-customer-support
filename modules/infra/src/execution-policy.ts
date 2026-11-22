@@ -63,9 +63,22 @@ export function executionStatements(
         "iam:ListAttachedRolePolicies",
         "iam:TagRole",
         "iam:UntagRole",
-        "iam:PassRole",
       ],
       resources: stacks.map((name) => arn("iam", `role/${name}-*`, false)),
+    },
+    {
+      sid: "PassStageRoles",
+      actions: ["iam:PassRole"],
+      resources: stacks.map((name) => arn("iam", `role/${name}-*`, false)),
+      conditions: {
+        StringEquals: {
+          "iam:PassedToService": [
+            "ecs-tasks.amazonaws.com",
+            "lambda.amazonaws.com",
+            "vpc-flow-logs.amazonaws.com",
+          ],
+        },
+      },
     },
     {
       sid: "AttachOnlyKnownPolicies",
@@ -524,6 +537,23 @@ export function executionStatements(
       resources: ["*"],
       unscopedBecause:
         "Application Auto Scaling targets and policies have generated ids and no tag conditions.",
+    },
+    {
+      sid: "OwnAssetObjects",
+      actions: ["s3:GetObject"],
+      resources: [
+        `arn:${partition}:s3:::cdk-${names.bootstrapQualifier}-assets-${account}-${AWS_REGION}/*`,
+      ],
+    },
+    {
+      sid: "OwnContainerImages",
+      actions: ["ecr:BatchGetImage", "ecr:GetDownloadUrlForLayer"],
+      resources: [
+        arn(
+          "ecr",
+          `repository/cdk-${names.bootstrapQualifier}-container-assets-${account}-${AWS_REGION}`,
+        ),
+      ],
     },
     {
       sid: "BootstrapVersion",

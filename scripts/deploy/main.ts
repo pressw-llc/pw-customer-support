@@ -1,4 +1,4 @@
-import { chmodSync, mkdirSync, writeFileSync } from "node:fs";
+import { chmodSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { CloudFormationClient } from "@aws-sdk/client-cloudformation";
 import { ECSClient } from "@aws-sdk/client-ecs";
@@ -76,6 +76,7 @@ const code = await runDeploy({
     chmodSync(path, 0o600);
     return path;
   },
+  removeBuildToken: (path) => rmSync(path, { force: true }),
   stackOutputs: (name) => readStackOutputs(cfn, name),
   migrate: (outputs) =>
     runMigrationTask({ ecs: new ECSClient({ region: REGION }), outputs }),

@@ -10,9 +10,11 @@ const read = (name: string) =>
   ) as {
     on: Record<string, unknown>;
     permissions: Record<string, string>;
+    concurrency?: Record<string, unknown>;
     jobs: Record<
       string,
       {
+        if?: string;
         environment?: string;
         steps: {
           uses?: string;
@@ -58,6 +60,30 @@ describe("deploy workflow", () => {
     expect(String(aws?.with?.["role-to-assume"])).toContain(
       "AWS_DEPLOY_ROLE_ARN",
     );
+  });
+
+  test("runs only from main, never overlaps another deploy, and never cancels one midway", () => {
+    expect(deploy.jobs.deploy?.if).toBe("github.ref == 'refs/heads/main'");
+    expect(deploy.concurrency).toEqual({
+      group: "deploy-production",
+      "cancel-in-progress": false,
+    });
+    expect(deploy.permissions).toEqual({
+      contents: "read",
+      packages: "read",
+      "id-token": "write",
+    });
+  });
+
+  test("echoes no secret and passes the credentials as job environment only", () => {
+    const text = readFileSync(
+      join(root, ".github", "workflows", "deploy.yml"),
+      "utf8",
+    );
+    expect(text).not.toMatch(/echo|set -x|run: .*secrets\./);
+    for (const line of text.split("\n").filter((l) => l.includes("secrets."))) {
+      expect(line.trim().startsWith("-")).toBe(false);
+    }
   });
 
   test("keeps the CI workflow on one check step that the deploy job does not repeat", () => {

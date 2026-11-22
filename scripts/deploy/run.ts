@@ -33,6 +33,7 @@ export interface DeployDeps {
   bootstrapVersion(qualifier: string): Promise<number | undefined>;
   dockerAvailable(): Promise<boolean>;
   writeBuildToken(token: string): string;
+  removeBuildToken(path: string): void;
   stackOutputs(stackName: string): Promise<Record<string, string>>;
   migrate(outputs: Record<string, string>): Promise<{ taskArn: string }>;
   log(line: string): void;
@@ -128,6 +129,15 @@ export async function preflight(deps: DeployDeps): Promise<Preflight> {
 }
 
 export async function runDeploy(deps: DeployDeps): Promise<number> {
+  const cleanup: string[] = [];
+  try {
+    return await execute(deps, cleanup);
+  } finally {
+    for (const path of cleanup) deps.removeBuildToken(path);
+  }
+}
+
+async function execute(deps: DeployDeps, cleanup: string[]): Promise<number> {
   const { args, root, infraDir } = deps;
   const plan = await preflight(deps);
   deps.log(`[deploy] stage ${args.stage}, mode ${plan.mode}`);
@@ -224,6 +234,7 @@ export async function runDeploy(deps: DeployDeps): Promise<number> {
   const tokenPath = deps.writeBuildToken(
     (deps.env.GITHUB_TOKEN || deps.env.GH_PACKAGES_TOKEN) as string,
   );
+  cleanup.push(tokenPath);
   if (!args.skipAssets) {
     for (const target of ["api", "lambda"]) {
       const built = await step(`build image target ${target}`, [
@@ -301,6 +312,9 @@ export async function runDeploy(deps: DeployDeps): Promise<number> {
         apiUrl,
       ]))
     ) {
+      deps.error(
+        `[deploy] the app stack is deployed and serving, but the smoke test failed; check the API logs, then roll back with the previous commit and --skip-migrate if the release is bad`,
+      );
       return 1;
     }
   }

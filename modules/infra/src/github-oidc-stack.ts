@@ -17,7 +17,7 @@ import {
 import { executionStatements, type ScopedStatement } from "./execution-policy";
 
 export const OIDC_ISSUER = "token.actions.githubusercontent.com";
-export const MAX_POLICY_CHARS = 5_500;
+export const MAX_POLICY_CHARS = 2_800;
 
 export interface GithubOidcStackProps extends StackProps {
   config: StageConfig;

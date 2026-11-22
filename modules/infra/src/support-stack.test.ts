@@ -155,6 +155,38 @@ describe("foundation stack", () => {
     }
   });
 
+  test("only the load balancer security group is open to the internet, on 80 and 443 only", () => {
+    const groups = Object.entries(
+      appT.findResources("AWS::EC2::SecurityGroup"),
+    );
+    const open = groups.filter(([, group]) =>
+      (group.Properties.SecurityGroupIngress ?? []).some(
+        (rule: { CidrIp?: string }) => rule.CidrIp === "0.0.0.0/0",
+      ),
+    );
+    expect(open.map(([id]) => id).join()).toContain("LBSecurityGroup");
+    expect(open).toHaveLength(1);
+    const ports = (
+      open[0]?.[1].Properties.SecurityGroupIngress as {
+        FromPort: number;
+      }[]
+    ).map((rule) => rule.FromPort);
+    expect(ports.sort((a, b) => a - b)).toEqual([80, 443]);
+    for (const instance of Object.values(
+      foundationT.findResources("AWS::RDS::DBInstance"),
+    )) {
+      expect(instance.Properties.PubliclyAccessible).toBe(false);
+    }
+    for (const service of Object.values(
+      appT.findResources("AWS::ECS::Service"),
+    )) {
+      expect(
+        service.Properties.NetworkConfiguration.AwsvpcConfiguration
+          .AssignPublicIp,
+      ).toBe("DISABLED");
+    }
+  });
+
   test("allows Postgres only from named security groups", () => {
     const ingress = Object.values(
       appT.findResources("AWS::EC2::SecurityGroupIngress"),
@@ -877,6 +909,9 @@ describe("GitHub OIDC bootstrap stack", () => {
 
   test("the execution policy is split under the managed policy size limit", () => {
     for (const template of [oidcT, stagingStack.oidcT]) {
+      expect(
+        Object.keys(template.findResources("AWS::IAM::ManagedPolicy")).length,
+      ).toBeLessThanOrEqual(10);
       for (const policy of Object.values(
         template.findResources("AWS::IAM::ManagedPolicy"),
       )) {
@@ -917,6 +952,52 @@ describe("GitHub OIDC bootstrap stack", () => {
           expect(statement.unscopedBecause.endsWith(".")).toBe(true);
         }
       }
+    }
+  });
+
+  test("PassRole is limited to stage roles and to the services that take them", () => {
+    for (const stage of ["production", "staging"] as const) {
+      const pass = executionStatements({
+        stage,
+        account: "000000000000",
+      }).filter((s) => s.actions.includes("iam:PassRole"));
+      expect(pass).toHaveLength(1);
+      expect(pass[0]?.conditions).toEqual({
+        StringEquals: {
+          "iam:PassedToService": [
+            "ecs-tasks.amazonaws.com",
+            "lambda.amazonaws.com",
+            "vpc-flow-logs.amazonaws.com",
+          ],
+        },
+      });
+      for (const resource of pass[0]?.resources ?? []) {
+        expect(resource).not.toMatch(/role\/\*$/);
+        expect(resource).toContain(
+          stage === "production" ? "role/PwSupport" : "role/PwSupportStaging",
+        );
+      }
+    }
+  });
+
+  test("asset and image reads name only the stage's own bootstrap qualifier", () => {
+    for (const stage of ["production", "staging"] as const) {
+      const other = resourceNames(
+        stage === "production" ? "staging" : "production",
+      );
+      const own = resourceNames(stage);
+      const text = JSON.stringify(
+        executionStatements({ stage, account: "000000000000" }).filter((s) =>
+          [
+            "OwnAssetObjects",
+            "OwnContainerImages",
+            "BootstrapVersion",
+          ].includes(s.sid),
+        ),
+      );
+      expect(text).toContain(`cdk-${own.bootstrapQualifier}-assets-`);
+      expect(text).toContain(`cdk-${own.bootstrapQualifier}-container-assets-`);
+      expect(text).not.toContain(other.bootstrapQualifier);
     }
   });
 

@@ -51,6 +51,9 @@ function harness(
     bootstrapVersion: async () => 29,
     dockerAvailable: async () => true,
     writeBuildToken: () => "/repo/.deploy/github_token",
+    removeBuildToken: (path) => {
+      calls.push(`remove ${path}`);
+    },
     stackOutputs: async (name) => {
       calls.push(`outputs ${name}`);
       return { ApiUrl: "https://api.example.test" };
@@ -232,6 +235,7 @@ describe("preflight", () => {
       "build image target api",
       "build image target lambda",
       "synth stacks",
+      "remove /repo/.deploy/github_token",
     ]);
   });
 
@@ -264,6 +268,7 @@ describe("runDeploy order", () => {
       "deploy app stack",
       "outputs PwSupportApp",
       "smoke test",
+      "remove /repo/.deploy/github_token",
     ]);
   });
 
@@ -303,6 +308,27 @@ describe("runDeploy order", () => {
     expect(skipped.calls).not.toContain("migrate");
     expect(skipped.calls).not.toContain("smoke test");
     expect(skipped.calls).toContain("deploy app stack");
+  });
+
+  test("the build token file is removed after a failure too", async () => {
+    const { deps, calls } = harness([], {
+      run: async ({ title }) => {
+        calls.push(title);
+        return title === "deploy foundation stack" ? 1 : 0;
+      },
+    });
+    expect(await runDeploy(deps)).toBe(1);
+    expect(calls.at(-1)).toBe("remove /repo/.deploy/github_token");
+  });
+
+  test("a failing smoke test says the app is already deployed and how to roll back", async () => {
+    const { deps, errors } = harness([], {
+      run: async ({ title }) => (title === "smoke test" ? 1 : 0),
+    });
+    expect(await runDeploy(deps)).toBe(1);
+    const text = errors.join("\n");
+    expect(text).toContain("app stack is deployed and serving");
+    expect(text).toContain("--skip-migrate");
   });
 
   test("a failing build stops the run before synth", async () => {
