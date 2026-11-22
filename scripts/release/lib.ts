@@ -7,6 +7,7 @@ import {
   mkdtempSync,
   readdirSync,
   readFileSync,
+  rmSync,
   statSync,
   utimesSync,
   writeFileSync,
@@ -348,6 +349,49 @@ export function appendChangelog(existing: string, entry: string): string {
   return `# Changelog\n\n${entry}\n${body}`.trimEnd().concat("\n");
 }
 
+export function dirtyProblem(status: string): string | undefined {
+  const lines = status.split("\n").filter((line) => line.trim() !== "");
+  return lines.length === 0
+    ? undefined
+    : `modules/widget has uncommitted changes (${lines.length}); commit or stash them so the tarball matches a commit`;
+}
+
+export interface ReleaseProblemInput {
+  retry: boolean;
+  version: string;
+  apiUrl: string | undefined;
+  realTarget: boolean;
+  allowExisting: boolean;
+  tagExists: boolean;
+  tag: string;
+  changelog: string | undefined;
+  dirtyStatus: string;
+  missingTokens: string[];
+}
+
+export function releaseProblems(input: ReleaseProblemInput): {
+  blocking: string[];
+  tokens: string[];
+} {
+  const blocking: string[] = [];
+  if (!input.retry) {
+    if (input.changelog) blocking.push(input.changelog);
+    const apiProblem = apiUrlProblem(input.apiUrl, input.realTarget);
+    if (apiProblem) blocking.push(apiProblem);
+    const dirty = dirtyProblem(input.dirtyStatus);
+    if (dirty) blocking.push(dirty);
+    if (input.tagExists && !input.allowExisting) {
+      blocking.push(
+        `tag ${input.tag} exists; bump the version or pass --allow-existing`,
+      );
+    }
+  }
+  return {
+    blocking,
+    tokens: input.missingTokens.map((line) => `missing token ${line}`),
+  };
+}
+
 export function retryCommand(registry: Registry): string {
   return `bun run release --publish --only ${registry.id}`;
 }
@@ -668,6 +712,7 @@ export function publishTarball(input: {
     ],
     { cwd, env: { ...process.env } },
   );
+  rmSync(cwd, { recursive: true, force: true });
   const output = input.token
     ? result.output.split(input.token).join("***")
     : result.output;

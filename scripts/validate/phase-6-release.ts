@@ -416,15 +416,18 @@ try {
   await steps.run(
     "publish plan against the real registry URLs, no tokens",
     async () => {
-      const result = await exec(["bun", "run", "release"], {
-        cwd: root,
-        env: {
-          ...process.env,
-          NPM_TOKEN: undefined,
-          GITHUB_TOKEN: undefined,
-          GH_PACKAGES_TOKEN: undefined,
+      const result = await exec(
+        ["bun", "run", "release", "--api-url", "https://api.example.test"],
+        {
+          cwd: root,
+          env: {
+            ...process.env,
+            NPM_TOKEN: undefined,
+            GITHUB_TOKEN: undefined,
+            GH_PACKAGES_TOKEN: undefined,
+          },
         },
-      });
+      );
       assert(result.code === 0, result.out);
       assert(result.out.includes("https://registry.npmjs.org"), result.out);
       assert(result.out.includes("https://npm.pkg.github.com"), result.out);

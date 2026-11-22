@@ -3,7 +3,6 @@ import { existsSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
-  apiUrlProblem,
   appendChangelog,
   changelogEntry,
   changelogProblem,
@@ -22,6 +21,7 @@ import {
   type Registry,
   type ReleaseManifest,
   registriesFor,
+  releaseProblems,
   resolveTokens,
   retryCommand,
   sameContent,
@@ -102,32 +102,32 @@ console.log(
   `[release] mode ${mode}${retry ? ", retry from the saved tarball" : ""}`,
 );
 
-if (changelogMissing && !options.publish) {
-  console.log(`[release] FAIL ${changelogMissing}`);
+const { missing } = resolveTokens(selected, process.env);
+const { blocking, tokens: tokenProblems } = releaseProblems({
+  retry,
+  version,
+  apiUrl,
+  realTarget,
+  allowExisting: options.allowExisting,
+  tagExists: git(["tag", "--list", tag]) !== "",
+  tag,
+  changelog: changelogMissing,
+  dirtyStatus: git(["status", "--porcelain", "--", "modules/widget"]),
+  missingTokens: missing,
+});
+const problems = options.publish ? [...blocking, ...tokenProblems] : blocking;
+if (problems.length > 0) {
+  console.error(
+    options.publish
+      ? "[release] FAIL preflight found missing items, nothing was sent:"
+      : "[release] FAIL the real publish would stop on these items; nothing was sent:",
+  );
+  for (const problem of problems) console.error(`  - ${problem}`);
+  process.exit(1);
 }
-
-if (options.publish) {
-  const problems: string[] = [];
-  if (changelogMissing && !retry) problems.push(changelogMissing);
-  if (!retry) {
-    const apiProblem = apiUrlProblem(apiUrl, realTarget);
-    if (apiProblem) problems.push(apiProblem);
-  }
-  const { missing } = resolveTokens(selected, process.env);
-  problems.push(...missing.map((line) => `missing token ${line}`));
-  const tagExists = git(["tag", "--list", tag]) !== "";
-  if (tagExists && !retry && !options.allowExisting) {
-    problems.push(
-      `tag ${tag} exists; bump the version or pass --allow-existing`,
-    );
-  }
-  if (problems.length > 0) {
-    console.error(
-      "[release] FAIL preflight found missing items, nothing was sent:",
-    );
-    for (const problem of problems) console.error(`  - ${problem}`);
-    process.exit(1);
-  }
+if (!options.publish && tokenProblems.length > 0) {
+  console.log("[release] a real publish also needs:");
+  for (const problem of tokenProblems) console.log(`  - ${problem}`);
 }
 console.log(`[release] version ${version}, tag ${tag}`);
 

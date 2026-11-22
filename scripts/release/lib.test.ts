@@ -1,5 +1,6 @@
 import { afterAll, describe, expect, test } from "bun:test";
 import {
+  existsSync,
   mkdirSync,
   mkdtempSync,
   readFileSync,
@@ -16,6 +17,7 @@ import {
   collectExportTargets,
   computeIntegrity,
   decideRelease,
+  dirtyProblem,
   fetchVersionInfo,
   formatSize,
   isAlreadyPublished,
@@ -32,6 +34,7 @@ import {
   type Registry,
   type Runner,
   registriesFor,
+  releaseProblems,
   resolveTokens,
   retryCommand,
   sameContent,
@@ -329,8 +332,10 @@ describe("pack and publish", () => {
     const packed = packWidget(fixtureWidget());
     dirs.push(packed.workDir);
     let seen: { command: string[]; cwd: string } | undefined;
+    let npmrcText = "";
     const run: Runner = (command, options) => {
       seen = { command, cwd: options.cwd };
+      npmrcText = readFileSync(join(options.cwd, ".npmrc"), "utf8");
       return { status: 0, output: "published with secret-token" };
     };
     const registry = {
@@ -347,8 +352,7 @@ describe("pack and publish", () => {
     expect(result.output).not.toContain("secret-token");
     expect(seen?.command).toContain("--registry");
     expect(seen?.command).not.toContain("--dry-run");
-    const npmrc = join(seen?.cwd as string, ".npmrc");
-    expect(readFileSync(npmrc, "utf8")).toContain("_authToken=secret-token");
+    expect(npmrcText).toContain("_authToken=secret-token");
   });
 
   test("treats an already published version as success and others as failure", () => {
@@ -572,5 +576,91 @@ describe("integrity, registry state, and the release decision", () => {
     expect(loadRelease(root, "9.9.9")).toBeUndefined();
     writeFileSync(saved.tarball, "tampered");
     expect(loadRelease(root, "0.1.0")).toBeUndefined();
+  });
+});
+
+describe("release preflight and secret hygiene", () => {
+  const base = {
+    retry: false,
+    version: "0.1.0",
+    apiUrl: "https://api.example.test",
+    realTarget: true,
+    allowExisting: false,
+    tagExists: false,
+    tag: "support-react-v0.1.0",
+    changelog: undefined,
+    dirtyStatus: "",
+    missingTokens: [] as string[],
+  };
+
+  test("a clean, complete release has no problems", () => {
+    expect(releaseProblems(base)).toEqual({ blocking: [], tokens: [] });
+  });
+
+  test("the dry run and the publish share every blocking problem", () => {
+    const problems = releaseProblems({
+      ...base,
+      apiUrl: "http://localhost:8787",
+      tagExists: true,
+      changelog: "changelog missing",
+      dirtyStatus: " M modules/widget/src/a.ts\n?? modules/widget/x\n",
+      missingTokens: ["npmjs: NPM_TOKEN"],
+    });
+    expect(problems.blocking).toHaveLength(4);
+    expect(problems.blocking.join("\n")).toContain("changelog missing");
+    expect(problems.blocking.join("\n")).toContain("public https URL");
+    expect(problems.blocking.join("\n")).toContain("uncommitted changes (2)");
+    expect(problems.blocking.join("\n")).toContain(
+      "tag support-react-v0.1.0 exists",
+    );
+    expect(problems.tokens).toEqual(["missing token npmjs: NPM_TOKEN"]);
+  });
+
+  test("a retry skips the build-time checks and --allow-existing skips the tag check", () => {
+    expect(
+      releaseProblems({
+        ...base,
+        retry: true,
+        apiUrl: undefined,
+        tagExists: true,
+        dirtyStatus: " M x",
+        changelog: "missing",
+      }).blocking,
+    ).toEqual([]);
+    expect(
+      releaseProblems({ ...base, tagExists: true, allowExisting: true })
+        .blocking,
+    ).toEqual([]);
+  });
+
+  test("dirtyProblem ignores blank output", () => {
+    expect(dirtyProblem("")).toBeUndefined();
+    expect(dirtyProblem("\n  \n")).toBeUndefined();
+    expect(dirtyProblem(" M a")).toContain("uncommitted");
+  });
+
+  test("the token file is deleted right after the publish command, even for a failed publish", () => {
+    const dir = mkdtempSync(join(tmpdir(), "pw-token-hygiene-"));
+    const packed = {
+      tarball: join(dir, "a.tgz"),
+      manifest: { name: "x" },
+      workDir: dir,
+    } as unknown as Packed;
+    let npmrcDuring = "";
+    const run: Runner = (_command, options) => {
+      npmrcDuring = readFileSync(join(options.cwd, ".npmrc"), "utf8");
+      return { status: 1, output: "failed with secret-token in it" };
+    };
+    const result = publishTarball({
+      packed,
+      registry: REGISTRIES[0] as Registry,
+      token: "secret-token",
+      run,
+    });
+    expect(npmrcDuring).toContain("secret-token");
+    expect(existsSync(join(dir, "publish-npm"))).toBe(false);
+    expect(result.output).not.toContain("secret-token");
+    expect(result.outcome).toBe("failed");
+    rmSync(dir, { recursive: true, force: true });
   });
 });
