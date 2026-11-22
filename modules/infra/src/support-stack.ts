@@ -3,6 +3,7 @@ import { fileURLToPath } from "node:url";
 import { type ResourceNames, resourceNames } from "@pw-support/contracts";
 import {
   CfnOutput,
+  DefaultStackSynthesizer,
   DockerBuildSecret,
   RemovalPolicy,
   type StackProps,
@@ -76,6 +77,9 @@ export class SupportStack extends RegionalStack {
     super(scope, id, {
       ...props,
       env: { account: props.config.account, region: AWS_REGION },
+      synthesizer: new DefaultStackSynthesizer({
+        qualifier: resourceNames(props.config.stage).bootstrapQualifier,
+      }),
       terminationProtection: props.config.stage === "production",
     });
     this.config = props.config;

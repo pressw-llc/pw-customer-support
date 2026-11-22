@@ -158,6 +158,17 @@ export function applySuppressions(stacks: Stacks): void {
     ],
   );
 
+  suppressProviders(
+    oidc,
+    ["ExecutionPolicy"],
+    [
+      {
+        id: "AwsSolutions-IAM5",
+        reason:
+          "Stage execution policy: wildcards are stage name prefixes or stage tag conditions; unscoped services are justified in execution-policy.ts.",
+      },
+    ],
+  );
   suppress(oidc, "DeployRole/DefaultPolicy", [
     {
       id: "AwsSolutions-IAM5",

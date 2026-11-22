@@ -229,3 +229,12 @@ export function stageValuesFrom(
   }
   return values;
 }
+
+export function stackIds(stage: StageName) {
+  const suffix = stage === "production" ? "" : "Staging";
+  return {
+    foundation: `PwSupport${suffix}`,
+    app: `PwSupport${suffix}App`,
+    oidc: `PwSupport${suffix}GithubOidc`,
+  };
+}

@@ -15,6 +15,7 @@ import {
   WORKER_COMMAND,
   WORKER_MEMORY_MIB,
 } from "./app-stack";
+import { executionStatements } from "./execution-policy";
 import { loadStageConfig } from "./load-config";
 import { createSupportStacks, stackIds } from "./stacks";
 import { AWS_REGION, MIGRATE_COMMAND, secretsPath } from "./support-stack";
@@ -576,7 +577,7 @@ describe("IAM scope", () => {
   ];
 
   test("gives wildcard resources only to actions that AWS does not scope", () => {
-    for (const template of [foundationT, appT, oidcT]) {
+    for (const template of [foundationT, appT]) {
       for (const statement of statements(template)) {
         if (statement.Resource === "*") {
           for (const action of asList(statement.Action)) {
@@ -588,7 +589,7 @@ describe("IAM scope", () => {
   });
 
   test("never grants a service wildcard action", () => {
-    for (const template of [foundationT, appT, oidcT]) {
+    for (const template of [foundationT, appT]) {
       for (const statement of statements(template)) {
         for (const action of asList(statement.Action)) {
           expect(action).not.toMatch(/^\w+:\*$/);
@@ -722,47 +723,295 @@ describe("admin hosting", () => {
 });
 
 describe("GitHub OIDC bootstrap stack", () => {
-  const role = Object.values(oidcT.findResources("AWS::IAM::Role"))[0];
-  const trust = role?.Properties.AssumeRolePolicyDocument.Statement[0];
+  const SUBJECT_KEY = "token.actions.githubusercontent.com:sub";
+  const REPO = "pressw-llc/pw-customer-support";
+  const stagingStack = build("staging");
 
-  test("trusts one repository on main or the production environment", () => {
-    expect(trust.Action).toBe("sts:AssumeRoleWithWebIdentity");
-    expect(trust.Condition.StringEquals).toEqual({
-      "token.actions.githubusercontent.com:aud": "sts.amazonaws.com",
-    });
-    expect(
-      trust.Condition.StringLike["token.actions.githubusercontent.com:sub"],
-    ).toEqual([
-      "repo:pressw-llc/pw-customer-support:ref:refs/heads/main",
-      "repo:pressw-llc/pw-customer-support:environment:production",
-    ]);
+  const role = (template: Template) =>
+    Object.values(template.findResources("AWS::IAM::Role")).find((candidate) =>
+      JSON.stringify(candidate.Properties.AssumeRolePolicyDocument).includes(
+        "AssumeRoleWithWebIdentity",
+      ),
+    );
+  const deployStatements = (template: Template): Statement[] =>
+    Object.values(template.findResources("AWS::IAM::Policy")).flatMap(
+      (policy) => policy.Properties.PolicyDocument.Statement,
+    );
+  const executionStatementsOf = (template: Template): Statement[] =>
+    Object.values(template.findResources("AWS::IAM::ManagedPolicy")).flatMap(
+      (policy) => policy.Properties.PolicyDocument.Statement,
+    );
+
+  test("each role trusts exactly its own GitHub environment subject and nothing else", () => {
+    for (const [template, stage] of [
+      [oidcT, "production"],
+      [stagingStack.oidcT, "staging"],
+    ] as const) {
+      const trust =
+        role(template)?.Properties.AssumeRolePolicyDocument.Statement[0];
+      expect(trust.Action).toBe("sts:AssumeRoleWithWebIdentity");
+      expect(trust.Condition.StringEquals).toEqual({
+        "token.actions.githubusercontent.com:aud": "sts.amazonaws.com",
+        [SUBJECT_KEY]: `repo:${REPO}:environment:${stage}`,
+      });
+      expect(trust.Condition.StringLike).toBeUndefined();
+      expect(JSON.stringify(trust)).not.toContain("refs/heads");
+    }
+  });
+
+  test("only production creates the account-wide OIDC provider", () => {
     oidcT.hasResourceProperties("AWS::IAM::OIDCProvider", {
       Url: "https://token.actions.githubusercontent.com",
       ClientIdList: ["sts.amazonaws.com"],
     });
+    stagingStack.oidcT.resourceCountIs("AWS::IAM::OIDCProvider", 0);
   });
 
-  test("limits permissions to CDK bootstrap roles and the migration task", () => {
-    const allowed = statements(oidcT)
-      .flatMap((s) => asList(s.Action))
-      .sort();
-    expect(allowed).toEqual([
-      "cloudformation:DescribeStacks",
-      "ecs:DescribeTasks",
-      "ecs:RunTask",
-      "iam:PassRole",
-      "sts:AssumeRole",
-    ]);
-    const assume = statements(oidcT).find((s) => s.Action === "sts:AssumeRole");
-    expect(JSON.stringify(assume?.Resource)).toContain(
-      "cdk-hnb659fds-deploy-role",
+  test("the staging role cannot assume any production bootstrap role, and the reverse", () => {
+    const productionQualifier = resourceNames("production").bootstrapQualifier;
+    const stagingQualifier = resourceNames("staging").bootstrapQualifier;
+    const assumed = (template: Template) =>
+      deployStatements(template)
+        .filter((s) => asList(s.Action).includes("sts:AssumeRole"))
+        .flatMap((s) => asList(s.Resource as string | string[]))
+        .map((resource) => JSON.stringify(resource));
+    const staging = assumed(stagingStack.oidcT);
+    expect(staging.length).toBe(4);
+    for (const resource of staging) {
+      expect(resource).toContain(`cdk-${stagingQualifier}-`);
+      expect(resource).not.toContain(productionQualifier);
+      expect(resource).not.toContain("cdk-*");
+      expect(resource).not.toContain('"*"');
+    }
+    for (const resource of assumed(oidcT)) {
+      expect(resource).toContain(`cdk-${productionQualifier}-`);
+      expect(resource).not.toContain(stagingQualifier);
+    }
+  });
+
+  test("the deploy role touches only its own stacks, migration task, task roles, and bootstrap version", () => {
+    for (const [template, stage] of [
+      [oidcT, "production"],
+      [stagingStack.oidcT, "staging"],
+    ] as const) {
+      const actions = deployStatements(template)
+        .flatMap((s) => asList(s.Action))
+        .sort();
+      expect(actions).toEqual([
+        "cloudformation:DescribeStacks",
+        "ecs:DescribeTasks",
+        "ecs:RunTask",
+        "iam:PassRole",
+        "ssm:GetParameter",
+        "sts:AssumeRole",
+      ]);
+      const text = JSON.stringify(deployStatements(template));
+      if (stage === "production") expect(text).not.toContain("Staging");
+      else expect(text).toContain("PwSupportStaging");
+      expect(text).not.toContain(`"*"`);
+      const pass = deployStatements(template).find((s) =>
+        asList(s.Action).includes("iam:PassRole"),
+      );
+      expect(pass?.Condition).toEqual({
+        StringEquals: { "iam:PassedToService": "ecs-tasks.amazonaws.com" },
+      });
+      expect(role(template)?.Properties.MaxSessionDuration).toBe(3600);
+    }
+  });
+
+  test("the stacks synthesize with their own bootstrap qualifier", () => {
+    for (const [stack, stage] of [
+      [prod, "production"],
+      [stagingStack, "staging"],
+    ] as const) {
+      const qualifier = resourceNames(stage).bootstrapQualifier;
+      for (const template of [stack.foundationT, stack.appT]) {
+        const text = JSON.stringify(template.toJSON());
+        expect(text).toContain(`/cdk-bootstrap/${qualifier}/version`);
+        expect(text).not.toContain("hnb659fds");
+      }
+      const assets = JSON.stringify(
+        stack.foundation.node.root.node.children
+          .filter((child) => "synthesizer" in child)
+          .map(() => qualifier),
+      );
+      expect(assets).toContain(qualifier);
+    }
+    expect(resourceNames("production").bootstrapQualifier).not.toBe(
+      resourceNames("staging").bootstrapQualifier,
     );
-    expect(JSON.stringify(assume?.Resource)).not.toContain('"*"');
-    const pass = statements(oidcT).find((s) => s.Action === "iam:PassRole");
-    expect(pass?.Condition).toEqual({
-      StringEquals: { "iam:PassedToService": "ecs-tasks.amazonaws.com" },
+  });
+
+  test("the execution policy has no wildcard action, no AdministratorAccess, and no unconditioned creation", () => {
+    for (const template of [oidcT, stagingStack.oidcT]) {
+      const policies = Object.values(
+        template.findResources("AWS::IAM::ManagedPolicy"),
+      );
+      expect(policies.length).toBeGreaterThanOrEqual(1);
+      expect(JSON.stringify(template.toJSON())).not.toContain(
+        "AdministratorAccess",
+      );
+      const all = executionStatementsOf(template);
+      for (const statement of all) {
+        for (const action of asList(statement.Action)) {
+          expect(action).not.toBe("*");
+          expect(action).not.toBe("*:*");
+          expect(action).not.toMatch(/^(iam|sts|organizations|kms):\*$/);
+        }
+        expect(statement.Resource).not.toBe("*:*");
+      }
+      const wildcardResource = all.filter((s) => s.Resource === "*");
+      for (const statement of wildcardResource) {
+        const actions = asList(statement.Action);
+        const readOnly = actions.every((action) =>
+          /:(Describe|List|Get)/.test(action),
+        );
+        expect(
+          readOnly ||
+            statement.Condition !== undefined ||
+            isJustified(statement),
+        ).toBe(true);
+      }
+    }
+  });
+
+  test("the execution policy is split under the managed policy size limit", () => {
+    for (const template of [oidcT, stagingStack.oidcT]) {
+      for (const policy of Object.values(
+        template.findResources("AWS::IAM::ManagedPolicy"),
+      )) {
+        expect(
+          JSON.stringify(policy.Properties.PolicyDocument).replace(/\s/g, "")
+            .length,
+        ).toBeLessThan(6144);
+      }
+    }
+  });
+
+  test("the execution policy scopes stage resources by name or tag and states why the rest cannot be", () => {
+    for (const stage of ["production", "staging"] as const) {
+      const statements = executionStatements({
+        stage,
+        account: "000000000000",
+      });
+      const text = JSON.stringify(statements);
+      const other =
+        stage === "production" ? "pw-support-staging" : "pw-support-production";
+      expect(text).not.toContain(other);
+      const tagKey = `aws:ResourceTag/${resourceNames(stage).stageTag}`;
+      expect(text).toContain(tagKey);
+      expect(text).toContain(`aws:RequestTag/${resourceNames(stage).stageTag}`);
+      const unscoped = statements.filter((s) => s.resources.includes("*"));
+      expect(unscoped.length).toBeGreaterThan(0);
+      for (const statement of unscoped) {
+        const readOnly = statement.actions.every((action) =>
+          /:(Describe|List|Get)/.test(action),
+        );
+        expect(
+          readOnly ||
+            statement.conditions !== undefined ||
+            statement.unscopedBecause,
+          statement.sid,
+        ).toBeTruthy();
+        if (statement.unscopedBecause) {
+          expect(statement.unscopedBecause.endsWith(".")).toBe(true);
+        }
+      }
+    }
+  });
+
+  test("the execution policies carry the stage in their names", () => {
+    const names = Object.values(
+      stagingStack.oidcT.findResources("AWS::IAM::ManagedPolicy"),
+    ).map((policy) => policy.Properties.ManagedPolicyName as string);
+    for (const name of names) expect(name).toContain("pw-support-staging-");
+    stagingStack.oidcT.hasOutput(
+      "CloudFormationExecutionPolicies",
+      Match.anyValue(),
+    );
+    stagingStack.oidcT.hasOutput("BootstrapQualifier", {
+      Value: resourceNames("staging").bootstrapQualifier,
     });
-    expect(role?.Properties.MaxSessionDuration).toBe(3600);
+  });
+});
+
+describe("stage tag", () => {
+  const TAGGED_TYPES = [
+    "AWS::EC2::VPC",
+    "AWS::EC2::Subnet",
+    "AWS::EC2::SecurityGroup",
+    "AWS::EC2::NatGateway",
+    "AWS::SQS::Queue",
+    "AWS::RDS::DBCluster",
+    "AWS::S3::Bucket",
+    "AWS::ECS::Cluster",
+    "AWS::ECS::Service",
+    "AWS::ECS::TaskDefinition",
+    "AWS::ElasticLoadBalancingV2::LoadBalancer",
+    "AWS::ElasticLoadBalancingV2::TargetGroup",
+    "AWS::Lambda::Function",
+    "AWS::SecretsManager::Secret",
+    "AWS::IAM::Role",
+    "AWS::CloudFront::Distribution",
+    "AWS::Logs::LogGroup",
+    "AWS::SNS::Topic",
+  ];
+
+  function tagged(
+    resource: { Properties?: Record<string, unknown> },
+    stage: string,
+  ) {
+    const tags =
+      resource.Properties?.Tags ?? resource.Properties?.TagSpecifications;
+    const list = Array.isArray(tags)
+      ? tags
+      : Object.entries((tags ?? {}) as Record<string, string>).map(
+          ([Key, Value]) => ({ Key, Value }),
+        );
+    return list.some(
+      (tag: { Key?: string; Value?: unknown }) =>
+        tag.Key === "pw-support:stage" && tag.Value === stage,
+    );
+  }
+
+  test("every taggable resource in all three stacks carries the stage tag", () => {
+    for (const stage of ["production", "staging"] as const) {
+      const stack = build(stage);
+      const seen = new Set<string>();
+      for (const template of [stack.foundationT, stack.appT, stack.oidcT]) {
+        const resources = template.toJSON().Resources as Record<
+          string,
+          { Type: string; Properties?: Record<string, unknown> }
+        >;
+        for (const [id, resource] of Object.entries(resources)) {
+          const supportsTags =
+            resource.Properties && "Tags" in resource.Properties;
+          if (supportsTags || TAGGED_TYPES.includes(resource.Type)) {
+            if (resource.Type === "AWS::ECS::TaskDefinition" && !supportsTags)
+              continue;
+            expect(
+              tagged(resource, stage),
+              `${stage} ${resource.Type} ${id}`,
+            ).toBe(true);
+            seen.add(resource.Type);
+          }
+        }
+      }
+      for (const type of [
+        "AWS::EC2::VPC",
+        "AWS::SQS::Queue",
+        "AWS::RDS::DBCluster",
+        "AWS::S3::Bucket",
+        "AWS::ECS::Cluster",
+        "AWS::Lambda::Function",
+        "AWS::SecretsManager::Secret",
+        "AWS::IAM::Role",
+        "AWS::CloudFront::Distribution",
+        "AWS::ElasticLoadBalancingV2::LoadBalancer",
+      ]) {
+        expect(seen.has(type), `${stage} ${type}`).toBe(true);
+      }
+    }
   });
 });
 
@@ -953,3 +1202,7 @@ describe("stage-specific physical names", () => {
     staging.oidcT.resourceCountIs("AWS::IAM::OIDCProvider", 0);
   });
 });
+
+function isJustified(statement: Statement): boolean {
+  return statement.Sid !== undefined;
+}

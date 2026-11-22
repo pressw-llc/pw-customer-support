@@ -8,6 +8,7 @@ import {
   type ECSClient,
   RunTaskCommand,
 } from "@aws-sdk/client-ecs";
+import { stackIds } from "@pw-support/infra";
 
 export type StageName = "production" | "staging";
 
@@ -15,6 +16,7 @@ export interface DeployArgs {
   stage: StageName;
   dryRun: boolean | undefined;
   oidc: boolean;
+  bootstrap: boolean;
   skipAssets: boolean;
   skipSmoke: boolean;
   skipMigrate: boolean;
@@ -30,6 +32,7 @@ export function parseDeployArgs(argv: string[]): DeployArgs {
     stage,
     dryRun: argv.includes("--dry-run") ? true : undefined,
     oidc: argv.includes("--oidc"),
+    bootstrap: argv.includes("--bootstrap"),
     skipAssets: argv.includes("--skip-assets"),
     skipSmoke: argv.includes("--skip-smoke"),
     skipMigrate: argv.includes("--skip-migrate"),
@@ -77,6 +80,9 @@ export function stepsFor(
 ): string[] {
   const common = ["validate config", "build admin and widget"];
   if (args.oidc) return [...common, "deploy GitHub OIDC stack"];
+  if (args.bootstrap) {
+    return ["validate config", "bootstrap the stage"];
+  }
   const assets = args.skipAssets ? [] : ["build images"];
   if (mode === "dry-run") {
     return [...common, ...assets, "synth stacks"];
@@ -95,12 +101,7 @@ export function stepsFor(
 }
 
 export function stackNames(stage: StageName) {
-  const suffix = stage === "production" ? "" : "Staging";
-  return {
-    foundation: `PwSupport${suffix}`,
-    app: `PwSupport${suffix}App`,
-    oidc: `PwSupport${suffix}GithubOidc`,
-  };
+  return stackIds(stage);
 }
 
 export async function readStackOutputs(

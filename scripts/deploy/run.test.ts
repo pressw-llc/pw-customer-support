@@ -41,10 +41,14 @@ function harness(
       calls.push(title);
       return 0;
     },
-    identityAccount: async () => {
+    identity: async () => {
       identityCalls.push("sts");
-      return ACCOUNT;
+      return {
+        account: ACCOUNT,
+        arn: `arn:aws:sts::${ACCOUNT}:assumed-role/pw-support-production-github-deploy/session`,
+      };
     },
+    bootstrapVersion: async () => 29,
     dockerAvailable: async () => true,
     writeBuildToken: () => "/repo/.deploy/github_token",
     stackOutputs: async (name) => {
@@ -106,7 +110,7 @@ describe("preflight", () => {
         throw { problems: ["mcpRequiredGroup is required"] };
       },
       dockerAvailable: async () => false,
-      identityAccount: async () => undefined,
+      identity: async () => ({}),
     });
     const result = await preflight(deps);
     expect(result.ok).toBe(false);
@@ -126,11 +130,95 @@ describe("preflight", () => {
 
   test("an identity in another account fails before any deploy call", async () => {
     const { deps, calls, errors } = harness([], {
-      identityAccount: async () => "999999999999",
+      identity: async () => ({ account: "999999999999" }),
     });
     expect(await runDeploy(deps)).toBe(2);
     expect(calls).toEqual([]);
     expect(errors.join("\n")).toContain("account 999999999999");
+  });
+
+  test("a stage without its own bootstrap qualifier is refused before any deploy call", async () => {
+    const asked: string[] = [];
+    const { deps, calls, errors } = harness([], {
+      bootstrapVersion: async (qualifier) => {
+        asked.push(qualifier);
+        return undefined;
+      },
+    });
+    expect(await runDeploy(deps)).toBe(2);
+    expect(calls).toEqual([]);
+    expect(asked).toEqual(["pwsproduct"]);
+    expect(errors.join("\n")).toContain("qualifier pwsproduct");
+  });
+
+  test("a stage is refused through another stage's deploy role", async () => {
+    const { deps, calls, errors } = harness([], {
+      identity: async () => ({
+        account: ACCOUNT,
+        arn: `arn:aws:sts::${ACCOUNT}:assumed-role/pw-support-staging-github-deploy/s`,
+      }),
+    });
+    expect(await runDeploy(deps)).toBe(2);
+    expect(calls).toEqual([]);
+    expect(errors.join("\n")).toContain(
+      "refusing to deploy production through pw-support-staging-github-deploy",
+    );
+  });
+
+  test("--oidc does not need the stage bootstrap, and --bootstrap passes the stage qualifier and execution policies", async () => {
+    const oidc = harness(["--oidc"], {
+      env: { AWS_PROFILE: "deploy" },
+      bootstrapVersion: async () => undefined,
+    });
+    expect(await runDeploy(oidc.deps)).toBe(0);
+    const commands: string[][] = [];
+    const bootstrap = harness(["--bootstrap"], {
+      env: { AWS_PROFILE: "deploy" },
+      bootstrapVersion: async () => undefined,
+      stackOutputs: async () => ({
+        CloudFormationExecutionPolicies: "arn:policy/one,arn:policy/two",
+      }),
+      run: async ({ title, command }) => {
+        bootstrap.calls.push(title);
+        commands.push(command);
+        return 0;
+      },
+    });
+    expect(await runDeploy(bootstrap.deps)).toBe(0);
+    expect(bootstrap.calls).toEqual(["bootstrap the stage"]);
+    const flags = (commands[0] ?? []).join(" ");
+    expect(flags).toContain("--qualifier pwsproduct");
+    expect(flags).toContain("--toolkit-stack-name CDKToolkit-pwsproduct");
+    expect(flags).toContain(
+      "--cloudformation-execution-policies arn:policy/one,arn:policy/two",
+    );
+    expect(flags).toContain("--tags pw-support:stage=production");
+    const missing = harness(["--bootstrap"], {
+      env: { AWS_PROFILE: "deploy" },
+      stackOutputs: async () => ({}),
+    });
+    expect(await runDeploy(missing.deps)).toBe(1);
+    expect(missing.errors.join("\n")).toContain("run --oidc first");
+  });
+
+  test("deploy and diff carry the stage toolkit stack name", async () => {
+    const commands: string[][] = [];
+    const { deps } = harness([], {
+      run: async ({ command }) => {
+        commands.push(command);
+        return 0;
+      },
+    });
+    await runDeploy(deps);
+    const deploys = commands.filter(
+      (c) => c[2] === "deploy" || c[2] === "diff",
+    );
+    expect(deploys.length).toBe(3);
+    for (const command of deploys) {
+      expect(command.join(" ")).toContain(
+        "--toolkit-stack-name CDKToolkit-pwsproduct",
+      );
+    }
   });
 
   test("a dry run reads no identity and needs no smoke variables", async () => {

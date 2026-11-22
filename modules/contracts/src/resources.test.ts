@@ -34,6 +34,17 @@ test("another stage gets stage-specific names for every explicit resource", () =
   expect(production.secretsPrefix).toBe("pw-support/");
 });
 
+test("each stage has its own CDK bootstrap qualifier within the 10 character limit", () => {
+  const production = resourceNames("production");
+  const staging = resourceNames("staging");
+  expect(production.bootstrapQualifier).not.toBe(staging.bootstrapQualifier);
+  for (const names of [production, staging]) {
+    expect(names.bootstrapQualifier).toMatch(/^[a-z0-9]{9,10}$/);
+    expect(names.bootstrapQualifier).not.toBe("hnb659fds");
+  }
+  expect(production.cfnExecutionPolicy).not.toBe(staging.cfnExecutionPolicy);
+});
+
 test("the stage comes from SUPPORT_STAGE and defaults to local", () => {
   expect(stageFromEnv({})).toBe("local");
   expect(stageFromEnv({ SUPPORT_STAGE: "staging" })).toBe("staging");

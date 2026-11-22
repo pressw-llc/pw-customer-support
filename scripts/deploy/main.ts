@@ -2,6 +2,7 @@ import { chmodSync, mkdirSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { CloudFormationClient } from "@aws-sdk/client-cloudformation";
 import { ECSClient } from "@aws-sdk/client-ecs";
+import { GetParameterCommand, SSMClient } from "@aws-sdk/client-ssm";
 import { GetCallerIdentityCommand, STSClient } from "@aws-sdk/client-sts";
 import {
   ConfigError,
@@ -42,12 +43,25 @@ const code = await runDeploy({
     });
     return proc.exited;
   },
-  identityAccount: async () =>
-    (
-      await new STSClient({ region: REGION }).send(
-        new GetCallerIdentityCommand({}),
-      )
-    ).Account,
+  identity: async () => {
+    const who = await new STSClient({ region: REGION }).send(
+      new GetCallerIdentityCommand({}),
+    );
+    return { account: who.Account, arn: who.Arn };
+  },
+  bootstrapVersion: async (qualifier) => {
+    try {
+      const parameter = await new SSMClient({ region: REGION }).send(
+        new GetParameterCommand({
+          Name: `/cdk-bootstrap/${qualifier}/version`,
+        }),
+      );
+      const version = Number(parameter.Parameter?.Value);
+      return Number.isFinite(version) ? version : undefined;
+    } catch {
+      return undefined;
+    }
+  },
   dockerAvailable: async () => {
     const probe = Bun.spawn(["docker", "info"], {
       stdout: "ignore",

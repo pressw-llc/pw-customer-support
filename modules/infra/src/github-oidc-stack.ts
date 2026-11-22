@@ -1,59 +1,107 @@
 import { resourceNames } from "@pw-support/contracts";
-import { CfnOutput, Duration, Stack, type StackProps } from "aws-cdk-lib";
+import {
+  BootstraplessSynthesizer,
+  CfnOutput,
+  Duration,
+  Stack,
+  type StackProps,
+} from "aws-cdk-lib";
 import * as iam from "aws-cdk-lib/aws-iam";
 import type { Construct } from "constructs";
-import { AWS_REGION, GITHUB_REPOSITORY, type StageConfig } from "./config";
+import {
+  AWS_REGION,
+  GITHUB_REPOSITORY,
+  type StageConfig,
+  stackIds,
+} from "./config";
+import { executionStatements, type ScopedStatement } from "./execution-policy";
 
 export const OIDC_ISSUER = "token.actions.githubusercontent.com";
-export const DEFAULT_QUALIFIER = "hnb659fds";
+export const MAX_POLICY_CHARS = 5_500;
 
 export interface GithubOidcStackProps extends StackProps {
   config: StageConfig;
   repository?: string;
-  qualifier?: string;
 }
 
-export function trustedSubjects(repository: string, stage: string): string[] {
-  return [
-    `repo:${repository}:ref:refs/heads/main`,
-    `repo:${repository}:environment:${stage}`,
-  ];
+export function trustedSubject(repository: string, stage: string): string {
+  return `repo:${repository}:environment:${stage}`;
+}
+
+export function toPolicyStatement(
+  statement: ScopedStatement,
+): iam.PolicyStatement {
+  return new iam.PolicyStatement({
+    sid: statement.sid,
+    actions: statement.actions,
+    resources: statement.resources,
+    conditions: statement.conditions,
+  });
+}
+
+export function chunkStatements(
+  statements: ScopedStatement[],
+  limit = MAX_POLICY_CHARS,
+): ScopedStatement[][] {
+  const chunks: ScopedStatement[][] = [];
+  let current: ScopedStatement[] = [];
+  let size = 0;
+  for (const statement of statements) {
+    const length = JSON.stringify({
+      Sid: statement.sid,
+      Action: statement.actions,
+      Resource: statement.resources,
+      Condition: statement.conditions,
+    }).length;
+    if (size + length > limit && current.length > 0) {
+      chunks.push(current);
+      current = [];
+      size = 0;
+    }
+    current.push(statement);
+    size += length;
+  }
+  if (current.length > 0) chunks.push(current);
+  return chunks;
 }
 
 export class GithubOidcStack extends Stack {
   readonly deployRole: iam.Role;
+  readonly executionPolicies: iam.ManagedPolicy[];
 
   constructor(scope: Construct, id: string, props: GithubOidcStackProps) {
     super(scope, id, {
       ...props,
       env: { account: props.config.account, region: AWS_REGION },
+      synthesizer: new BootstraplessSynthesizer(),
     });
     const repository = props.repository ?? GITHUB_REPOSITORY;
-    const qualifier = props.qualifier ?? DEFAULT_QUALIFIER;
+    const stage = props.config.stage;
+    const names = resourceNames(stage);
+    const ids = stackIds(stage);
+    const account = this.account;
+    const partition = this.partition;
 
     const providerArn =
-      props.config.stage === "production"
+      stage === "production"
         ? new iam.CfnOIDCProvider(this, "Provider", {
             url: `https://${OIDC_ISSUER}`,
             clientIdList: ["sts.amazonaws.com"],
           }).attrArn
-        : `arn:${this.partition}:iam::${this.account}:oidc-provider/${OIDC_ISSUER}`;
+        : `arn:${partition}:iam::${account}:oidc-provider/${OIDC_ISSUER}`;
 
     this.deployRole = new iam.Role(this, "DeployRole", {
-      roleName: resourceNames(props.config.stage).githubDeployRole,
+      roleName: names.githubDeployRole,
       maxSessionDuration: Duration.hours(1),
       assumedBy: new iam.WebIdentityPrincipal(providerArn, {
-        StringEquals: { [`${OIDC_ISSUER}:aud`]: "sts.amazonaws.com" },
-        StringLike: {
-          [`${OIDC_ISSUER}:sub`]: trustedSubjects(
-            repository,
-            props.config.stage,
-          ),
+        StringEquals: {
+          [`${OIDC_ISSUER}:aud`]: "sts.amazonaws.com",
+          [`${OIDC_ISSUER}:sub`]: trustedSubject(repository, stage),
         },
       }),
     });
 
-    const account = this.account;
+    const qualifier = names.bootstrapQualifier;
     const bootstrapRoles = [
       "deploy",
       "file-publishing",
@@ -61,53 +109,95 @@ export class GithubOidcStack extends Stack {
       "lookup",
     ].map(
       (kind) =>
-        `arn:${this.partition}:iam::${account}:role/cdk-${qualifier}-${kind}-role-${account}-${AWS_REGION}`,
+        `arn:${partition}:iam::${account}:role/cdk-${qualifier}-${kind}-role-${account}-${AWS_REGION}`,
     );
-    this.deployRole.addToPolicy(
-      new iam.PolicyStatement({
-        sid: "AssumeCdkBootstrapRoles",
+    const stacks = [ids.foundation, ids.app, ids.oidc];
+    const stackArn = (name: string) =>
+      `arn:${partition}:cloudformation:${AWS_REGION}:${account}:stack/${name}/*`;
+    const taskDefinitions = [ids.foundation].map(
+      (name) =>
+        `arn:${partition}:ecs:${AWS_REGION}:${account}:task-definition/${name}MigrationTask*`,
+    );
+    const taskRoles = `arn:${partition}:iam::${account}:role/${ids.foundation}-MigrationTask*`;
+
+    for (const statement of [
+      {
+        sid: "AssumeOwnBootstrapRoles",
         actions: ["sts:AssumeRole"],
         resources: bootstrapRoles,
-      }),
-    );
-    this.deployRole.addToPolicy(
-      new iam.PolicyStatement({
-        sid: "ReadStackOutputs",
+      },
+      {
+        sid: "ReadOwnStackOutputs",
         actions: ["cloudformation:DescribeStacks"],
+        resources: stacks.map(stackArn),
+      },
+      {
+        sid: "ReadOwnBootstrapVersion",
+        actions: ["ssm:GetParameter"],
         resources: [
-          `arn:${this.partition}:cloudformation:${AWS_REGION}:${account}:stack/PwSupport*/*`,
+          `arn:${partition}:ssm:${AWS_REGION}:${account}:parameter/cdk-bootstrap/${qualifier}/version`,
         ],
-      }),
-    );
-    this.deployRole.addToPolicy(
-      new iam.PolicyStatement({
-        sid: "RunMigrationTask",
+      },
+      {
+        sid: "RunOwnMigrationTask",
         actions: ["ecs:RunTask"],
-        resources: [
-          `arn:${this.partition}:ecs:${AWS_REGION}:${account}:task-definition/PwSupport*`,
-        ],
-      }),
-    );
-    this.deployRole.addToPolicy(
-      new iam.PolicyStatement({
-        sid: "WatchMigrationTask",
+        resources: taskDefinitions,
+        conditions: {
+          ArnLike: {
+            "ecs:cluster": `arn:${partition}:ecs:${AWS_REGION}:${account}:cluster/${ids.foundation}-*`,
+          },
+        },
+      },
+      {
+        sid: "WatchOwnMigrationTask",
         actions: ["ecs:DescribeTasks"],
         resources: [
-          `arn:${this.partition}:ecs:${AWS_REGION}:${account}:task/*`,
+          `arn:${partition}:ecs:${AWS_REGION}:${account}:task/${ids.foundation}-*/*`,
         ],
-      }),
-    );
+      },
+    ] satisfies ScopedStatement[]) {
+      this.deployRole.addToPolicy(toPolicyStatement(statement));
+    }
     this.deployRole.addToPolicy(
       new iam.PolicyStatement({
-        sid: "PassTaskRoles",
+        sid: "PassOwnTaskRoles",
         actions: ["iam:PassRole"],
-        resources: [`arn:${this.partition}:iam::${account}:role/PwSupport*`],
+        resources: [taskRoles],
         conditions: {
           StringEquals: { "iam:PassedToService": "ecs-tasks.amazonaws.com" },
         },
       }),
     );
 
+    const chunks = chunkStatements(
+      executionStatements({
+        stage,
+        account,
+        partition,
+        certificateArn: props.config.certificateArn,
+      }),
+    );
+    this.executionPolicies = chunks.map((chunk, index) => {
+      const policy = new iam.ManagedPolicy(
+        this,
+        `ExecutionPolicy${index + 1}`,
+        {
+          managedPolicyName: `${names.cfnExecutionPolicy}-${index + 1}`,
+          description: `CloudFormation execution permissions for the ${stage} stacks`,
+        },
+      );
+      for (const statement of chunk) {
+        policy.addStatements(toPolicyStatement(statement));
+      }
+      return policy;
+    });
+
     new CfnOutput(this, "DeployRoleArn", { value: this.deployRole.roleArn });
+    new CfnOutput(this, "BootstrapQualifier", { value: qualifier });
+    new CfnOutput(this, "CloudFormationExecutionPolicies", {
+      value: this.executionPolicies
+        .map((policy) => policy.managedPolicyArn)
+        .join(","),
+    });
   }
 }

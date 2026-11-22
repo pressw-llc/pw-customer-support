@@ -12,25 +12,51 @@ Do the steps in order. Each step names what it unblocks.
 
 - [ ] Create the dedicated AWS account and note its 12 digit id.
 - [ ] Sign in to the account with admin credentials.
-- [ ] Bootstrap CDK once.
-
-```bash
-bunx cdk bootstrap aws://<account id>/us-east-1
-```
-
 - [ ] Request an ACM certificate in `us-east-1` for the API host name, for example `support-api.<your domain>`. Validate it. Note the certificate ARN.
 - [ ] Copy `modules/infra/stage.example.json` to `modules/infra/stage.production.json`. Fill `account` and `certificateArn` now. Leave the Cognito, agent, and group values for steps 2 to 4. The file is gitignored.
-- [ ] Deploy the GitHub OIDC stack once with the admin credentials.
+- [ ] Deploy the stage's OIDC stack with the admin credentials. It needs no bootstrap. It creates the GitHub deploy role, the account's GitHub OIDC provider (production only), and the stage's CloudFormation execution policies.
 
 ```bash
 GITHUB_TOKEN=<read:packages token> bun run deploy --stage production --oidc
 ```
 
-- [ ] Copy the `DeployRoleArn` output. Add it to the GitHub repository as the variable `AWS_DEPLOY_ROLE_ARN`.
+- [ ] Bootstrap CDK for this stage with the same admin credentials. The command uses the stage's own qualifier (`pwsproduct`), its own toolkit stack (`CDKToolkit-pwsproduct`), and the execution policies from the previous step instead of `AdministratorAccess`.
+
+```bash
+GITHUB_TOKEN=<read:packages token> bun run deploy --stage production --bootstrap
+```
+
+- [ ] Copy the `DeployRoleArn` output of the OIDC stack. Add it to the GitHub repository as the variable `AWS_DEPLOY_ROLE_ARN`.
 - [ ] Create the GitHub environment `production`. Restrict its deployment branches to `main` and add a required reviewer.
 - [ ] Add the repository variable `SUPPORT_STAGE_CONFIG` with the JSON of the stage file, and the secret `PACKAGES_READ_TOKEN` if the default token cannot read `@pressw-llc` packages.
 
-The role trusts `repo:pressw-llc/pw-customer-support` on `main` or in the `production` environment. It holds only the CDK bootstrap roles, `cloudformation:DescribeStacks`, and the migration task permissions.
+The role trusts only `repo:pressw-llc/pw-customer-support:environment:production`. It does not trust the `main` branch alone, because the environment adds the required reviewer and branch rule, and a branch-only subject would let any workflow on `main` deploy. It can assume only the four bootstrap roles of its own qualifier, read its own stacks and bootstrap version, run its own migration task, and pass its own task roles.
+
+#### Stage isolation
+
+The strongest isolation is one AWS account per stage. The PRD names one dedicated production account, so production runs alone there. A staging stage in the same account relies on these controls:
+
+- Each stage has its own CDK qualifier, toolkit stack, bootstrap roles, assets bucket, and image repository.
+- Each stage's GitHub role trusts only its own environment subject and can assume only its own qualifier's bootstrap roles. The deploy preflight refuses a stage deployed through another stage's role or without its own bootstrap.
+- Each stage's CloudFormation execution role holds only the stage execution policies, never `AdministratorAccess`. Statements are scoped by stage name prefix or by the `pw-support:stage` tag, which every taggable resource in all three stacks carries.
+- Only the production OIDC stack creates the account-wide GitHub OIDC provider. Deploy it first.
+
+These statements cannot be scoped by name or tag, with the reason:
+
+| Statement | Why it stays broad |
+| --- | --- |
+| EC2, RDS, ELB, ECS, CloudWatch, Auto Scaling `Describe*` and `List*` | AWS offers no resource-level permissions for them |
+| `iam:CreateServiceLinkedRole` | Service-linked roles are account-wide singletons that AWS names, limited by service name |
+| EC2 and load balancer creation, CloudFront distribution creation | New resources have no ARN, limited by the required stage tag on the request |
+| Changing existing EC2, load balancer, and distribution resources | Their ids are generated, limited by the stage tag on the resource |
+| `ecs:RegisterTaskDefinition`, task definition describe | Task definitions have no resource-level permissions |
+| CloudFront origin access controls and response header policies | IAM supports neither names nor tags for them |
+| Application Auto Scaling targets and policies | Their ids are generated and they have no tag conditions |
+| CloudWatch Logs delivery for flow logs and load balancer logs | The delivery actions have no resource-level permissions |
+| `secretsmanager:GetRandomPassword` | The action has no resource |
+| Lambda event source mappings | Limited by the function ARN condition because mapping ids are generated |
+
+The execution policy was checked by synth and by assertions. The first real bootstrap may show a missing action. Add it to `modules/infra/src/execution-policy.ts`, keep the scope, and redeploy the OIDC stack.
 
 ### 2. Cognito app clients on the telemetry pool
 

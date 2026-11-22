@@ -1,3 +1,4 @@
+import { resourceNames } from "@pw-support/contracts";
 import type { StageConfig } from "@pw-support/infra";
 import {
   allowPlaceholders,
@@ -28,7 +29,8 @@ export interface DeployDeps {
   loadConfig(placeholders: boolean): StageConfig;
   isConfigError(error: unknown): error is { problems: string[] };
   run(call: RunnerCall): Promise<number>;
-  identityAccount(): Promise<string | undefined>;
+  identity(): Promise<{ account?: string; arn?: string }>;
+  bootstrapVersion(qualifier: string): Promise<number | undefined>;
   dockerAvailable(): Promise<boolean>;
   writeBuildToken(token: string): string;
   stackOutputs(stackName: string): Promise<Record<string, string>>;
@@ -64,7 +66,8 @@ export async function preflight(deps: DeployDeps): Promise<Preflight> {
     problems.push(...error.problems.map((line) => `config: ${line}`));
   }
 
-  const needsImages = !args.oidc && (!args.skipAssets || mode === "deploy");
+  const needsImages =
+    !args.oidc && !args.bootstrap && (!args.skipAssets || mode === "deploy");
   if (needsImages) {
     if (missingBuildToken(env)) {
       problems.push(
@@ -80,15 +83,36 @@ export async function preflight(deps: DeployDeps): Promise<Preflight> {
     if (args.oidc && !config) {
       problems.push("oidc: the stage config must be complete");
     }
-    const account = await deps.identityAccount().catch(() => undefined);
-    if (!account) {
+    const who = await deps
+      .identity()
+      .catch(() => ({}) as { account?: string; arn?: string });
+    if (!who.account) {
       problems.push("credentials: the AWS identity could not be read");
-    } else if (config && account !== config.account) {
+    } else if (config && who.account !== config.account) {
       problems.push(
-        `credentials: the identity belongs to account ${account}, the stage config names ${config.account}`,
+        `credentials: the identity belongs to account ${who.account}, the stage config names ${config.account}`,
       );
     }
-    if (!args.oidc && !args.skipSmoke) {
+    const names = resourceNames(args.stage);
+    const role = who.arn?.match(
+      /assumed-role\/(pw-support-[a-z0-9-]*-github-deploy)\//,
+    )?.[1];
+    if (role && role !== names.githubDeployRole) {
+      problems.push(
+        `credentials: refusing to deploy ${args.stage} through ${role}; use ${names.githubDeployRole}`,
+      );
+    }
+    if (who.account && !args.oidc && !args.bootstrap) {
+      const version = await deps
+        .bootstrapVersion(names.bootstrapQualifier)
+        .catch(() => undefined);
+      if (version === undefined) {
+        problems.push(
+          `bootstrap: stage ${args.stage} needs the CDK bootstrap with qualifier ${names.bootstrapQualifier}; run bun run deploy --stage ${args.stage} --oidc and then --bootstrap with admin credentials`,
+        );
+      }
+    }
+    if (!args.oidc && !args.bootstrap && !args.skipSmoke) {
       problems.push(...smokeEnvProblems(env).map((line) => `smoke: ${line}`));
     }
   }
@@ -135,16 +159,54 @@ export async function runDeploy(deps: DeployDeps): Promise<number> {
     }
     return true;
   };
+  const qualifier = resourceNames(args.stage).bootstrapQualifier;
   const cdk = (...extra: string[]) => [
     "bunx",
     "cdk",
     ...extra,
+    ...(extra[0] === "deploy" || extra[0] === "diff"
+      ? ["--toolkit-stack-name", `CDKToolkit-${qualifier}`]
+      : []),
     "-c",
     `stage=${args.stage}`,
     "-c",
     `placeholders=${plan.placeholders}`,
     "--no-notices",
   ];
+
+  if (args.bootstrap) {
+    const outputs = await deps.stackOutputs(stacks.oidc).catch(() => ({}));
+    const policies = Object.entries(outputs).find(([key]) =>
+      key.includes("CloudFormationExecutionPolicies"),
+    )?.[1];
+    if (!policies) {
+      deps.error(
+        `[deploy] FAIL the ${stacks.oidc} stack has no execution policies; run --oidc first`,
+      );
+      return 1;
+    }
+    return (await step(
+      "bootstrap the stage",
+      [
+        "bunx",
+        "cdk",
+        "bootstrap",
+        `aws://${config.account}/us-east-1`,
+        "--qualifier",
+        qualifier,
+        "--toolkit-stack-name",
+        `CDKToolkit-${qualifier}`,
+        "--cloudformation-execution-policies",
+        policies,
+        "--tags",
+        `${resourceNames(args.stage).stageTag}=${args.stage}`,
+        "--no-notices",
+      ],
+      infraDir,
+    ))
+      ? 0
+      : 1;
+  }
 
   if (!(await step("build admin and widget", ["bun", "run", "build"])))
     return 1;

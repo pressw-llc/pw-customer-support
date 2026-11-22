@@ -1,6 +1,10 @@
-import { LINEAR_ADAPTER_VISIBILITY_TIMEOUT_SECONDS } from "@pw-support/contracts";
+import {
+  LINEAR_ADAPTER_VISIBILITY_TIMEOUT_SECONDS,
+  resourceNames,
+} from "@pw-support/contracts";
 import {
   CfnOutput,
+  DefaultStackSynthesizer,
   Duration,
   RemovalPolicy,
   type StackProps,
@@ -60,6 +64,9 @@ export class SupportAppStack extends RegionalStack {
     super(scope, id, {
       ...props,
       env: { account: props.config.account, region: AWS_REGION },
+      synthesizer: new DefaultStackSynthesizer({
+        qualifier: resourceNames(props.config.stage).bootstrapQualifier,
+      }),
       terminationProtection: props.config.stage === "production",
     });
     const { foundation, config } = props;

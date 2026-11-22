@@ -12,6 +12,9 @@ export interface ResourceNames {
   databaseSecret: string;
   anthropicSecret: string;
   githubDeployRole: string;
+  cfnExecutionPolicy: string;
+  bootstrapQualifier: string;
+  stageTag: string;
 }
 
 export function resourceNames(stage: string = LOCAL_STAGE): ResourceNames {
@@ -29,6 +32,9 @@ export function resourceNames(stage: string = LOCAL_STAGE): ResourceNames {
     databaseSecret: `${base}-db/credentials`,
     anthropicSecret: `${base}-anthropic/api-key`,
     githubDeployRole: `${base}-github-deploy`,
+    cfnExecutionPolicy: `${base}-cfn-execution`,
+    bootstrapQualifier: local ? "hnb659fds" : `pws${stage.slice(0, 7)}`,
+    stageTag: "pw-support:stage",
   };
 }
 
