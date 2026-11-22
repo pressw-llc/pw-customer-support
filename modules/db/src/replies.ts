@@ -78,8 +78,21 @@ export type InboundCommentResult =
   | { status: "stored"; inbound: InboundCommentRow }
   | { status: "awaiting_ticket"; inbound: InboundCommentRow }
   | { status: "superseded" }
+  | { status: "request_gone" }
   | { status: "duplicate_delivery" }
   | { status: "duplicate_comment" };
+
+export async function lockRequestRow(
+  tx: SupportTx,
+  requestId: string,
+): Promise<boolean> {
+  const rows = await tx
+    .select({ id: requests.id })
+    .from(requests)
+    .where(eq(requests.id, requestId))
+    .for("key share");
+  return rows.length > 0;
+}
 
 async function insertDelivery(
   tx: SupportTx,
@@ -164,6 +177,9 @@ export async function persistInboundComment(
     const superseded = change ? supersedes(change, sourceUpdatedAt) : false;
     if (change?.action === "remove") return { status: "superseded" };
     const found = await findTicketByLinearIssue(tx, input.issueId);
+    if (found && !(await lockRequestRow(tx, found.request.id))) {
+      return { status: "request_gone" };
+    }
     const trusted = found !== null && !superseded;
     const [inbound] = await tx
       .insert(inboundComments)

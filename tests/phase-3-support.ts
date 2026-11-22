@@ -6,7 +6,11 @@ import {
   type WordingScore,
   type WordingScorer,
 } from "@pw-support/channels";
-import { type LinearStub, startLinearStub } from "@pw-support/channels/testing";
+import {
+  freshConnectionFetch,
+  type LinearStub,
+  startLinearStub,
+} from "@pw-support/channels/testing";
 import {
   type EventEnvelope,
   intakeResultSchema,
@@ -76,7 +80,11 @@ export async function createPhase3Harness(
       return "lin_api_test";
     },
   };
-  const linear = createLinearClient({ apiUrl: stub.url, secrets });
+  const linear = createLinearClient({
+    apiUrl: stub.url,
+    secrets,
+    fetcher: freshConnectionFetch,
+  });
   const wording =
     options.wording === undefined ? textScorer(markedScore) : options.wording;
   const adapter = createLinearAdapter({
@@ -93,7 +101,7 @@ export async function createPhase3Harness(
     config: apiConfig,
     linearWebhook: intake,
   });
-  const server = Bun.serve({ port: 0, fetch: app.fetch });
+  const server = Bun.serve({ port: 0, idleTimeout: 0, fetch: app.fetch });
   const webhookUrl = `http://127.0.0.1:${server.port}/webhooks/linear`;
   stub.configureWebhook({ url: webhookUrl, secret: WEBHOOK_SECRET });
   const seen = new Set<number>();
@@ -218,8 +226,8 @@ export async function createPhase3Harness(
   }
 
   async function close(): Promise<void> {
-    server.stop(true);
     await stub.stop();
+    await server.stop(true);
     await h.close();
   }
 

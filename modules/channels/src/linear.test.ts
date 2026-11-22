@@ -117,6 +117,42 @@ describe("H5 getComment tells a removed comment from a refused request", () => {
   });
 });
 
+describe("the stub settles its own webhooks before it stops", () => {
+  test("stop waits for a comment webhook that createComment started", async () => {
+    const received: string[] = [];
+    const target = Bun.serve({
+      port: 0,
+      async fetch(request) {
+        await Bun.sleep(50);
+        received.push(await request.text());
+        return Response.json({ ok: true });
+      },
+    });
+    const stub = startLinearStub();
+    stub.configureWebhook({
+      url: `http://127.0.0.1:${target.port}/hook`,
+      secret: "s",
+    });
+    const issue = {
+      id: "issue-settle",
+      identifier: "ACME-9",
+      title: "t",
+      description: "",
+    };
+    stub.issues.push(issue as never);
+    const client = createLinearClient({
+      apiUrl: stub.url,
+      secrets: { get: async () => "lin_api_test" },
+    });
+    await client.createComment(issue.id, "own comment");
+    expect(received).toHaveLength(0);
+    await stub.stop();
+    expect(received).toHaveLength(1);
+    expect(stub.deliveries).toHaveLength(1);
+    await target.stop(true);
+  });
+});
+
 describe("linear client against the stub", () => {
   test("looks up a team and returns null for an unknown one", async () => {
     expect(await h.linear.getTeam(h.team)).toMatchObject({ key: "ACME" });

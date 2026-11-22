@@ -12,8 +12,9 @@ import {
   commentNeedsRefresh,
   inboundComments,
   persistInboundComment,
+  requests,
 } from "@pw-support/db";
-import { and, eq } from "drizzle-orm";
+import { and, eq, sql } from "drizzle-orm";
 import {
   createPhase3Harness,
   type Phase3Harness,
@@ -35,6 +36,7 @@ type Scenario = Awaited<ReturnType<Phase3Harness["scenario"]>>;
 async function post(payload: Record<string, unknown>) {
   const raw = JSON.stringify(payload);
   const response = await fetch(p.webhookUrl, {
+    keepalive: false,
     method: "POST",
     headers: {
       "Linear-Delivery": crypto.randomUUID(),
@@ -474,5 +476,45 @@ describe("refresh edge cases", () => {
       updatedAt: at(3),
     });
     expect(await commentNeedsRefresh(p.h.db, row)).toBe(true);
+  });
+});
+
+describe("a request deleted while its comment is stored", () => {
+  test("the webhook intake drops the comment instead of failing on the foreign key", async () => {
+    const s = await p.scenario();
+    let release: () => void = () => {};
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    let deleted: () => void = () => {};
+    const started = new Promise<void>((resolve) => {
+      deleted = resolve;
+    });
+    const deleting = p.h.db.transaction(async (tx) => {
+      await tx.delete(requests).where(eq(requests.id, s.requestId));
+      deleted();
+      await gate;
+    });
+    await started;
+    const storing = persistInboundComment(p.h.db, {
+      deliveryId: crypto.randomUUID(),
+      commentId: `gone-${crypto.randomUUID()}`,
+      issueId: s.issueId,
+      parentCommentId: null,
+      authorId: STUB_STAFF_ID,
+      authorName: "Ada",
+      body: "@external late",
+      sourceCreatedAt: at(1),
+    });
+    for (;;) {
+      const waiting = await p.h.db.execute<{ n: number }>(
+        sql`select count(*)::int as n from pg_stat_activity where wait_event_type = 'Lock' and query like '%for key share%'`,
+      );
+      if ((waiting[0]?.n ?? 0) > 0) break;
+      await Bun.sleep(5);
+    }
+    release();
+    await deleting;
+    expect(await storing).toEqual({ status: "request_gone" });
   });
 });
