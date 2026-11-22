@@ -10,4 +10,4 @@ Run exactly one command for the argument `$ARGUMENTS`:
 - `stop`: run `"${CLAUDE_PLUGIN_ROOT}/bin/pw-support" watch stop`
 - `status`: run `"${CLAUDE_PLUGIN_ROOT}/bin/pw-support" watch status`
 
-If the argument is anything else, ask for `start`, `stop`, or `status`. Report the command output. If the output says you are not logged in, tell the user to run `"${CLAUDE_PLUGIN_ROOT}/bin/pw-support" login` in a terminal.
+If the argument is anything else, ask for `start`, `stop`, or `status`. Report the command output. If the output says you are not logged in, tell the user to run `/support:login`.

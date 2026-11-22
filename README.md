@@ -544,16 +544,26 @@ This credential raises the bar against an interactive session that is steered to
 
 ### Install and login
 
-The plugin lives in `modules/plugin`. Start Claude Code with `claude --plugin-dir modules/plugin` from a checkout after `bun install`. The plugin needs `bun` on the path. The plugin commands, the skill, and `.mcp.json` call the CLI as `"${CLAUDE_PLUGIN_ROOT}/bin/pw-support"`, so they work without a PATH entry. In your own terminal, `pw-support` below means `modules/plugin/bin/pw-support`. Log in once in a terminal.
+The plugin lives in `modules/plugin`. Start Claude Code with `claude --plugin-dir modules/plugin` from a checkout after `bun install`. The plugin needs `bun` on the path.
+
+In your terminal, from the repository root, set the environment and start Claude Code. Then run `/support:login` inside Claude Code.
 
 ```bash
 export PW_SUPPORT_API_URL=https://<api host>
 export PW_SUPPORT_ISSUER=https://cognito-idp.<region>.amazonaws.com/<poolId>
 export PW_SUPPORT_CLIENT_ID=<app client id>
+claude --plugin-dir modules/plugin
+```
+
+Two audiences use the CLI. Claude runs it through the Bash tool as `"${CLAUDE_PLUGIN_ROOT}/bin/pw-support"`, a variable that Claude Code expands inside plugin commands and skills only. A person at a shell runs `modules/plugin/bin/pw-support` from the repository root. Every `pw-support` command name below means one of these two paths. The CLI error messages print the absolute path of the script that is running.
+
+To log in or out without Claude Code, run this in your terminal from the repository root.
+
+```bash
 modules/plugin/bin/pw-support login
 ```
 
-`pw-support login` runs the authorization code flow with PKCE against the issuer discovered from `PW_SUPPORT_ISSUER`. It opens the browser, listens on `127.0.0.1:53682`, and checks `state`. Register `http://127.0.0.1:53682/callback` as a callback URL on the app client. Tokens go to `tokens.json` in the config directory with mode 0600, and the directory has mode 0700. The command refreshes an expired access token with the refresh token. `pw-support token` prints a fresh access token. `pw-support logout` revokes the watcher credential, stops the watcher, and deletes both files. Nothing logs a token. The `--client-credentials` login exists for tests and validation against the mock issuer and takes its secret from injected options, not from the environment.
+`/support:login` and `pw-support login` run the authorization code flow with PKCE against the issuer discovered from `PW_SUPPORT_ISSUER`. It opens the browser, listens on `127.0.0.1:53682`, and checks `state`. Register `http://127.0.0.1:53682/callback` as a callback URL on the app client. Tokens go to `tokens.json` in the config directory with mode 0600, and the directory has mode 0700. The command refreshes an expired access token with the refresh token. `pw-support token` prints a fresh access token. `pw-support logout` revokes the watcher credential, stops the watcher, and deletes both files. Nothing logs a token. The `--client-credentials` login exists for tests and validation against the mock issuer and takes its secret from injected options, not from the environment.
 
 For a laptop without a checkout, build the bundled plugin.
 
@@ -568,7 +578,7 @@ To distribute the plugin through a marketplace repository, copy `modules/plugin/
 
 The plugin declares the MCP server in `.mcp.json` as an HTTP server whose `headersHelper` runs `bin/pw-support headers`. The helper prints `{"Authorization":"Bearer <token>"}`. Claude Code runs it at connect time, so a refreshed token needs no restart. The route does not publish protected resource metadata. Claude Code skips OAuth discovery when a header source exists, and Cognito offers no dynamic client registration, so the helper is the supported path.
 
-Slash commands: `/support:subscriptions`, `/support:subscribe <prefix>`, `/support:unsubscribe <prefix>`, `/support:status [request id or channel prefix]`, and `/support:watch start|stop|status`. The `laptop-triage` skill describes the workflow.
+Slash commands: `/support:login`, `/support:logout`, `/support:subscriptions`, `/support:subscribe <prefix>`, `/support:unsubscribe <prefix>`, `/support:status [request id or channel prefix]`, and `/support:watch start|stop|status`. The `laptop-triage` skill describes the workflow.
 
 ### Watcher
 
