@@ -48,12 +48,10 @@ export function createLaptopBackend(deps: LaptopBackendDeps): LaptopBackend {
           return await finish(job, "attempts_exhausted");
         }
         const prepared = await prepareAgentInput(deps, job);
-        if (prepared.status === "aborted") {
-          return { status: "nothing_to_do", reason: "lease_lost" };
-        }
         if (prepared.status === "human_triage") {
           return await finish(job, prepared.reason);
         }
+        if (prepared.status === "aborted") throw new Error("aborted");
         return {
           status: "ready",
           content: buildUserContent(prepared.agentInput),

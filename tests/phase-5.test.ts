@@ -497,7 +497,9 @@ describe("laptop backend failure paths", () => {
       config: h.config,
       wake: h.deps.wake,
       now: h.clock.now,
+      log: (message) => logs.push(message),
     });
+  const logs: string[] = [];
 
   test("a preparation error releases the job for the cloud", async () => {
     const job = await claimed();
@@ -505,6 +507,7 @@ describe("laptop backend failure paths", () => {
       ...job,
       requestId: crypto.randomUUID(),
     });
+    expect(logs).toContain("laptop preparation failed");
     expect(result).toEqual({
       status: "nothing_to_do",
       reason: "preparation_failed",

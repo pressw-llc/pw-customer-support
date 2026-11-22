@@ -1,0 +1,9 @@
+{
+  "mcpServers": {
+    "pw-support": {
+      "type": "http",
+      "url": "${PW_SUPPORT_API_URL:-http://127.0.0.1:8787}/mcp",
+      "headersHelper": "\"${CLAUDE_PLUGIN_ROOT}/bin/pw-support\" headers"
+    }
+  }
+}
