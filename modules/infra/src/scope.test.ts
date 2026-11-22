@@ -2,6 +2,8 @@ import { afterAll, describe, expect, test } from "bun:test";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { App } from "aws-cdk-lib";
+import { Template } from "aws-cdk-lib/assertions";
 import {
   accountConflicts,
   ConfigError,
@@ -11,6 +13,7 @@ import {
   resolveStageConfig,
 } from "./config";
 import { loadStageConfig, stageFile } from "./load-config";
+import { createOidcStack } from "./stacks";
 
 const FULL: RawValues = {
   account: "123456789012",
@@ -204,5 +207,30 @@ describe("one stage per account", () => {
       dir,
     });
     expect(config.account).toBe("000000000000");
+  });
+});
+
+describe("the OIDC-only app", () => {
+  test("a stage file with only the account builds the OIDC stack and nothing else", () => {
+    const config = loadStageConfig({
+      stage: "production",
+      scope: "oidc",
+      placeholders: false,
+      env: {
+        SUPPORT_STAGE_CONFIG: JSON.stringify({ account: "123456789012" }),
+      },
+    });
+    const app = new App();
+    const stack = createOidcStack(app, config);
+    expect(app.node.children.map((child) => child.node.id)).toEqual([
+      "PwSupportGithubOidc",
+    ]);
+    const template = Template.fromStack(stack);
+    template.resourceCountIs("AWS::IAM::OIDCProvider", 1);
+    template.hasResourceProperties("AWS::IAM::ManagedPolicy", {
+      ManagedPolicyName: "pw-support-production-role-boundary",
+    });
+    const role = Object.values(template.findResources("AWS::IAM::Role"))[0];
+    expect(JSON.stringify(role?.Properties.Tags)).toContain("pw-support:stage");
   });
 });
