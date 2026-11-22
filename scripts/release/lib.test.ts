@@ -308,11 +308,9 @@ describe("pack and publish", () => {
   test("publishes through bun with a scoped npmrc and masks the token", () => {
     const packed = packWidget(fixtureWidget());
     dirs.push(packed.workDir);
-    let seen:
-      | { command: string[]; env: Record<string, string | undefined> }
-      | undefined;
+    let seen: { command: string[]; cwd: string } | undefined;
     const run: Runner = (command, options) => {
-      seen = { command, env: options.env };
+      seen = { command, cwd: options.cwd };
       return { status: 0, output: "published with secret-token" };
     };
     const registry = {
@@ -329,7 +327,7 @@ describe("pack and publish", () => {
     expect(result.output).not.toContain("secret-token");
     expect(seen?.command).toContain("--registry");
     expect(seen?.command).not.toContain("--dry-run");
-    const npmrc = seen?.env.NPM_CONFIG_USERCONFIG as string;
+    const npmrc = join(seen?.cwd as string, ".npmrc");
     expect(readFileSync(npmrc, "utf8")).toContain("_authToken=secret-token");
   });
 

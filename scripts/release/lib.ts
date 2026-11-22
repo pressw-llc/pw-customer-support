@@ -304,7 +304,7 @@ export function npmrcFor(registries: { url: string; token: string }[]): string {
 }
 
 export function isAlreadyPublished(output: string): boolean {
-  return /cannot publish over|previously published|already (exists|published)|e409|409 conflict/i.test(
+  return /cannot publish over|previously published|already (exists|present|published)|e409|409 conflict/i.test(
     output,
   );
 }
@@ -437,7 +437,7 @@ export function publishTarball(input: {
   writeFileSync(
     npmrc,
     input.token
-      ? npmrcFor([{ url: input.registry.url, token: input.token }])
+      ? `registry=${input.registry.url.replace(/\/$/, "")}/\n${npmrcFor([{ url: input.registry.url, token: input.token }])}`
       : "",
     { mode: 0o600 },
   );
@@ -455,7 +455,7 @@ export function publishTarball(input: {
       "latest",
       ...(input.dryRun ? ["--dry-run"] : []),
     ],
-    { cwd, env: { ...process.env, NPM_CONFIG_USERCONFIG: npmrc } },
+    { cwd, env: { ...process.env } },
   );
   const output = input.token
     ? result.output.split(input.token).join("***")
