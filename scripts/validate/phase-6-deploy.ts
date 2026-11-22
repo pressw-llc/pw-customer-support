@@ -36,8 +36,8 @@ import {
 import { startLinearStub } from "@pw-support/channels/testing";
 import {
   LINEAR_ADAPTER_VISIBILITY_TIMEOUT_SECONDS,
-  RESOURCE_NAMES,
   resolveStackEnv,
+  resourceNames,
   TRIAGE_WAKE_VISIBILITY_TIMEOUT_SECONDS,
 } from "@pw-support/contracts";
 import {
@@ -61,6 +61,7 @@ import { assert, exec, Steps, waitFor } from "./steps";
 
 const root = join(import.meta.dir, "..", "..");
 const SUFFIX = crypto.randomUUID().slice(0, 8);
+const STAGE = "production";
 const LS_CONTAINER = `pw-support-deploy-ls-${SUFFIX}`;
 const LS_PORT = freePort();
 const LS_URL = `http://127.0.0.1:${LS_PORT}`;
@@ -163,6 +164,9 @@ function localEnv(
 ): Record<string, string | undefined> {
   return {
     NODE_ENV: undefined,
+    SUPPORT_STAGE: STAGE,
+    SECRETS_SCOPE: resourceNames(STAGE).secretsScope,
+    TRIAGE_WAKE_QUEUE: resourceNames(STAGE).triageWakeQueue,
     AWS_ENDPOINT_URL: LS_URL,
     AWS_ACCESS_KEY_ID: "test",
     AWS_SECRET_ACCESS_KEY: "test",
@@ -501,6 +505,7 @@ try {
             runtime: "nodejs20.x",
             environment: {
               DATABASE_URL: `postgres://support:support@host.docker.internal:${POSTGRES_HOST_PORT}/support`,
+              SUPPORT_STAGE: STAGE,
               AWS_ENDPOINT_URL: LS_FROM_DOCKER,
               LINEAR_API_URL: `http://host.docker.internal:${STUB_PORT}/graphql`,
               LINEAR_API_KEY: "local-rehearsal",
@@ -590,7 +595,9 @@ try {
       await waitForHttp(`http://127.0.0.1:${API_PORT}/health`);
       const wakeUrl = (
         await sqs.send(
-          new GetQueueUrlCommand({ QueueName: RESOURCE_NAMES.triageWakeQueue }),
+          new GetQueueUrlCommand({
+            QueueName: resourceNames(STAGE).triageWakeQueue,
+          }),
         )
       ).QueueUrl;
       assert(
@@ -695,6 +702,8 @@ try {
         "-e",
         "NODE_ENV=development",
         "-e",
+        `SUPPORT_STAGE=${STAGE}`,
+        "-e",
         `DATABASE_URL=postgres://support:support@host.docker.internal:${POSTGRES_HOST_PORT}/support`,
         "-e",
         `AWS_ENDPOINT_URL=${LS_FROM_DOCKER}`,
@@ -748,6 +757,8 @@ try {
         "host.docker.internal:host-gateway",
         "-e",
         "NODE_ENV=development",
+        "-e",
+        `SUPPORT_STAGE=${STAGE}`,
         "-e",
         `DATABASE_URL=postgres://support:support@host.docker.internal:${POSTGRES_HOST_PORT}/support`,
         "-e",
