@@ -191,15 +191,125 @@ const stubReadback = async (token: string) => {
     : undefined;
 };
 
-async function submitSmoke(apiUrl: string) {
-  const result = await runSmoke({
-    apiUrl,
-    projectKey: state.projectKey,
-    readback: stubReadback,
-    timeoutMs: 150_000,
-    intervalMs: 1_000,
-  });
-  return `${result.ticket.identifier} ${result.ticket.url} (request ${result.requestId})`;
+async function submitSmoke(apiUrl: string, container?: string) {
+  try {
+    const result = await runSmoke({
+      apiUrl,
+      projectKey: state.projectKey,
+      readback: stubReadback,
+      timeoutMs: 150_000,
+      intervalMs: 1_000,
+    });
+    return `${result.ticket.identifier} ${result.ticket.url} (request ${result.requestId})`;
+  } catch (error) {
+    const reason = error instanceof Error ? error.message : String(error);
+    throw new Error(
+      `the smoke request to ${apiUrl}/v1/requests failed: ${reason}${container ? `\n${await containerState(container)}` : ""}`,
+    );
+  }
+}
+
+async function removeLambdaContainers(pattern: string): Promise<void> {
+  const listed = await exec([
+    "docker",
+    "ps",
+    "-a",
+    "--filter",
+    `name=${pattern}`,
+    "--format",
+    "{{.Names}}",
+  ]);
+  for (const name of listed.out.split("\n").filter(Boolean))
+    await exec(["docker", "rm", "-f", name]);
+}
+
+async function deliveryState(): Promise<string> {
+  const lines: string[] = [];
+  const queueUrl = state.outputs.LinearAdapterQueueUrl as string | undefined;
+  if (queueUrl) {
+    const attrs = await sqs
+      .send(
+        new GetQueueAttributesCommand({
+          QueueUrl: queueUrl,
+          AttributeNames: [
+            "ApproximateNumberOfMessages",
+            "ApproximateNumberOfMessagesNotVisible",
+          ],
+        }),
+      )
+      .catch((error) => ({ Attributes: { error: String(error) } }));
+    lines.push(`adapter queue ${JSON.stringify(attrs.Attributes)}`);
+  }
+  const listed = await exec([
+    "docker",
+    "ps",
+    "-a",
+    "--filter",
+    `name=${LS_CONTAINER}-lambda`,
+    "--format",
+    "{{.Names}}",
+  ]);
+  for (const name of listed.out.split("\n").filter(Boolean)) {
+    const logs = await exec(["docker", "logs", "--tail", "20", name]);
+    lines.push(`lambda ${name}:\n${logs.out.slice(-1200)}`);
+  }
+  return lines.join("\n");
+}
+
+async function containerState(name: string): Promise<string> {
+  const inspected = await exec([
+    "docker",
+    "inspect",
+    name,
+    "--format",
+    "status={{.State.Status}} exit={{.State.ExitCode}} oom={{.State.OOMKilled}}",
+  ]);
+  const logs = await exec(["docker", "logs", "--tail", "15", name]);
+  const worker = await exec([
+    "docker",
+    "logs",
+    "--tail",
+    "30",
+    `pw-support-worker-${SUFFIX}`,
+  ]);
+  return `${inspected.out.trim() || "container is gone"}\n${logs.out.slice(-800)}\nworker:\n${worker.out.slice(-1500)}\n${await deliveryState()}`;
+}
+
+async function assertReachable(
+  label: string,
+  url: string,
+  container?: string,
+): Promise<void> {
+  try {
+    const response = await fetch(url, { signal: AbortSignal.timeout(5_000) });
+    assert(response.ok, `status ${response.status}`);
+  } catch (error) {
+    const reason = error instanceof Error ? error.message : String(error);
+    throw new Error(
+      `${label} is unreachable at ${url}: ${reason}${container ? `\n${await containerState(container)}` : ""}`,
+    );
+  }
+}
+
+async function assertReachableFromContainer(
+  label: string,
+  url: string,
+): Promise<void> {
+  const probe = await exec([
+    "docker",
+    "run",
+    "--rm",
+    "--add-host",
+    "host.docker.internal:host-gateway",
+    API_IMAGE,
+    "bun",
+    "-e",
+    `const r = await fetch(${JSON.stringify(url)}, { method: "POST", body: "{}", headers: { authorization: "x" } }); console.log("status", r.status);`,
+  ]);
+  assert(
+    probe.code === 0 && probe.out.includes("status"),
+    `${label} is unreachable from a container at ${url}: ${probe.out.trim().slice(-300)}`,
+  );
 }
 
 async function buildImage(target: string, tag: string): Promise<string> {
@@ -294,6 +404,7 @@ try {
   await steps.run(
     "start a dedicated LocalStack with the Docker socket",
     async () => {
+      await removeLambdaContainers("pw-support-deploy-ls-.*-lambda-");
       const started = await exec([
         "docker",
         "run",
@@ -810,6 +921,15 @@ try {
     async () => {
       for (const proc of processes) await proc.stop();
       processes.length = 0;
+      await assertReachable(
+        "the API container",
+        `http://127.0.0.1:${CONTAINER_API_PORT}/health`,
+        `pw-support-api-${SUFFIX}`,
+      );
+      await assertReachableFromContainer(
+        "the Linear stub",
+        `http://host.docker.internal:${STUB_PORT}/graphql`,
+      );
       const entry = state.lambdaOk
         ? ["bun", "pipelines/support-triage/fargate-entries/production.ts"]
         : ["bun", "pipelines/support-triage/fargate-entries/main.ts"];
@@ -859,6 +979,7 @@ try {
       );
       const detail = await submitSmoke(
         `http://127.0.0.1:${CONTAINER_API_PORT}`,
+        `pw-support-api-${SUFFIX}`,
       );
       const logs = await exec([
         "docker",
@@ -872,6 +993,7 @@ try {
 } finally {
   for (const proc of processes) await proc.stop();
   for (const name of containers) await exec(["docker", "rm", "-f", name]);
+  await removeLambdaContainers(`${LS_CONTAINER}-lambda`);
   await exec(["docker", "rmi", "-f", API_IMAGE, WORKER_IMAGE]);
   await stub.stop();
   rmSync(work, { recursive: true, force: true });
