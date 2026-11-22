@@ -331,6 +331,72 @@ describe("runDeploy order", () => {
     expect(text).toContain("--skip-migrate");
   });
 
+  test("a failing OIDC, bootstrap, or app stack step fails the run", async () => {
+    const failing = (title: string, argv: string[], extra = {}) => {
+      const h = harness(argv, {
+        env: { ...FULL_ENV },
+        run: async (call) => {
+          h.calls.push(call.title);
+          return call.title === title ? 1 : 0;
+        },
+        stackOutputs: async () => ({
+          CloudFormationExecutionPolicies: "arn:policy/one",
+          ApiUrl: "https://api.example.test",
+        }),
+        ...extra,
+      });
+      return h;
+    };
+    expect(
+      await runDeploy(failing("deploy GitHub OIDC stack", ["--oidc"]).deps),
+    ).toBe(1);
+    expect(
+      await runDeploy(failing("bootstrap the stage", ["--bootstrap"]).deps),
+    ).toBe(1);
+    const app = failing("deploy app stack", []);
+    expect(await runDeploy(app.deps)).toBe(1);
+    expect(app.calls).not.toContain("smoke test");
+  });
+
+  test("a rejecting identity, bootstrap lookup, or stack read is reported, not thrown", async () => {
+    const identity = harness([], {
+      identity: async () => {
+        throw new Error("sts down");
+      },
+    });
+    expect(await runDeploy(identity.deps)).toBe(2);
+    expect(identity.errors.join("\n")).toContain("identity could not be read");
+    const lookup = harness([], {
+      bootstrapVersion: async () => {
+        throw new Error("ssm down");
+      },
+    });
+    expect(await runDeploy(lookup.deps)).toBe(2);
+    expect(lookup.errors.join("\n")).toContain("needs the CDK bootstrap");
+    const outputs = harness(["--bootstrap"], {
+      env: { AWS_PROFILE: "deploy" },
+      stackOutputs: async () => {
+        throw new Error("cloudformation down");
+      },
+    });
+    expect(await runDeploy(outputs.deps)).toBe(1);
+    expect(outputs.errors.join("\n")).toContain("run --oidc first");
+  });
+
+  test("an OIDC run with an incomplete stage config is a preflight problem", async () => {
+    const { deps, calls, errors } = harness(["--oidc"], {
+      env: { AWS_PROFILE: "deploy" },
+      loadConfig: () => {
+        throw { problems: ["adminRequiredGroup is required"] };
+      },
+    });
+    expect(await runDeploy(deps)).toBe(2);
+    expect(calls).toEqual([]);
+    expect(errors.join("\n")).toContain(
+      "oidc: the stage config must be complete",
+    );
+  });
+
   test("a failing build stops the run before synth", async () => {
     const { deps, calls } = harness([], {
       run: async ({ title }) => {
