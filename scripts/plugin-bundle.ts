@@ -39,7 +39,7 @@ export async function buildPluginBundle(
     minify: false,
   });
   if (!built.success) {
-    throw new Error(built.logs.map((log) => String(log)).join("\n"));
+    throw new Error(built.logs.join("\n"));
   }
 
   cpSync(join(pluginDir, ".claude-plugin"), join(outDir, ".claude-plugin"), {
