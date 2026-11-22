@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { freePort } from "./free-port";
+import { emptyResponse, freePort } from "./free-port";
 
 test("returns a port that can be bound right away and differs between calls", () => {
   const first = freePort();
@@ -11,4 +11,5 @@ test("returns a port that can be bound right away and differs between calls", ()
   expect(held.port).toBe(first);
   expect(freePort()).not.toBe(first);
   held.stop(true);
+  expect(emptyResponse().status).toBe(200);
 });
