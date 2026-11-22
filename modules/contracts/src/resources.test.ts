@@ -22,7 +22,6 @@ test("another stage gets stage-specific names for every explicit resource", () =
     "triageWakeDlq",
     "linearAdapterQueue",
     "linearAdapterDlq",
-    "databaseSecret",
     "anthropicSecret",
     "githubDeployRole",
     "secretsScope",

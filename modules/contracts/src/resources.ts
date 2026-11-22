@@ -9,7 +9,6 @@ export interface ResourceNames {
   linearAdapterDlq: string;
   secretsPrefix: string;
   secretsScope: string;
-  databaseSecret: string;
   anthropicSecret: string;
   githubDeployRole: string;
   cfnExecutionPolicy: string;
@@ -30,7 +29,6 @@ export function resourceNames(stage: string = LOCAL_STAGE): ResourceNames {
     linearAdapterDlq: `${base}-adapter-linear-dlq`,
     secretsPrefix: "pw-support/",
     secretsScope: local ? "global" : stage,
-    databaseSecret: `${base}-db/credentials`,
     anthropicSecret: `${base}-anthropic/api-key`,
     githubDeployRole: `${base}-github-deploy`,
     cfnExecutionPolicy: `${base}-cfn-execution`,

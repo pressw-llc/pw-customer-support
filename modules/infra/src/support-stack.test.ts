@@ -121,12 +121,16 @@ describe("foundation stack", () => {
     ).toBe("Retain");
   });
 
-  test("puts the database in isolated subnets and takes the password from Secrets Manager", () => {
-    const cluster = JSON.stringify(
-      Object.values(foundationT.findResources("AWS::RDS::DBCluster"))[0]
-        ?.Properties,
-    );
-    expect(cluster).toContain("{{resolve:secretsmanager:");
+  test("puts the database in isolated subnets and lets RDS manage the master password", () => {
+    const properties = Object.values(
+      foundationT.findResources("AWS::RDS::DBCluster"),
+    )[0]?.Properties;
+    expect(properties.ManageMasterUserPassword).toBe(true);
+    expect(properties.MasterUsername).toBe("support");
+    expect(properties.MasterUserPassword).toBeUndefined();
+    expect(properties.MasterUserSecret).toBeUndefined();
+    expect(foundationT.findResources("AWS::KMS::Key")).toEqual({});
+    expect(JSON.stringify(properties)).not.toContain("{{resolve:");
     const group = JSON.stringify(
       Object.values(foundationT.findResources("AWS::RDS::DBSubnetGroup"))[0]
         ?.Properties.SubnetIds,
@@ -142,12 +146,12 @@ describe("foundation stack", () => {
     for (const subnet of dataSubnets) {
       expect(subnet.Properties.MapPublicIpOnLaunch).not.toBe(true);
     }
-    foundationT.hasResourceProperties("AWS::SecretsManager::RotationSchedule", {
-      RotationRules: { ScheduleExpression: "rate(30 days)" },
-    });
-    foundationT.hasResourceProperties("AWS::Serverless::Application", {
-      Parameters: Match.objectLike({ vpcSubnetIds: Match.anyValue() }),
-    });
+    expect(
+      foundationT.findResources("AWS::SecretsManager::RotationSchedule"),
+    ).toEqual({});
+    expect(foundationT.findResources("AWS::Serverless::Application")).toEqual(
+      {},
+    );
   });
 
   test("never opens a security group to the internet", () => {
@@ -585,7 +589,7 @@ describe("database credentials", () => {
         ),
       );
       const dbReads = reads.filter((statement: Statement) =>
-        JSON.stringify(statement.Resource).includes("DatabaseClusterSecret"),
+        /MasterUserSecret\.?SecretArn/.test(JSON.stringify(statement.Resource)),
       );
       expect(dbReads.length, rolePart).toBeGreaterThan(0);
       for (const statement of dbReads) {
@@ -1294,7 +1298,6 @@ describe("stage-specific physical names", () => {
         expected.triageWakeDlq,
         expected.linearAdapterQueue,
         expected.linearAdapterDlq,
-        expected.databaseSecret,
         expected.anthropicSecret,
         expected.githubDeployRole,
       ]) {

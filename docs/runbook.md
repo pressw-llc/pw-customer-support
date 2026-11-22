@@ -68,6 +68,9 @@ These statements cannot be scoped by name or tag, with the reason:
 | CloudWatch Logs delivery for flow logs and load balancer logs | The delivery actions have no resource-level permissions |
 | `secretsmanager:GetRandomPassword` | The action has no resource |
 | Lambda event source mappings | Limited by the function ARN condition because mapping ids are generated |
+| Lambda layers | CloudFormation generates layer names and layers support no tag condition, so the account and region limit them |
+| The RDS-managed master secret `rds!cluster-*` | RDS names it after the cluster id, which exists only after the cluster is created |
+| KMS use through Secrets Manager | The default `aws/secretsmanager` key has a generated id, so the service condition limits it |
 | The trust policy of a role the execution role creates | IAM exposes no condition key for trust content, so the permissions boundary is the limit |
 
 The execution policy was checked by synth and by assertions. The first real bootstrap may show a missing action. Add it to `modules/infra/src/execution-policy.ts`, keep the scope, and redeploy the OIDC stack.
@@ -193,7 +196,7 @@ Bump `version` in `modules/widget/package.json` first. If the second registry fa
 
 - Anthropic key: run `put-secret-value` on `pw-support-anthropic/api-key`, then force a new deployment of the worker service.
 - Linear, webhook, and Jev keys: save the new value in the admin Integrations page. The API sees it at once. Other processes see it within 30 seconds. Revoke the old key in Linear or TypeSafe afterward.
-- Database password: Secrets Manager rotates it every 30 days with the hosted rotation. Running tasks reconnect on the next restart. Force a restart with `aws ecs update-service --force-new-deployment` for the API and worker services.
+- Database password: RDS manages the master password and rotates it every 7 days, the RDS default. Running tasks pick up the new password on the next connection. No restart is needed.
 - Project keys: mint a new key, give it to the client, then revoke the old key.
 - Watcher credentials: `pw-support logout` revokes the credential of one laptop.
 
@@ -258,7 +261,9 @@ The API reads blank settings as off. The stage config makes each one mandatory o
 
 ## Database credentials and TLS
 
-The database password rotates every 30 days. The API, worker, migration task, and Lambda hold only the secret ARN. Each new connection reads the password from Secrets Manager. A five minute cache applies, and a connection that fails after a rotation refreshes it, so the next connection uses the new password with no restart.
+RDS creates and rotates the master password in Secrets Manager. The stack has no rotation function, no nested stack, and no extra role. The secret is named `rds!cluster-<id>`, and it uses the default `aws/secretsmanager` key, so no role needs a KMS grant.
+
+The secret holds only `username` and `password`. The API, worker, migration task, and Lambda read the secret ARN from `DB_SECRET_ARN`. They take the host, port, database, and user from `DB_HOST`, `DB_PORT`, `DB_NAME`, and `DB_USER`, which the stack sets from the cluster endpoint. Each new connection reads the password from Secrets Manager. A five minute cache applies, and a connection that fails after a rotation refreshes it, so the next connection uses the new password with no restart.
 
 Production connections verify the server certificate against the RDS CA bundle that the image carries at `/etc/ssl/rds/us-east-1-bundle.pem`. The Dockerfile downloads the bundle from the AWS trust store and pins its SHA-256. When AWS publishes a new bundle, the image build fails on the checksum. Download the new bundle, check its source, and update the pinned checksum in `Dockerfile`.
 
@@ -288,5 +293,6 @@ These are accepted in the PRD or recorded as open.
 - A managed plugin policy can change what the headless `claude -p` context loads. The runner verifies the init event and kills the child on a foreign tool, but it cannot prove the managed settings of every laptop.
 - T14 is not verified. A Claude artifact that loads the widget from a public CDN and calls a public API needs the published bundle and a public API.
 - The reply loop has the Linear channel only. Slack, email, and Claude Code channels, the CC list sends, and V2 analytics are outside V1.
+- The API, worker, migration task, and Lambda log in to the database as the master user `support`. RDS rotates only the master password without a rotation function. A separate application role would hold a static password that nothing rotates, so V1 keeps the rotated master login. A later version can add an application role with a rotation function defined in the stack.
 - Aurora Serverless v2 keeps one writer and one reader. A regional outage needs a restore from backup.
 - The first request on an idle channel waits up to 60 seconds before the cloud claims it.

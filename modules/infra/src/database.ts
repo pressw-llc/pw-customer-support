@@ -11,7 +11,6 @@ export const DB_USER = "support";
 
 export interface SupportDatabaseProps {
   network: SupportNetwork;
-  secretName: string;
   removalPolicy: RemovalPolicy;
   deletionProtection: boolean;
 }
@@ -27,9 +26,8 @@ export class SupportDatabase extends Construct {
       engine: rds.DatabaseClusterEngine.auroraPostgres({
         version: rds.AuroraPostgresEngineVersion.VER_16_9,
       }),
-      credentials: rds.Credentials.fromGeneratedSecret(DB_USER, {
-        secretName: props.secretName,
-      }),
+      credentials: rds.Credentials.fromUsername(DB_USER),
+      manageMasterUserPassword: true,
       defaultDatabaseName: DB_NAME,
       vpc: props.network.vpc,
       vpcSubnets: { subnetType: ec2.SubnetType.PRIVATE_ISOLATED },
@@ -61,13 +59,6 @@ export class SupportDatabase extends Construct {
       "API, worker, migration, and Lambda access",
     );
 
-    (
-      this.cluster.node.findChild("Secret") as secretsmanager.Secret
-    ).applyRemovalPolicy(props.removalPolicy);
     this.secret = this.cluster.secret as secretsmanager.ISecret;
-    this.cluster.addRotationSingleUser({
-      automaticallyAfter: Duration.days(30),
-      vpcSubnets: { subnetType: ec2.SubnetType.PRIVATE_WITH_EGRESS },
-    });
   }
 }

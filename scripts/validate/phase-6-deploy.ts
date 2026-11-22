@@ -26,6 +26,8 @@ import {
   S3Client,
 } from "@aws-sdk/client-s3";
 import {
+  CreateSecretCommand,
+  GetSecretValueCommand,
   PutSecretValueCommand,
   SecretsManagerClient,
 } from "@aws-sdk/client-secrets-manager";
@@ -529,7 +531,6 @@ try {
           "QueuesLinearAdapterQueue",
           "AWS::SQS::Queue",
         ),
-        DbSecret: ids("Secret", "AWS::SecretsManager::Secret"),
       });
       await cfn.send(
         new CreateStackCommand({
@@ -587,19 +588,35 @@ try {
   );
 
   await steps.run(
-    "the credentials provider reads the deployed DB secret by ARN and picks up a new value",
+    "the credentials provider reads an RDS-shaped secret by ARN and picks up a new value",
     async () => {
+      const created = await secrets.send(
+        new CreateSecretCommand({
+          Name: "rds-cluster-rehearsal",
+          SecretString: JSON.stringify({
+            username: "support",
+            password: "initial-by-rehearsal",
+          }),
+        }),
+      );
+      const secretArn = created.ARN as string;
+      const shape = await secrets.send(
+        new GetSecretValueCommand({ SecretId: secretArn }),
+      );
+      assert(
+        Object.keys(JSON.parse(shape.SecretString ?? "{}"))
+          .sort()
+          .join() === "password,username",
+        "the secret must hold only username and password, as RDS stores it",
+      );
       const provider = createCredentialsProvider({
-        fetchSecret: secretsManagerFetcher(
-          state.outputs.DbSecret as string,
-          secrets,
-        ),
+        fetchSecret: secretsManagerFetcher(secretArn, secrets),
       });
       const first = await provider.get();
       assert(first.username && first.password, "no credentials");
       await secrets.send(
         new PutSecretValueCommand({
-          SecretId: state.outputs.DbSecret as string,
+          SecretId: secretArn,
           SecretString: JSON.stringify({
             username: first.username,
             password: "rotated-by-rehearsal",

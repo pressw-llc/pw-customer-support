@@ -359,10 +359,7 @@ export function executionStatements(
         "secretsmanager:DeleteResourcePolicy",
         "secretsmanager:GetResourcePolicy",
       ],
-      resources: [
-        arn("secretsmanager", `secret:${names.databaseSecret}-*`),
-        arn("secretsmanager", `secret:${names.anthropicSecret}-*`),
-      ],
+      resources: [arn("secretsmanager", `secret:${names.anthropicSecret}-*`)],
     },
     {
       sid: "RandomPassword",
@@ -542,6 +539,17 @@ export function executionStatements(
         "lambda:ListTags",
       ],
       resources: stacks.map((name) => arn("lambda", `function:${name}-*`)),
+    },
+    {
+      sid: "StageLayers",
+      actions: [
+        "lambda:PublishLayerVersion",
+        "lambda:GetLayerVersion",
+        "lambda:DeleteLayerVersion",
+      ],
+      resources: [arn("lambda", "layer:*"), arn("lambda", "layer:*:*")],
+      unscopedBecause:
+        "CloudFormation generates layer names and layers support no tag condition, so only the account and region limit them.",
     },
     {
       sid: "StageEventSources",
@@ -733,15 +741,29 @@ export function executionStatements(
       ],
     },
     {
-      sid: "HostedRotationApplication",
+      sid: "RdsManagedMasterSecret",
       actions: [
-        "serverlessrepo:GetCloudFormationTemplate",
-        "serverlessrepo:CreateCloudFormationTemplate",
-        "serverlessrepo:GetApplication",
+        "secretsmanager:CreateSecret",
+        "secretsmanager:DeleteSecret",
+        "secretsmanager:DescribeSecret",
+        "secretsmanager:TagResource",
+        "secretsmanager:UntagResource",
       ],
-      resources: [
-        `arn:${partition}:serverlessrepo:${AWS_REGION}:297356786154:applications/SecretsManagerRDSPostgreSQLRotationSingleUser`,
-      ],
+      resources: [arn("secretsmanager", "secret:rds!cluster-*")],
+      unscopedBecause:
+        "RDS names the managed master secret after the cluster id, which exists only after the cluster is created.",
+    },
+    {
+      sid: "RdsManagedSecretKey",
+      actions: ["kms:DescribeKey", "kms:Decrypt", "kms:GenerateDataKey"],
+      resources: ["*"],
+      conditions: {
+        StringEquals: {
+          "kms:ViaService": `secretsmanager.${AWS_REGION}.amazonaws.com`,
+        },
+      },
+      unscopedBecause:
+        "The default aws/secretsmanager key has an AWS-generated id, so only the Secrets Manager service limits it.",
     },
   ];
 

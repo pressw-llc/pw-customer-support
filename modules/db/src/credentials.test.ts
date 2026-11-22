@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import { connectionPlan } from "./client";
 import {
   createCredentialsProvider,
   isAuthError,
@@ -135,6 +136,30 @@ describe("helpers", () => {
     expect(parseCredentials(secret("x"))).toEqual({
       username: "support",
       password: "x",
+    });
+  });
+
+  test("reads the RDS-managed secret shape that holds only a username and a password", () => {
+    const managed = JSON.stringify({ username: "support", password: "p w" });
+    expect(parseCredentials(managed)).toEqual({
+      username: "support",
+      password: "p w",
+    });
+    expect(
+      connectionPlan({
+        NODE_ENV: "production",
+        DB_SECRET_ARN:
+          "arn:aws:secretsmanager:us-east-1:1:secret:rds!cluster-x",
+        DB_HOST: "cluster.example.internal",
+        DB_PORT: "5432",
+        DB_NAME: "support",
+        DB_USER: "support",
+      }),
+    ).toMatchObject({
+      kind: "secret",
+      host: "cluster.example.internal",
+      port: 5432,
+      database: "support",
     });
   });
 

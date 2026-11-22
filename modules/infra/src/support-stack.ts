@@ -89,7 +89,6 @@ export class SupportStack extends RegionalStack {
     });
     this.database = new SupportDatabase(this, "Database", {
       network: this.network,
-      secretName: this.names.databaseSecret,
       removalPolicy: removalFor(props.config.stage),
       deletionProtection: props.config.stage === "production",
     });
