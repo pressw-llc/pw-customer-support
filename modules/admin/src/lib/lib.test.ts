@@ -1,6 +1,12 @@
 import { describe, expect, test } from "bun:test";
-import { configProblems, loadRuntimeConfig, resolveConfig } from "./config";
+import {
+  configProblems,
+  loadRuntimeConfig,
+  logoutEndpoint,
+  resolveConfig,
+} from "./config";
 import { eventLabel, formatBytes, formatElapsed, relativeTime } from "./format";
+import { buildLogoutUrl } from "./logout";
 
 describe("config", () => {
   test("runtime values win over build values and the scope has a default", () => {
@@ -18,6 +24,7 @@ describe("config", () => {
       authority: "http://idp",
       clientId: "client",
       scope: "openid profile email",
+      logoutUrl: "",
       origin: "http://admin",
     });
     expect(configProblems(config)).toEqual([]);
@@ -80,5 +87,66 @@ describe("format", () => {
     expect(eventLabel("triage.job.lease_expired")).toBe(
       "triage job lease expired",
     );
+  });
+});
+
+describe("logout url", () => {
+  const values = {
+    clientId: "3n4b5urk1ft4fl3mg5e62d9ado",
+    logoutUri: "https://desk.example.com/signed-out",
+  };
+  const cognito =
+    "https://pw-desk.auth.us-east-1.amazoncognito.com/logout?client_id={client_id}&logout_uri={logout_uri}";
+
+  test("builds the Cognito hosted UI shape with encoded values", () => {
+    expect(buildLogoutUrl(cognito, values)).toBe(
+      "https://pw-desk.auth.us-east-1.amazoncognito.com/logout?client_id=3n4b5urk1ft4fl3mg5e62d9ado&logout_uri=https%3A%2F%2Fdesk.example.com%2Fsigned-out",
+    );
+  });
+
+  test("encodes values that carry reserved characters", () => {
+    const url = buildLogoutUrl(cognito, {
+      clientId: "a b&c=d",
+      logoutUri: "https://desk.example.com/signed-out?x=1&y=2#z",
+    });
+    const parsed = new URL(url ?? "");
+    expect(parsed.searchParams.get("client_id")).toBe("a b&c=d");
+    expect(parsed.searchParams.get("logout_uri")).toBe(
+      "https://desk.example.com/signed-out?x=1&y=2#z",
+    );
+    expect([...parsed.searchParams.keys()]).toEqual([
+      "client_id",
+      "logout_uri",
+    ]);
+  });
+
+  test("rejects blank, malformed, and insecure templates", () => {
+    expect(buildLogoutUrl("", values)).toBeNull();
+    expect(buildLogoutUrl("not a url", values)).toBeNull();
+    expect(buildLogoutUrl("javascript:alert(1)", values)).toBeNull();
+    expect(buildLogoutUrl("http://idp.example.com/logout", values)).toBeNull();
+    expect(buildLogoutUrl("http://127.0.0.1:4599/out", values)).toBe(
+      "http://127.0.0.1:4599/out",
+    );
+  });
+
+  test("resolves from config with the signed-out page as the logout uri", () => {
+    const config = resolveConfig(
+      {
+        VITE_API_URL: "http://api",
+        VITE_OIDC_AUTHORITY: "https://idp",
+        VITE_OIDC_CLIENT_ID: "client",
+        VITE_OIDC_LOGOUT_URL: cognito,
+      },
+      {},
+      "https://desk.example.com",
+    );
+    expect(logoutEndpoint(config)).toContain(
+      "logout_uri=https%3A%2F%2Fdesk.example.com%2Fsigned-out",
+    );
+    expect(configProblems(config)).toEqual([]);
+    expect(
+      configProblems({ ...config, logoutUrl: "http://evil.example.com/x" }),
+    ).toEqual(["VITE_OIDC_LOGOUT_URL (invalid)"]);
   });
 });
