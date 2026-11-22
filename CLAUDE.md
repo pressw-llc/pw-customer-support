@@ -60,7 +60,6 @@ This repository is public. Keep client names, client data, and real keys out of 
 ## Merge and validation policy
 
 The deliverable of this repository is the code. The owner configures and deploys the system after the merge.
-
 - A PR merges on hermetic evidence: `bun run check` passes on the head.
 - Live validation against Anthropic Managed Agents, real Linear, AWS, the telemetry pool, or npmjs is not a merge requirement.
 - A criterion that needs an owner-held credential is waived live when the PR body states the owner waiver and links a tracking issue.
