@@ -1,0 +1,26 @@
+$ bun scripts/validate/phase-6-deploy.ts
+PASS deploy --dry-run succeeds with placeholder config: config, build, images, and synth passed with no AWS call
+PASS deploy fails clearly when a required production value is missing: exit 2 naming mcpRequiredGroup, certificateArn, and triageAgentId
+PASS the Compose stack is up and migrated
+PASS start a dedicated LocalStack with the Docker socket: http://127.0.0.1:57293
+PASS deploy the S3, SQS, and Secrets Manager subset of the stack: 13 resources deployed, 64 need real AWS (RDS, ECS, ELB, CloudFront, IAM, VPC)
+PASS queues carry redrive, retention, and the shared visibility timeouts: wake and adapter queues redrive to DLQs after 5 receives; bucket exists
+PASS the deployed DB secret hydrates the Lambda database environment: user support, password length 30
+PASS deploy the linear-outbound Lambda step into LocalStack Lambda (T15): function Active, mapping Enabled, batch 5
+PASS seed a project that routes to the Linear stub team
+[api] [api] extraction self-test passed
+[worker] [worker] extraction self-test passed
+[api] [api] listening on 57294
+[worker] [worker] started {"claimant":"cloud-8dfe70d5","jev":true,"leaseSeconds":120}
+[worker] [triage] agent failed {"jobId":"54c24596-6838-496d-82c5-dc54f9a73b43","error":"triage agent is not synced; run bun run agent:sync or set TRIAGE_AGENT_ID"}
+[worker] [triage] human triage {"jobId":"54c24596-6838-496d-82c5-dc54f9a73b43","reason":"agent_error"}
+PASS smoke: API, worker, deployed queues, and Linear stub produce a ticket: ACME-4 https://linear.app/stub/issue/ACME-4 (request 597166ff-8746-4188-a025-eae1c64af3a0); adapter path LocalStack Lambda
+PASS the production image builds with a non-root user and no dev dependencies: user bun, NODE_ENV=production, no @playwright or @biomejs, 515 MB
+PASS the API container answers /health and passes the extraction self-test: /health ok, self-test line present
+[worker] [worker] stopping 
+[worker] [worker] stopped 
+PASS the worker container processes one job to a stub ticket: ACME-5 https://linear.app/stub/issue/ACME-5 (request d8e0ee5a-79ad-4fef-bade-da904dc0cd8e); worker container logged self-test and start
+
+LocalStack Lambda (T15): worked: function Active, mapping Enabled, batch 5
+
+13/13 steps passed
