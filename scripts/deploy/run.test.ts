@@ -194,6 +194,20 @@ describe("preflight", () => {
     expect(await runDeploy(deps)).toBe(0);
   });
 
+  test("--oidc and --bootstrap refuse a dry run because they change the account", async () => {
+    for (const flag of ["--oidc", "--bootstrap"]) {
+      const { deps, calls, errors } = harness([flag, "--dry-run"], {
+        env: { AWS_PROFILE: "deploy" },
+      });
+      expect(await runDeploy(deps)).toBe(2);
+      expect(calls).toEqual([]);
+      expect(errors.join("\n")).toContain("needs AWS credentials");
+    }
+    const noCredentials = harness(["--oidc"], { env: {} });
+    expect(await runDeploy(noCredentials.deps)).toBe(2);
+    expect(noCredentials.calls).toEqual([]);
+  });
+
   test("each mode loads the config with its own scope", async () => {
     const seen: Record<string, string[]> = {};
     for (const [name, argv] of [
@@ -302,10 +316,7 @@ describe("preflight", () => {
       env: { AWS_PROFILE: "deploy" },
     });
     expect(await runDeploy(deps)).toBe(0);
-    expect(calls).toEqual([
-      "build admin and widget",
-      "deploy GitHub OIDC stack",
-    ]);
+    expect(calls).toEqual(["deploy GitHub OIDC stack"]);
   });
 });
 
@@ -451,7 +462,7 @@ describe("runDeploy order", () => {
     expect(await runDeploy(deps)).toBe(2);
     expect(calls).toEqual([]);
     expect(errors.join("\n")).toContain(
-      "oidc: the stage config must be complete",
+      "config: adminRequiredGroup is required",
     );
   });
 

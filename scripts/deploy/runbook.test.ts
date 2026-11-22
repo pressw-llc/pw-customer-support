@@ -6,6 +6,8 @@ import {
   REQUIRED_KEYS,
   resolveStageConfig,
 } from "@pw-support/infra";
+import { parseDeployArgs } from "./lib";
+import { type DeployDeps, preflight } from "./run";
 
 type RawValues = Record<string, unknown>;
 
@@ -106,5 +108,48 @@ describe("the runbook's first deploy sequence", () => {
     for (const key of REQUIRED_KEYS.deploy) {
       expect(supplied.has(key), `the runbook never sets ${key}`).toBe(true);
     }
+  });
+
+  test("the real preflight accepts every documented run, in order, with the stage file as each step leaves it", async () => {
+    const file: RawValues = {};
+    const ran: string[] = [];
+    for (const marker of markers) {
+      if (marker.kind === "stage-file") {
+        for (const key of marker.keys) file[key] = SAMPLE[key];
+        continue;
+      }
+      const deps: DeployDeps = {
+        args: parseDeployArgs(["--stage", "production", marker.flag]),
+        env: { AWS_PROFILE: "admin", GITHUB_TOKEN: "t" },
+        root: "/repo",
+        infraDir: "/repo/modules/infra",
+        stageFile: "/nope",
+        loadConfig: (placeholders, scope) =>
+          resolveStageConfig({
+            stage: "production",
+            scope,
+            placeholders,
+            values: file,
+          }),
+        stageConflicts: async () => [],
+        isConfigError: (error): error is { problems: string[] } =>
+          typeof error === "object" && error !== null && "problems" in error,
+        run: async () => 0,
+        identity: async () => ({ account: "123456789012" }),
+        bootstrapVersion: async () =>
+          ran.includes("--bootstrap") ? 29 : undefined,
+        dockerAvailable: async () => true,
+        writeBuildToken: () => "/t",
+        removeBuildToken: () => {},
+        stackOutputs: async () => ({}),
+        migrate: async () => ({ taskArn: "t" }),
+        log: () => {},
+        error: () => {},
+      };
+      const result = await preflight(deps);
+      expect(result.problems, `${marker.flag}`).toEqual([]);
+      ran.push(marker.flag);
+    }
+    expect(ran).toEqual(["--oidc", "--bootstrap", "--skip-smoke"]);
   });
 });

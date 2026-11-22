@@ -1,6 +1,7 @@
 import {
   mkdirSync,
   mkdtempSync,
+  readdirSync,
   readFileSync,
   rmSync,
   writeFileSync,
@@ -48,6 +49,7 @@ import {
   secretsManagerFetcher,
   setProjectLinearTeam,
 } from "@pw-support/db";
+import { findStageConflicts } from "../deploy/lib";
 import { runSmoke } from "../smoke/lib";
 import { freePort } from "./free-port";
 import {
@@ -316,6 +318,72 @@ try {
         90_000,
       );
       return LS_URL;
+    },
+  );
+
+  await steps.run(
+    "the one stage per account guard reads CloudFormation and refuses another stage's stacks",
+    async () => {
+      const topic = {
+        Resources: { Topic: { Type: "AWS::SNS::Topic", Properties: {} } },
+      };
+      await cfn.send(
+        new CreateStackCommand({
+          StackName: "PwSupportStaging",
+          TemplateBody: JSON.stringify(topic),
+          Tags: [{ Key: "pw-support:stage", Value: "staging" }],
+        }),
+      );
+      await waitStack("PwSupportStaging", "CREATE_COMPLETE");
+      const production = await findStageConflicts(cfn, "production");
+      assert(production.length === 1, `conflicts ${production}`);
+      assert(
+        production[0]?.includes("one stage per AWS account"),
+        production[0] ?? "",
+      );
+      const staging = await findStageConflicts(cfn, "staging");
+      assert(staging.length === 0, `staging conflicts ${staging}`);
+      return "LocalStack account 000000000000 holds a staging stack: production is refused, staging is not";
+    },
+  );
+
+  await steps.run(
+    "a partial stage file with only the account synthesizes the OIDC stack alone",
+    async () => {
+      const out = join(work, "oidc-out");
+      const result = await exec(
+        [
+          "bunx",
+          "cdk",
+          "synth",
+          "--quiet",
+          "--no-notices",
+          "--output",
+          out,
+          "-c",
+          "stage=production",
+          "-c",
+          "scope=oidc",
+          "-c",
+          "placeholders=false",
+        ],
+        {
+          cwd: join(root, "modules", "infra"),
+          env: {
+            ...cleanEnv,
+            SUPPORT_STAGE_CONFIG: JSON.stringify({ account: "123456789012" }),
+          },
+        },
+      );
+      assert(result.code === 0, result.out.slice(-600));
+      const files = readdirSync(out).filter((f) =>
+        f.endsWith(".template.json"),
+      );
+      assert(
+        files.join() === "PwSupportGithubOidc.template.json",
+        `templates ${files}`,
+      );
+      return "only PwSupportGithubOidc was synthesized";
     },
   );
 

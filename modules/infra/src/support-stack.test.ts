@@ -804,7 +804,7 @@ describe("GitHub OIDC bootstrap stack", () => {
     stagingStack.oidcT.resourceCountIs("AWS::IAM::OIDCProvider", 1);
   });
 
-  test("the staging role cannot assume any production bootstrap role, and the reverse", () => {
+  test("each stage's deploy role names only its own qualifier's bootstrap roles", () => {
     const productionQualifier = resourceNames("production").bootstrapQualifier;
     const stagingQualifier = resourceNames("staging").bootstrapQualifier;
     const assumed = (template: Template) =>
@@ -836,6 +836,7 @@ describe("GitHub OIDC bootstrap stack", () => {
         .sort();
       expect(actions).toEqual([
         "cloudformation:DescribeStacks",
+        "cloudformation:ListStacks",
         "ecs:DescribeTasks",
         "ecs:RunTask",
         "iam:PassRole",
@@ -845,7 +846,12 @@ describe("GitHub OIDC bootstrap stack", () => {
       const text = JSON.stringify(deployStatements(template));
       if (stage === "production") expect(text).not.toContain("Staging");
       else expect(text).toContain("PwSupportStaging");
-      expect(text).not.toContain(`"*"`);
+      const wildcard = deployStatements(template).filter(
+        (s) => s.Resource === "*",
+      );
+      expect(wildcard.flatMap((s) => asList(s.Action))).toEqual([
+        "cloudformation:ListStacks",
+      ]);
       const pass = deployStatements(template).find((s) =>
         asList(s.Action).includes("iam:PassRole"),
       );
@@ -1260,7 +1266,7 @@ describe("stage-specific physical names", () => {
   const staging = build("staging");
   const production = build("production");
 
-  test("production and staging in one account share no explicit physical name", () => {
+  test("stage-specific names do not collide, so a mistaken same-account deploy is stopped by the preflight and not by a name clash", () => {
     const a = physicalNames(production);
     const b = physicalNames(staging);
     const shared = [...a.keys()].filter(

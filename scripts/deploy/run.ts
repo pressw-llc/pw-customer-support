@@ -85,10 +85,13 @@ export async function preflight(deps: DeployDeps): Promise<Preflight> {
     }
   }
 
+  if ((args.oidc || args.bootstrap) && mode !== "deploy") {
+    problems.push(
+      `credentials: --${args.oidc ? "oidc" : "bootstrap"} changes the account and needs AWS credentials, not a dry run`,
+    );
+  }
+
   if (mode === "deploy") {
-    if (args.oidc && !config) {
-      problems.push("oidc: the stage config must be complete");
-    }
     const who = await deps
       .identity()
       .catch(() => ({}) as { account?: string; arn?: string });
@@ -234,9 +237,6 @@ async function execute(deps: DeployDeps, cleanup: string[]): Promise<number> {
       : 1;
   }
 
-  if (!(await step("build admin and widget", ["bun", "run", "build"])))
-    return 1;
-
   if (args.oidc) {
     return (await step(
       "deploy GitHub OIDC stack",
@@ -246,6 +246,9 @@ async function execute(deps: DeployDeps, cleanup: string[]): Promise<number> {
       ? 0
       : 1;
   }
+
+  if (!(await step("build admin and widget", ["bun", "run", "build"])))
+    return 1;
 
   const tokenPath = deps.writeBuildToken(
     (deps.env.GITHUB_TOKEN || deps.env.GH_PACKAGES_TOKEN) as string,

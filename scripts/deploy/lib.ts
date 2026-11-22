@@ -80,7 +80,7 @@ export function stepsFor(
   args: DeployArgs,
 ): string[] {
   const common = ["validate config", "build admin and widget"];
-  if (args.oidc) return [...common, "deploy GitHub OIDC stack"];
+  if (args.oidc) return ["validate config", "deploy GitHub OIDC stack"];
   if (args.bootstrap) {
     return ["validate config", "bootstrap the stage"];
   }

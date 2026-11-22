@@ -33,8 +33,8 @@ The foundation stack deploys first. `scripts/deploy/main.ts` runs the migration 
 - Scope IAM to named resources. Add a wildcard only for an action that AWS does not scope, and justify it in `src/nag-suppressions.ts` in one line.
 - Assert resources with the CDK assertions module. Do not use snapshots. `src/nag.test.ts` runs cdk-nag AwsSolutions and fails on any unsuppressed finding.
 - `src/index.ts` exports the surface that `scripts/deploy/main.ts` uses.
-- Take every explicit physical name from `resourceNames(stage)` in contracts. Prefer no name where nothing depends on it. Two stages in one account must share no name.
-- Give each stage its own CDK bootstrap qualifier (`resourceNames(stage).bootstrapQualifier`), and tag every stack with `pw-support:stage`. The OIDC stack uses the bootstrapless synthesizer and defines the stage CloudFormation execution policies in `src/execution-policy.ts`. Scope each statement by stage name prefix or the stage tag, and state in `unscopedBecause` why a statement cannot be scoped.
+- Take every explicit physical name from `resourceNames(stage)` in contracts. Prefer no name where nothing depends on it. V1 runs one stage per AWS account, and stage-specific names only keep a mistaken same-account deploy from colliding before the preflight stops it.
+- Run one stage per AWS account: the stage files must name different accounts, and the deploy preflight refuses a stage when the account holds another stage's stacks. Give each stage its own CDK bootstrap qualifier (`resourceNames(stage).bootstrapQualifier`), and tag every stack with `pw-support:stage`. The OIDC stack uses the bootstrapless synthesizer and defines the stage CloudFormation execution policies in `src/execution-policy.ts`. Scope each statement by stage name prefix or the stage tag, and state in `unscopedBecause` why a statement cannot be scoped. Cap stack-created roles with the stage permissions boundary, and split tag-on-create from retagging so the stage key never changes after creation.
 - Set removal policy and deletion protection from the stage: production retains stateful resources, staging deletes them.
 - Deploy only on an owner instruction.
 

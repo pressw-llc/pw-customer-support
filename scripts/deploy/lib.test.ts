@@ -154,7 +154,6 @@ describe("stepsFor", () => {
     expect(skipped).not.toContain("run migration task");
     expect(stepsFor("deploy", parseDeployArgs(["--oidc"]))).toEqual([
       "validate config",
-      "build admin and widget",
       "deploy GitHub OIDC stack",
     ]);
   });

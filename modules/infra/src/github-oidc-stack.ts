@@ -115,7 +115,6 @@ export class GithubOidcStack extends Stack {
       (kind) =>
         `arn:${partition}:iam::${account}:role/cdk-${qualifier}-${kind}-role-${account}-${AWS_REGION}`,
     );
-    const stacks = [ids.foundation, ids.app, ids.oidc];
     const stackArn = (name: string) =>
       `arn:${partition}:cloudformation:${AWS_REGION}:${account}:stack/${name}/*`;
     const taskDefinitions = [ids.foundation].map(
@@ -131,9 +130,14 @@ export class GithubOidcStack extends Stack {
         resources: bootstrapRoles,
       },
       {
-        sid: "ReadOwnStackOutputs",
+        sid: "ReadStageStacks",
         actions: ["cloudformation:DescribeStacks"],
-        resources: stacks.map(stackArn),
+        resources: [stackArn("PwSupport*")],
+      },
+      {
+        sid: "ListStacksForStageCheck",
+        actions: ["cloudformation:ListStacks"],
+        resources: ["*"],
       },
       {
         sid: "ReadOwnBootstrapVersion",
