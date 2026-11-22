@@ -1,19 +1,19 @@
 $ bun scripts/validate/phase-6-release.ts
-PASS start two Verdaccio registries: http://127.0.0.1:59824 and http://127.0.0.1:59825 (the second refuses publishing for now)
+PASS start two Verdaccio registries: http://127.0.0.1:51595 and http://127.0.0.1:51596 (the second refuses publishing for now)
 PASS publish refuses to start without both tokens
-PASS a failing second registry leaves one registry published and prints the retry command: integrity sha512-fb+wDT68n6B3x7T8A...
+PASS a failing second registry leaves one registry published and prints the retry command: integrity sha512-gK8MDIekhDgzupQxC...
 PASS a changed build with the same version is refused before anything is sent
-PASS the retry publishes the identical tarball without rebuilding: both hold sha512-fb+wDT68n6B3x7T8A...
-PASS both registries hold the same tarball: shasum aa22535e4f84a9cc226f09dc6bbf77dd6e28a2a0
-PASS a fresh app installs and builds from registry A: @pressw-llc/support-react@0.1.0 installed from http://127.0.0.1:59824
-PASS a fresh app installs and builds from registry B: @pressw-llc/support-react@0.1.0 installed from http://127.0.0.1:59825
+PASS the retry publishes the identical tarball without rebuilding: both hold sha512-gK8MDIekhDgzupQxC...
+PASS both registries hold the same tarball: shasum 36082cbe385702a743807210003695fa6709ff32
+PASS a fresh app installs and builds from registry A: @pressw-llc/support-react@0.1.0 installed from http://127.0.0.1:51595
+PASS a fresh app installs and builds from registry B: @pressw-llc/support-react@0.1.0 installed from http://127.0.0.1:51596
 PASS an unchanged tree rebuilds to the same tarball and a second publish is a no-op
 PASS publish plan against the real registry URLs, no tokens: 
-[release] tarball 103.4 kB, unpacked 413.5 kB, 16 files
+[release] tarball 103.6 kB, unpacked 414.0 kB, 17 files
 [release] npmjs https://registry.npmjs.org @pressw-llc/support-react@0.1.0 access public
 [release]   packed 0.86KB package.json
+[release]   packed 204B CHANGELOG.md
 [release]   packed 434B LICENSE
 [release]   packed 1.60KB README.md
-[release]   packed 146B dist/SupportWidget.d.ts
 
 10/10 steps passed

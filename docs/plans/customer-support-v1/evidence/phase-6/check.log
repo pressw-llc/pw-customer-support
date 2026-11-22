@@ -190,22 +190,8 @@ modules/plugin/src/plugin-files.test.ts:171:21 lint/suspicious/noTemplateCurlyIn
   i Turn the string into a template string.
   
 
-scripts/release/lib.ts:407:24 lint/complexity/noCommaOperator ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-
-  ! The comma operator is disallowed.
-  
-    405 │   const extract = existsSync(fixed)
-    406 │     ? mkdtempSync(join(workDir, "extract-"))
-  > 407 │     : (mkdirSync(fixed), fixed);
-        │                        ^
-    408 │   const untar = spawnSync("tar", ["-xzf", tarball, "-C", extract], {
-    409 │     encoding: "utf8",
-  
-  i Its use is often confusing and obscures side effects.
-  
-
-Checked 385 files in 101ms. No fixes applied.
-Found 3 warnings.
+Checked 387 files in 115ms. No fixes applied.
+Found 2 warnings.
 Found 7 infos.
 [lint-boundaries] no violations
 $ bunx pw-pipeline validate
@@ -229,7 +215,7 @@ $ bun run --filter @pressw-llc/support-react build && bun run --filter @pw-suppo
 @pw-support/admin build: dist/assets/instrument-sans-latin-ext-wght-normal-B5bTHO_g.woff2   11.14 kB
 @pw-support/admin build: dist/assets/instrument-sans-latin-wght-normal-BbzFLZTg.woff2       30.09 kB
 @pw-support/admin build: dist/assets/index-DWVB6N--.css                                     53.58 kB │ gzip:   9.67 kB
-@pw-support/admin build: dist/assets/index-BfUNaw7b.js                                     534.90 kB │ gzip: 160.06 kB
+@pw-support/admin build: dist/assets/index-O-TqG34_.js                                     535.50 kB │ gzip: 160.35 kB
 @pw-support/admin build: 
 @pw-support/admin build: (!) Some chunks are larger than 500 kB after minification. Consider:
 @pw-support/admin build: - Using dynamic import() to code-split the application
@@ -242,10 +228,10 @@ $ bun run --filter @pressw-llc/support-react build && bun run --filter @pw-suppo
 $ tsc --noEmit && bun run --filter '*' typecheck
 @pw-support/contracts typecheck: Exited with code 0
 @pressw-llc/support-react typecheck: Exited with code 0
-@pw-support/host-app typecheck: Exited with code 0
 @pw-support/plugin typecheck: Exited with code 0
-@pw-support/admin typecheck: Exited with code 0
+@pw-support/host-app typecheck: Exited with code 0
 @pw-support/db typecheck: Exited with code 0
+@pw-support/admin typecheck: Exited with code 0
 @pw-support/e2e typecheck: Exited with code 0
 @pw-support/infra typecheck: Exited with code 0
 @pw-support/channels typecheck: Exited with code 0
@@ -262,15 +248,15 @@ $ bun scripts/stack.ts up
  Container pw-support-postgres-1 Creating 
  Container pw-support-oidc-1 Creating 
  Container pw-support-localstack-1 Creating 
- Container pw-support-oidc-1 Created 
  Container pw-support-postgres-1 Created 
+ Container pw-support-oidc-1 Created 
  Container pw-support-localstack-1 Created 
  Container pw-support-postgres-1 Starting 
- Container pw-support-oidc-1 Starting 
  Container pw-support-localstack-1 Starting 
- Container pw-support-oidc-1 Started 
+ Container pw-support-oidc-1 Starting 
  Container pw-support-postgres-1 Started 
  Container pw-support-localstack-1 Started 
+ Container pw-support-oidc-1 Started 
  Container pw-support-postgres-1 Waiting 
  Container pw-support-localstack-1 Waiting 
  Container pw-support-oidc-1 Waiting 
@@ -319,7 +305,7 @@ WARNING AvailabilityZone: Avoid hardcoding availability zones 'us-east-1b' (Clou
    PwSupport/Network/Vpc/dataSubnet2/Subnet (NetworkVpcdataSubnet2Subnet7A99E9BE) aws-cdk-lib.aws_ec2.CfnSubnet
    Acknowledge with 'CloudFormation-Validate::W3010'
 
-A copy of this report can be found in: /private/var/folders/cx/cpkb6p597wvd3rjrhkwbcchr0000gn/T/cdk.out8xKhBh/validation-report.json
+A copy of this report can be found in: /private/var/folders/cx/cpkb6p597wvd3rjrhkwbcchr0000gn/T/cdk.outDo9TCM/validation-report.json
 native:1:11
 WARNING AvailabilityZone: Avoid hardcoding availability zones 'us-east-1a' (CloudFormation Validate)
    PwSupport/Network/Vpc/publicSubnet1/Subnet (NetworkVpcpublicSubnet1Subnet00617657) aws-cdk-lib.aws_ec2.CfnSubnet
@@ -350,7 +336,7 @@ WARNING AvailabilityZone: Avoid hardcoding availability zones 'us-east-1b' (Clou
    PwSupport/Network/Vpc/dataSubnet2/Subnet (NetworkVpcdataSubnet2Subnet7A99E9BE) aws-cdk-lib.aws_ec2.CfnSubnet
    Acknowledge with 'CloudFormation-Validate::W3010'
 
-A copy of this report can be found in: /private/var/folders/cx/cpkb6p597wvd3rjrhkwbcchr0000gn/T/cdk.out8xKhBh/validation-report.json
+A copy of this report can be found in: /private/var/folders/cx/cpkb6p597wvd3rjrhkwbcchr0000gn/T/cdk.outDo9TCM/validation-report.json
 native:1:11
 WARNING AvailabilityZone: Avoid hardcoding availability zones 'us-east-1a' (CloudFormation Validate)
    PwSupport/Network/Vpc/publicSubnet1/Subnet (NetworkVpcpublicSubnet1Subnet00617657) aws-cdk-lib.aws_ec2.CfnSubnet
@@ -381,7 +367,7 @@ WARNING AvailabilityZone: Avoid hardcoding availability zones 'us-east-1b' (Clou
    PwSupport/Network/Vpc/dataSubnet2/Subnet (NetworkVpcdataSubnet2Subnet7A99E9BE) aws-cdk-lib.aws_ec2.CfnSubnet
    Acknowledge with 'CloudFormation-Validate::W3010'
 
-A copy of this report can be found in: /private/var/folders/cx/cpkb6p597wvd3rjrhkwbcchr0000gn/T/cdk.out8xKhBh/validation-report.json
+A copy of this report can be found in: /private/var/folders/cx/cpkb6p597wvd3rjrhkwbcchr0000gn/T/cdk.outDo9TCM/validation-report.json
 
 modules/infra/src/support-stack.test.ts:
 native:1:11
@@ -414,7 +400,7 @@ WARNING AvailabilityZone: Avoid hardcoding availability zones 'us-east-1b' (Clou
    PwSupport/Network/Vpc/dataSubnet2/Subnet (NetworkVpcdataSubnet2Subnet7A99E9BE) aws-cdk-lib.aws_ec2.CfnSubnet
    Acknowledge with 'CloudFormation-Validate::W3010'
 
-A copy of this report can be found in: /private/var/folders/cx/cpkb6p597wvd3rjrhkwbcchr0000gn/T/cdk.outddRcge/validation-report.json
+A copy of this report can be found in: /private/var/folders/cx/cpkb6p597wvd3rjrhkwbcchr0000gn/T/cdk.outamSrhh/validation-report.json
 native:1:11
 WARNING AvailabilityZone: Avoid hardcoding availability zones 'us-east-1a' (CloudFormation Validate)
    PwSupportStaging/Network/Vpc/publicSubnet1/Subnet (NetworkVpcpublicSubnet1Subnet00617657) aws-cdk-lib.aws_ec2.CfnSubnet
@@ -445,38 +431,7 @@ WARNING AvailabilityZone: Avoid hardcoding availability zones 'us-east-1b' (Clou
    PwSupportStaging/Network/Vpc/dataSubnet2/Subnet (NetworkVpcdataSubnet2Subnet7A99E9BE) aws-cdk-lib.aws_ec2.CfnSubnet
    Acknowledge with 'CloudFormation-Validate::W3010'
 
-A copy of this report can be found in: /private/var/folders/cx/cpkb6p597wvd3rjrhkwbcchr0000gn/T/cdk.outeBnsxa/validation-report.json
-native:1:11
-WARNING AvailabilityZone: Avoid hardcoding availability zones 'us-east-1a' (CloudFormation Validate)
-   PwSupport/Network/Vpc/publicSubnet1/Subnet (NetworkVpcpublicSubnet1Subnet00617657) aws-cdk-lib.aws_ec2.CfnSubnet
-   Acknowledge with 'CloudFormation-Validate::W3010'
-
-native:1:11
-WARNING AvailabilityZone: Avoid hardcoding availability zones 'us-east-1a' (CloudFormation Validate)
-   PwSupport/Network/Vpc/appSubnet1/Subnet (NetworkVpcappSubnet1SubnetE208FB5D) aws-cdk-lib.aws_ec2.CfnSubnet
-   Acknowledge with 'CloudFormation-Validate::W3010'
-
-native:1:11
-WARNING AvailabilityZone: Avoid hardcoding availability zones 'us-east-1a' (CloudFormation Validate)
-   PwSupport/Network/Vpc/dataSubnet1/Subnet (NetworkVpcdataSubnet1SubnetE7C988E9) aws-cdk-lib.aws_ec2.CfnSubnet
-   Acknowledge with 'CloudFormation-Validate::W3010'
-
-native:1:11
-WARNING AvailabilityZone: Avoid hardcoding availability zones 'us-east-1b' (CloudFormation Validate)
-   PwSupport/Network/Vpc/publicSubnet2/Subnet (NetworkVpcpublicSubnet2SubnetDCAA7C9A) aws-cdk-lib.aws_ec2.CfnSubnet
-   Acknowledge with 'CloudFormation-Validate::W3010'
-
-native:1:11
-WARNING AvailabilityZone: Avoid hardcoding availability zones 'us-east-1b' (CloudFormation Validate)
-   PwSupport/Network/Vpc/appSubnet2/Subnet (NetworkVpcappSubnet2SubnetC46F4198) aws-cdk-lib.aws_ec2.CfnSubnet
-   Acknowledge with 'CloudFormation-Validate::W3010'
-
-native:1:11
-WARNING AvailabilityZone: Avoid hardcoding availability zones 'us-east-1b' (CloudFormation Validate)
-   PwSupport/Network/Vpc/dataSubnet2/Subnet (NetworkVpcdataSubnet2Subnet7A99E9BE) aws-cdk-lib.aws_ec2.CfnSubnet
-   Acknowledge with 'CloudFormation-Validate::W3010'
-
-A copy of this report can be found in: /private/var/folders/cx/cpkb6p597wvd3rjrhkwbcchr0000gn/T/cdk.outIybhIm/validation-report.json
+A copy of this report can be found in: /private/var/folders/cx/cpkb6p597wvd3rjrhkwbcchr0000gn/T/cdk.outjGqP1A/validation-report.json
 native:1:11
 WARNING AvailabilityZone: Avoid hardcoding availability zones 'us-east-1a' (CloudFormation Validate)
    PwSupportStaging/Network/Vpc/publicSubnet1/Subnet (NetworkVpcpublicSubnet1Subnet00617657) aws-cdk-lib.aws_ec2.CfnSubnet
@@ -507,7 +462,7 @@ WARNING AvailabilityZone: Avoid hardcoding availability zones 'us-east-1b' (Clou
    PwSupportStaging/Network/Vpc/dataSubnet2/Subnet (NetworkVpcdataSubnet2Subnet7A99E9BE) aws-cdk-lib.aws_ec2.CfnSubnet
    Acknowledge with 'CloudFormation-Validate::W3010'
 
-A copy of this report can be found in: /private/var/folders/cx/cpkb6p597wvd3rjrhkwbcchr0000gn/T/cdk.outPFLBos/validation-report.json
+A copy of this report can be found in: /private/var/folders/cx/cpkb6p597wvd3rjrhkwbcchr0000gn/T/cdk.outls4oGW/validation-report.json
 native:1:11
 WARNING AvailabilityZone: Avoid hardcoding availability zones 'us-east-1a' (CloudFormation Validate)
    PwSupport/Network/Vpc/publicSubnet1/Subnet (NetworkVpcpublicSubnet1Subnet00617657) aws-cdk-lib.aws_ec2.CfnSubnet
@@ -538,7 +493,7 @@ WARNING AvailabilityZone: Avoid hardcoding availability zones 'us-east-1b' (Clou
    PwSupport/Network/Vpc/dataSubnet2/Subnet (NetworkVpcdataSubnet2Subnet7A99E9BE) aws-cdk-lib.aws_ec2.CfnSubnet
    Acknowledge with 'CloudFormation-Validate::W3010'
 
-A copy of this report can be found in: /private/var/folders/cx/cpkb6p597wvd3rjrhkwbcchr0000gn/T/cdk.outmEoYF3/validation-report.json
+A copy of this report can be found in: /private/var/folders/cx/cpkb6p597wvd3rjrhkwbcchr0000gn/T/cdk.outHuffXm/validation-report.json
 native:1:11
 WARNING AvailabilityZone: Avoid hardcoding availability zones 'us-east-1a' (CloudFormation Validate)
    PwSupportStaging/Network/Vpc/publicSubnet1/Subnet (NetworkVpcpublicSubnet1Subnet00617657) aws-cdk-lib.aws_ec2.CfnSubnet
@@ -569,7 +524,7 @@ WARNING AvailabilityZone: Avoid hardcoding availability zones 'us-east-1b' (Clou
    PwSupportStaging/Network/Vpc/dataSubnet2/Subnet (NetworkVpcdataSubnet2Subnet7A99E9BE) aws-cdk-lib.aws_ec2.CfnSubnet
    Acknowledge with 'CloudFormation-Validate::W3010'
 
-A copy of this report can be found in: /private/var/folders/cx/cpkb6p597wvd3rjrhkwbcchr0000gn/T/cdk.outrFOcGK/validation-report.json
+A copy of this report can be found in: /private/var/folders/cx/cpkb6p597wvd3rjrhkwbcchr0000gn/T/cdk.outtohd6p/validation-report.json
 native:1:11
 WARNING AvailabilityZone: Avoid hardcoding availability zones 'us-east-1a' (CloudFormation Validate)
    PwSupport/Network/Vpc/publicSubnet1/Subnet (NetworkVpcpublicSubnet1Subnet00617657) aws-cdk-lib.aws_ec2.CfnSubnet
@@ -600,7 +555,100 @@ WARNING AvailabilityZone: Avoid hardcoding availability zones 'us-east-1b' (Clou
    PwSupport/Network/Vpc/dataSubnet2/Subnet (NetworkVpcdataSubnet2Subnet7A99E9BE) aws-cdk-lib.aws_ec2.CfnSubnet
    Acknowledge with 'CloudFormation-Validate::W3010'
 
-A copy of this report can be found in: /private/var/folders/cx/cpkb6p597wvd3rjrhkwbcchr0000gn/T/cdk.out0pTwZS/validation-report.json
+A copy of this report can be found in: /private/var/folders/cx/cpkb6p597wvd3rjrhkwbcchr0000gn/T/cdk.outoWGVu8/validation-report.json
+native:1:11
+WARNING AvailabilityZone: Avoid hardcoding availability zones 'us-east-1a' (CloudFormation Validate)
+   PwSupportStaging/Network/Vpc/publicSubnet1/Subnet (NetworkVpcpublicSubnet1Subnet00617657) aws-cdk-lib.aws_ec2.CfnSubnet
+   Acknowledge with 'CloudFormation-Validate::W3010'
+
+native:1:11
+WARNING AvailabilityZone: Avoid hardcoding availability zones 'us-east-1a' (CloudFormation Validate)
+   PwSupportStaging/Network/Vpc/appSubnet1/Subnet (NetworkVpcappSubnet1SubnetE208FB5D) aws-cdk-lib.aws_ec2.CfnSubnet
+   Acknowledge with 'CloudFormation-Validate::W3010'
+
+native:1:11
+WARNING AvailabilityZone: Avoid hardcoding availability zones 'us-east-1a' (CloudFormation Validate)
+   PwSupportStaging/Network/Vpc/dataSubnet1/Subnet (NetworkVpcdataSubnet1SubnetE7C988E9) aws-cdk-lib.aws_ec2.CfnSubnet
+   Acknowledge with 'CloudFormation-Validate::W3010'
+
+native:1:11
+WARNING AvailabilityZone: Avoid hardcoding availability zones 'us-east-1b' (CloudFormation Validate)
+   PwSupportStaging/Network/Vpc/publicSubnet2/Subnet (NetworkVpcpublicSubnet2SubnetDCAA7C9A) aws-cdk-lib.aws_ec2.CfnSubnet
+   Acknowledge with 'CloudFormation-Validate::W3010'
+
+native:1:11
+WARNING AvailabilityZone: Avoid hardcoding availability zones 'us-east-1b' (CloudFormation Validate)
+   PwSupportStaging/Network/Vpc/appSubnet2/Subnet (NetworkVpcappSubnet2SubnetC46F4198) aws-cdk-lib.aws_ec2.CfnSubnet
+   Acknowledge with 'CloudFormation-Validate::W3010'
+
+native:1:11
+WARNING AvailabilityZone: Avoid hardcoding availability zones 'us-east-1b' (CloudFormation Validate)
+   PwSupportStaging/Network/Vpc/dataSubnet2/Subnet (NetworkVpcdataSubnet2Subnet7A99E9BE) aws-cdk-lib.aws_ec2.CfnSubnet
+   Acknowledge with 'CloudFormation-Validate::W3010'
+
+A copy of this report can be found in: /private/var/folders/cx/cpkb6p597wvd3rjrhkwbcchr0000gn/T/cdk.outVgfwxb/validation-report.json
+native:1:11
+WARNING AvailabilityZone: Avoid hardcoding availability zones 'us-east-1a' (CloudFormation Validate)
+   PwSupportStaging/Network/Vpc/publicSubnet1/Subnet (NetworkVpcpublicSubnet1Subnet00617657) aws-cdk-lib.aws_ec2.CfnSubnet
+   Acknowledge with 'CloudFormation-Validate::W3010'
+
+native:1:11
+WARNING AvailabilityZone: Avoid hardcoding availability zones 'us-east-1a' (CloudFormation Validate)
+   PwSupportStaging/Network/Vpc/appSubnet1/Subnet (NetworkVpcappSubnet1SubnetE208FB5D) aws-cdk-lib.aws_ec2.CfnSubnet
+   Acknowledge with 'CloudFormation-Validate::W3010'
+
+native:1:11
+WARNING AvailabilityZone: Avoid hardcoding availability zones 'us-east-1a' (CloudFormation Validate)
+   PwSupportStaging/Network/Vpc/dataSubnet1/Subnet (NetworkVpcdataSubnet1SubnetE7C988E9) aws-cdk-lib.aws_ec2.CfnSubnet
+   Acknowledge with 'CloudFormation-Validate::W3010'
+
+native:1:11
+WARNING AvailabilityZone: Avoid hardcoding availability zones 'us-east-1b' (CloudFormation Validate)
+   PwSupportStaging/Network/Vpc/publicSubnet2/Subnet (NetworkVpcpublicSubnet2SubnetDCAA7C9A) aws-cdk-lib.aws_ec2.CfnSubnet
+   Acknowledge with 'CloudFormation-Validate::W3010'
+
+native:1:11
+WARNING AvailabilityZone: Avoid hardcoding availability zones 'us-east-1b' (CloudFormation Validate)
+   PwSupportStaging/Network/Vpc/appSubnet2/Subnet (NetworkVpcappSubnet2SubnetC46F4198) aws-cdk-lib.aws_ec2.CfnSubnet
+   Acknowledge with 'CloudFormation-Validate::W3010'
+
+native:1:11
+WARNING AvailabilityZone: Avoid hardcoding availability zones 'us-east-1b' (CloudFormation Validate)
+   PwSupportStaging/Network/Vpc/dataSubnet2/Subnet (NetworkVpcdataSubnet2Subnet7A99E9BE) aws-cdk-lib.aws_ec2.CfnSubnet
+   Acknowledge with 'CloudFormation-Validate::W3010'
+
+A copy of this report can be found in: /private/var/folders/cx/cpkb6p597wvd3rjrhkwbcchr0000gn/T/cdk.outHMMYn0/validation-report.json
+native:1:11
+WARNING AvailabilityZone: Avoid hardcoding availability zones 'us-east-1a' (CloudFormation Validate)
+   PwSupportStaging/Network/Vpc/publicSubnet1/Subnet (NetworkVpcpublicSubnet1Subnet00617657) aws-cdk-lib.aws_ec2.CfnSubnet
+   Acknowledge with 'CloudFormation-Validate::W3010'
+
+native:1:11
+WARNING AvailabilityZone: Avoid hardcoding availability zones 'us-east-1a' (CloudFormation Validate)
+   PwSupportStaging/Network/Vpc/appSubnet1/Subnet (NetworkVpcappSubnet1SubnetE208FB5D) aws-cdk-lib.aws_ec2.CfnSubnet
+   Acknowledge with 'CloudFormation-Validate::W3010'
+
+native:1:11
+WARNING AvailabilityZone: Avoid hardcoding availability zones 'us-east-1a' (CloudFormation Validate)
+   PwSupportStaging/Network/Vpc/dataSubnet1/Subnet (NetworkVpcdataSubnet1SubnetE7C988E9) aws-cdk-lib.aws_ec2.CfnSubnet
+   Acknowledge with 'CloudFormation-Validate::W3010'
+
+native:1:11
+WARNING AvailabilityZone: Avoid hardcoding availability zones 'us-east-1b' (CloudFormation Validate)
+   PwSupportStaging/Network/Vpc/publicSubnet2/Subnet (NetworkVpcpublicSubnet2SubnetDCAA7C9A) aws-cdk-lib.aws_ec2.CfnSubnet
+   Acknowledge with 'CloudFormation-Validate::W3010'
+
+native:1:11
+WARNING AvailabilityZone: Avoid hardcoding availability zones 'us-east-1b' (CloudFormation Validate)
+   PwSupportStaging/Network/Vpc/appSubnet2/Subnet (NetworkVpcappSubnet2SubnetC46F4198) aws-cdk-lib.aws_ec2.CfnSubnet
+   Acknowledge with 'CloudFormation-Validate::W3010'
+
+native:1:11
+WARNING AvailabilityZone: Avoid hardcoding availability zones 'us-east-1b' (CloudFormation Validate)
+   PwSupportStaging/Network/Vpc/dataSubnet2/Subnet (NetworkVpcdataSubnet2Subnet7A99E9BE) aws-cdk-lib.aws_ec2.CfnSubnet
+   Acknowledge with 'CloudFormation-Validate::W3010'
+
+A copy of this report can be found in: /private/var/folders/cx/cpkb6p597wvd3rjrhkwbcchr0000gn/T/cdk.outdp06Nf/validation-report.json
 native:1:11
 WARNING AvailabilityZone: Avoid hardcoding availability zones 'us-east-1a' (CloudFormation Validate)
    PwSupport/Network/Vpc/publicSubnet1/Subnet (NetworkVpcpublicSubnet1Subnet00617657) aws-cdk-lib.aws_ec2.CfnSubnet
@@ -631,7 +679,100 @@ WARNING AvailabilityZone: Avoid hardcoding availability zones 'us-east-1b' (Clou
    PwSupport/Network/Vpc/dataSubnet2/Subnet (NetworkVpcdataSubnet2Subnet7A99E9BE) aws-cdk-lib.aws_ec2.CfnSubnet
    Acknowledge with 'CloudFormation-Validate::W3010'
 
-A copy of this report can be found in: /private/var/folders/cx/cpkb6p597wvd3rjrhkwbcchr0000gn/T/cdk.outehNcU0/validation-report.json
+A copy of this report can be found in: /private/var/folders/cx/cpkb6p597wvd3rjrhkwbcchr0000gn/T/cdk.outzoEJzE/validation-report.json
+native:1:11
+WARNING AvailabilityZone: Avoid hardcoding availability zones 'us-east-1a' (CloudFormation Validate)
+   PwSupportStaging/Network/Vpc/publicSubnet1/Subnet (NetworkVpcpublicSubnet1Subnet00617657) aws-cdk-lib.aws_ec2.CfnSubnet
+   Acknowledge with 'CloudFormation-Validate::W3010'
+
+native:1:11
+WARNING AvailabilityZone: Avoid hardcoding availability zones 'us-east-1a' (CloudFormation Validate)
+   PwSupportStaging/Network/Vpc/appSubnet1/Subnet (NetworkVpcappSubnet1SubnetE208FB5D) aws-cdk-lib.aws_ec2.CfnSubnet
+   Acknowledge with 'CloudFormation-Validate::W3010'
+
+native:1:11
+WARNING AvailabilityZone: Avoid hardcoding availability zones 'us-east-1a' (CloudFormation Validate)
+   PwSupportStaging/Network/Vpc/dataSubnet1/Subnet (NetworkVpcdataSubnet1SubnetE7C988E9) aws-cdk-lib.aws_ec2.CfnSubnet
+   Acknowledge with 'CloudFormation-Validate::W3010'
+
+native:1:11
+WARNING AvailabilityZone: Avoid hardcoding availability zones 'us-east-1b' (CloudFormation Validate)
+   PwSupportStaging/Network/Vpc/publicSubnet2/Subnet (NetworkVpcpublicSubnet2SubnetDCAA7C9A) aws-cdk-lib.aws_ec2.CfnSubnet
+   Acknowledge with 'CloudFormation-Validate::W3010'
+
+native:1:11
+WARNING AvailabilityZone: Avoid hardcoding availability zones 'us-east-1b' (CloudFormation Validate)
+   PwSupportStaging/Network/Vpc/appSubnet2/Subnet (NetworkVpcappSubnet2SubnetC46F4198) aws-cdk-lib.aws_ec2.CfnSubnet
+   Acknowledge with 'CloudFormation-Validate::W3010'
+
+native:1:11
+WARNING AvailabilityZone: Avoid hardcoding availability zones 'us-east-1b' (CloudFormation Validate)
+   PwSupportStaging/Network/Vpc/dataSubnet2/Subnet (NetworkVpcdataSubnet2Subnet7A99E9BE) aws-cdk-lib.aws_ec2.CfnSubnet
+   Acknowledge with 'CloudFormation-Validate::W3010'
+
+A copy of this report can be found in: /private/var/folders/cx/cpkb6p597wvd3rjrhkwbcchr0000gn/T/cdk.outKZ23Ru/validation-report.json
+native:1:11
+WARNING AvailabilityZone: Avoid hardcoding availability zones 'us-east-1a' (CloudFormation Validate)
+   PwSupport/Network/Vpc/publicSubnet1/Subnet (NetworkVpcpublicSubnet1Subnet00617657) aws-cdk-lib.aws_ec2.CfnSubnet
+   Acknowledge with 'CloudFormation-Validate::W3010'
+
+native:1:11
+WARNING AvailabilityZone: Avoid hardcoding availability zones 'us-east-1a' (CloudFormation Validate)
+   PwSupport/Network/Vpc/appSubnet1/Subnet (NetworkVpcappSubnet1SubnetE208FB5D) aws-cdk-lib.aws_ec2.CfnSubnet
+   Acknowledge with 'CloudFormation-Validate::W3010'
+
+native:1:11
+WARNING AvailabilityZone: Avoid hardcoding availability zones 'us-east-1a' (CloudFormation Validate)
+   PwSupport/Network/Vpc/dataSubnet1/Subnet (NetworkVpcdataSubnet1SubnetE7C988E9) aws-cdk-lib.aws_ec2.CfnSubnet
+   Acknowledge with 'CloudFormation-Validate::W3010'
+
+native:1:11
+WARNING AvailabilityZone: Avoid hardcoding availability zones 'us-east-1b' (CloudFormation Validate)
+   PwSupport/Network/Vpc/publicSubnet2/Subnet (NetworkVpcpublicSubnet2SubnetDCAA7C9A) aws-cdk-lib.aws_ec2.CfnSubnet
+   Acknowledge with 'CloudFormation-Validate::W3010'
+
+native:1:11
+WARNING AvailabilityZone: Avoid hardcoding availability zones 'us-east-1b' (CloudFormation Validate)
+   PwSupport/Network/Vpc/appSubnet2/Subnet (NetworkVpcappSubnet2SubnetC46F4198) aws-cdk-lib.aws_ec2.CfnSubnet
+   Acknowledge with 'CloudFormation-Validate::W3010'
+
+native:1:11
+WARNING AvailabilityZone: Avoid hardcoding availability zones 'us-east-1b' (CloudFormation Validate)
+   PwSupport/Network/Vpc/dataSubnet2/Subnet (NetworkVpcdataSubnet2Subnet7A99E9BE) aws-cdk-lib.aws_ec2.CfnSubnet
+   Acknowledge with 'CloudFormation-Validate::W3010'
+
+A copy of this report can be found in: /private/var/folders/cx/cpkb6p597wvd3rjrhkwbcchr0000gn/T/cdk.outJQ18b1/validation-report.json
+native:1:11
+WARNING AvailabilityZone: Avoid hardcoding availability zones 'us-east-1a' (CloudFormation Validate)
+   PwSupport/Network/Vpc/publicSubnet1/Subnet (NetworkVpcpublicSubnet1Subnet00617657) aws-cdk-lib.aws_ec2.CfnSubnet
+   Acknowledge with 'CloudFormation-Validate::W3010'
+
+native:1:11
+WARNING AvailabilityZone: Avoid hardcoding availability zones 'us-east-1a' (CloudFormation Validate)
+   PwSupport/Network/Vpc/appSubnet1/Subnet (NetworkVpcappSubnet1SubnetE208FB5D) aws-cdk-lib.aws_ec2.CfnSubnet
+   Acknowledge with 'CloudFormation-Validate::W3010'
+
+native:1:11
+WARNING AvailabilityZone: Avoid hardcoding availability zones 'us-east-1a' (CloudFormation Validate)
+   PwSupport/Network/Vpc/dataSubnet1/Subnet (NetworkVpcdataSubnet1SubnetE7C988E9) aws-cdk-lib.aws_ec2.CfnSubnet
+   Acknowledge with 'CloudFormation-Validate::W3010'
+
+native:1:11
+WARNING AvailabilityZone: Avoid hardcoding availability zones 'us-east-1b' (CloudFormation Validate)
+   PwSupport/Network/Vpc/publicSubnet2/Subnet (NetworkVpcpublicSubnet2SubnetDCAA7C9A) aws-cdk-lib.aws_ec2.CfnSubnet
+   Acknowledge with 'CloudFormation-Validate::W3010'
+
+native:1:11
+WARNING AvailabilityZone: Avoid hardcoding availability zones 'us-east-1b' (CloudFormation Validate)
+   PwSupport/Network/Vpc/appSubnet2/Subnet (NetworkVpcappSubnet2SubnetC46F4198) aws-cdk-lib.aws_ec2.CfnSubnet
+   Acknowledge with 'CloudFormation-Validate::W3010'
+
+native:1:11
+WARNING AvailabilityZone: Avoid hardcoding availability zones 'us-east-1b' (CloudFormation Validate)
+   PwSupport/Network/Vpc/dataSubnet2/Subnet (NetworkVpcdataSubnet2Subnet7A99E9BE) aws-cdk-lib.aws_ec2.CfnSubnet
+   Acknowledge with 'CloudFormation-Validate::W3010'
+
+A copy of this report can be found in: /private/var/folders/cx/cpkb6p597wvd3rjrhkwbcchr0000gn/T/cdk.outN8m3oI/validation-report.json
 
 
 
@@ -653,7 +794,7 @@ modules/api/src/admin.test.ts:
 -----------------------------------------------------|---------|---------|-------------------
 File                                                 | % Funcs | % Lines | Uncovered Line #s
 -----------------------------------------------------|---------|---------|-------------------
-All files                                            |   98.93 |   99.44 |
+All files                                            |   99.01 |   99.46 |
  modules/admin/src/index.ts                          |  100.00 |  100.00 | 
  modules/admin/src/lib/config.ts                     |  100.00 |  100.00 | 
  modules/admin/src/lib/format.ts                     |  100.00 |  100.00 | 
@@ -735,7 +876,9 @@ All files                                            |   98.93 |   99.44 |
  modules/infra/src/app-stack.ts                      |  100.00 |  100.00 | 
  modules/infra/src/config.ts                         |  100.00 |  100.00 | 
  modules/infra/src/database.ts                       |  100.00 |  100.00 | 
+ modules/infra/src/execution-policy.ts               |  100.00 |  100.00 | 
  modules/infra/src/github-oidc-stack.ts              |  100.00 |  100.00 | 
+ modules/infra/src/index.ts                          |  100.00 |  100.00 | 
  modules/infra/src/load-config.ts                    |  100.00 |  100.00 | 
  modules/infra/src/nag-suppressions.ts               |  100.00 |  100.00 | 
  modules/infra/src/network.ts                        |  100.00 |  100.00 | 
@@ -791,12 +934,12 @@ All files                                            |   98.93 |   99.44 |
  scripts/demo/lib.ts                                 |  100.00 |  100.00 | 
  scripts/demo/viewer.ts                              |  100.00 |  100.00 | 
  scripts/deploy/lib.ts                               |   95.24 |  100.00 | 
- scripts/deploy/run.ts                               |   90.00 |   97.77 | 81,159,228-229
+ scripts/deploy/run.ts                               |  100.00 |  100.00 | 
  scripts/dev-admin-env.ts                            |  100.00 |  100.00 | 
  scripts/env.ts                                      |   93.18 |   97.74 | 357,440,450-455
  scripts/lint-boundaries.ts                          |  100.00 |   99.33 | 
  scripts/plugin-bundle.ts                            |  100.00 |   97.67 | 
- scripts/release/lib.ts                              |   98.18 |   97.87 | 383,601-609
+ scripts/release/lib.ts                              |   98.39 |   98.04 | 446,665-673
  scripts/skills-audit.ts                             |   95.45 |   99.17 | 
  scripts/smoke/lib.ts                                |   93.33 |  100.00 | 
  scripts/stack-setup.ts                              |  100.00 |   93.41 | 59,129-133
@@ -806,11 +949,11 @@ All files                                            |   98.93 |   99.44 |
  tests/phase-3-support.ts                            |   96.97 |  100.00 | 
 -----------------------------------------------------|---------|---------|-------------------
 
- 1239 pass
+ 1273 pass
  2 skip
  0 fail
- 7874 expect() calls
-Ran 1241 tests across 85 files. [62.87s]
+ 9808 expect() calls
+Ran 1275 tests across 85 files. [68.78s]
 @pressw-llc/support-react test: bun test v1.3.14 (0d9b296a)
 @pressw-llc/support-react test: 
 @pressw-llc/support-react test: src/mount.test.ts:
@@ -964,7 +1107,7 @@ Ran 1241 tests across 85 files. [62.87s]
 @pressw-llc/support-react test:  37 pass
 @pressw-llc/support-react test:  0 fail
 @pressw-llc/support-react test:  125 expect() calls
-@pressw-llc/support-react test: Ran 37 tests across 4 files. [585.00ms]
+@pressw-llc/support-react test: Ran 37 tests across 4 files. [705.00ms]
 @pressw-llc/support-react test: Exited with code 0
 
 [check] e2e
@@ -973,36 +1116,36 @@ $ bun run --filter @pw-support/e2e test
 @pw-support/e2e test: 
 @pw-support/e2e test: Running 28 tests using 1 worker
 @pw-support/e2e test: 
-@pw-support/e2e test:   ✓   1 [chromium] › admin.spec.ts:79:1 › A19: an admin route returns 401 without a token and with a forged token (40ms)
-@pw-support/e2e test:   ✓   2 [chromium] › admin.spec.ts:96:1 › A19: a staff member logs in through the mock issuer and sees the request list with a running timer (2.6s)
-@pw-support/e2e test:   ✓   3 [chromium] › admin.spec.ts:122:1 › A19: the access token stays out of localStorage (254ms)
-@pw-support/e2e test:   ✓   4 [chromium] › admin.spec.ts:128:1 › A18: a saved Linear key shows as configured and its value appears nowhere (553ms)
-@pw-support/e2e test:   ✓   5 [chromium] › admin.spec.ts:168:1 › A29: a saved CC list survives a reload (565ms)
+@pw-support/e2e test:   ✓   1 [chromium] › admin.spec.ts:79:1 › A19: an admin route returns 401 without a token and with a forged token (64ms)
+@pw-support/e2e test:   ✓   2 [chromium] › admin.spec.ts:96:1 › A19: a staff member logs in through the mock issuer and sees the request list with a running timer (2.8s)
+@pw-support/e2e test:   ✓   3 [chromium] › admin.spec.ts:122:1 › A19: the access token stays out of localStorage (267ms)
+@pw-support/e2e test:   ✓   4 [chromium] › admin.spec.ts:128:1 › A18: a saved Linear key shows as configured and its value appears nowhere (551ms)
+@pw-support/e2e test:   ✓   5 [chromium] › admin.spec.ts:168:1 › A29: a saved CC list survives a reload (629ms)
 @pw-support/e2e test:   ✓   6 [chromium] › admin.spec.ts:190:1 › creates a project, mints and revokes a key, and saves the Linear team mapping (1.3s)
-@pw-support/e2e test:   ✓   7 [chromium] › admin.spec.ts:234:1 › a signed-in user can sign out and is asked to sign in again (437ms)
-@pw-support/e2e test:   ✓   8 [chromium] › admin.spec.ts:245:1 › the layout works on a phone and in the dark theme (710ms)
-@pw-support/e2e test:   ✓   9 [chromium] › admin.spec.ts:258:1 › A15: a reply scored 2.5 sends and shows a flag in the admin UI (1.8s)
-@pw-support/e2e test:   ✓  10 [chromium] › admin.spec.ts:288:1 › A15: a held reply shows as held with its score until it is confirmed (7.1s)
+@pw-support/e2e test:   ✓   7 [chromium] › admin.spec.ts:234:1 › a signed-in user can sign out and is asked to sign in again (359ms)
+@pw-support/e2e test:   ✓   8 [chromium] › admin.spec.ts:245:1 › the layout works on a phone and in the dark theme (731ms)
+@pw-support/e2e test:   ✓   9 [chromium] › admin.spec.ts:258:1 › A15: a reply scored 2.5 sends and shows a flag in the admin UI (2.5s)
+@pw-support/e2e test:   ✓  10 [chromium] › admin.spec.ts:288:1 › A15: a held reply shows as held with its score until it is confirmed (6.9s)
 @pw-support/e2e test:   ✓  11 [chromium] › admin.spec.ts:324:1 › thread bodies, author names, and event payloads render as inert text (2.3s)
 @pw-support/e2e test:   ✓  12 [chromium] › admin.spec.ts:353:1 › a signed-in user outside the allowed domain sees a not-authorized page and no login loop (1.9s)
-@pw-support/e2e test:   ✓  13 [chromium] › admin.spec.ts:375:1 › an allowed domain still signs in against the policy API (273ms)
-@pw-support/e2e test:   ✓  14 [chromium] › admin.spec.ts:386:1 › a persistent 401 triggers one re-login and then a terminal page (2.1s)
+@pw-support/e2e test:   ✓  13 [chromium] › admin.spec.ts:375:1 › an allowed domain still signs in against the policy API (288ms)
+@pw-support/e2e test:   ✓  14 [chromium] › admin.spec.ts:386:1 › a persistent 401 triggers one re-login and then a terminal page (2.0s)
 @pw-support/e2e test:   ✓  15 [chromium] › admin.spec.ts:404:1 › a callback error from the issuer ends on a visible page without another login (1.1s)
 @pw-support/e2e test:   ✓  16 [chromium] › admin.spec.ts:418:1 › a callback with an unknown state ends on a visible page without another login (1.1s)
-@pw-support/e2e test:   ✓  17 [chromium] › admin.spec.ts:448:1 › sign out sends the browser to the issuer end-session endpoint and requires a new login (390ms)
-@pw-support/e2e test:   ✓  18 [chromium] › admin.spec.ts:475:1 › sign out uses the configured Cognito logout URL when discovery has no end-session endpoint (443ms)
+@pw-support/e2e test:   ✓  17 [chromium] › admin.spec.ts:448:1 › sign out sends the browser to the issuer end-session endpoint and requires a new login (376ms)
+@pw-support/e2e test:   ✓  18 [chromium] › admin.spec.ts:475:1 › sign out uses the configured Cognito logout URL when discovery has no end-session endpoint (428ms)
 @pw-support/e2e test:   ✓  19 [chromium] › admin.spec.ts:510:1 › sign out without any logout endpoint warns that the issuer session may remain and never auto-signs in (1.4s)
 @pw-support/e2e test:   ✓  20 [chromium] › reply-loop.spec.ts:35:1 › A14: an unmarked staff comment never shows and an @external comment shows and raises the unread indicator (3.6s)
 @pw-support/e2e test:   ✓  21 [chromium] › reply-loop.spec.ts:77:1 › A15: a low scored @external reply stays hidden until its author confirms (3.4s)
-@pw-support/e2e test:   ✓  22 [chromium] › reply-loop.spec.ts:105:1 › A16: a customer reply in the widget appears as a quoted comment on the ticket (1.6s)
-@pw-support/e2e test:   ✓  23 [chromium] › widget.spec.ts:14:1 › A1: the widget renders from the host app inside a shadow root (111ms)
-@pw-support/e2e test:   ✓  24 [chromium] › widget.spec.ts:29:1 › A1: the widget stays usable under hostile host CSS (164ms)
-@pw-support/e2e test:   ✓  25 [chromium] › widget.spec.ts:59:1 › A2: text with two attachments persists the request, files, and request.created (341ms)
-@pw-support/e2e test:   ✓  26 [chromium] › widget.spec.ts:89:1 › A4: a renamed executable shows a rejection in the UI (239ms)
-@pw-support/e2e test:   ✓  27 [chromium] › widget.spec.ts:112:1 › the thread shows the message and a follow-up reply works (341ms)
-@pw-support/e2e test:   ✓  28 [chromium] › widget.spec.ts:137:1 › a staff reply raises the unread badge and opening the thread clears it (435ms)
+@pw-support/e2e test:   ✓  22 [chromium] › reply-loop.spec.ts:105:1 › A16: a customer reply in the widget appears as a quoted comment on the ticket (1.7s)
+@pw-support/e2e test:   ✓  23 [chromium] › widget.spec.ts:14:1 › A1: the widget renders from the host app inside a shadow root (107ms)
+@pw-support/e2e test:   ✓  24 [chromium] › widget.spec.ts:29:1 › A1: the widget stays usable under hostile host CSS (186ms)
+@pw-support/e2e test:   ✓  25 [chromium] › widget.spec.ts:59:1 › A2: text with two attachments persists the request, files, and request.created (326ms)
+@pw-support/e2e test:   ✓  26 [chromium] › widget.spec.ts:89:1 › A4: a renamed executable shows a rejection in the UI (224ms)
+@pw-support/e2e test:   ✓  27 [chromium] › widget.spec.ts:112:1 › the thread shows the message and a follow-up reply works (389ms)
+@pw-support/e2e test:   ✓  28 [chromium] › widget.spec.ts:137:1 › a staff reply raises the unread badge and opening the thread clears it (443ms)
 @pw-support/e2e test: 
-@pw-support/e2e test:   28 passed (40.0s)
+@pw-support/e2e test:   28 passed (40.9s)
 @pw-support/e2e test: Exited with code 0
 $ bun scripts/validate/phase-4-live.ts
 PASS A19 401 without a token - status 401
@@ -1014,7 +1157,7 @@ PASS A19 401 for a forged token on the group-restricted API - status 401
 PASS A29 the saved CC list is returned on the next read - lead@acme.test,oncall@acme.test
 PASS A15-admin the admin API returns the flagged reply to staff and 401 without a token - anonymous 401, staff 200, 1 flagged request
 PASS A18a Secrets Manager holds the saved key - save status 200
-PASS A18b the database dump holds no key material - pg_dump, 858185 characters scanned
+PASS A18b the database dump holds no key material - pg_dump, 858179 characters scanned
 PASS A18c no admin API response holds the key - save, integrations, projects, requests
 PASS A18d the API logs hold no key - 176 characters of logs scanned
 PASS A18e no event payload holds the key - 2047 events scanned
@@ -1031,12 +1174,12 @@ $ bun run --filter @pw-support/infra synth
 
 [check] summary
 stage      status   seconds
-lint       pass     1.0
+lint       pass     1.2
 build      pass     2.2
-typecheck  pass     12.6
+typecheck  pass     12.5
 stack      pass     7.2
-test       pass     63.6
-e2e        pass     41.9
+test       pass     69.6
+e2e        pass     43.0
 synth      pass     2.7
 
 [check] PASSED
