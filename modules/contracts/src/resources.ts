@@ -13,6 +13,7 @@ export interface ResourceNames {
   anthropicSecret: string;
   githubDeployRole: string;
   cfnExecutionPolicy: string;
+  permissionsBoundary: string;
   bootstrapQualifier: string;
   stageTag: string;
 }
@@ -33,6 +34,7 @@ export function resourceNames(stage: string = LOCAL_STAGE): ResourceNames {
     anthropicSecret: `${base}-anthropic/api-key`,
     githubDeployRole: `${base}-github-deploy`,
     cfnExecutionPolicy: `${base}-cfn-execution`,
+    permissionsBoundary: `${base}-role-boundary`,
     bootstrapQualifier: local ? "hnb659fds" : `pws${stage.slice(0, 7)}`,
     stageTag: "pw-support:stage",
   };

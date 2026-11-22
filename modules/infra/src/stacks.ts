@@ -1,7 +1,9 @@
 import { resourceNames } from "@pw-support/contracts";
 import { type App, Tags } from "aws-cdk-lib";
+import * as iam from "aws-cdk-lib/aws-iam";
 import { SupportAppStack } from "./app-stack";
 import { type StageConfig, stackIds } from "./config";
+import { boundaryArn } from "./execution-policy";
 import { GithubOidcStack } from "./github-oidc-stack";
 import { SupportStack } from "./support-stack";
 
@@ -22,6 +24,15 @@ export function createSupportStacks(app: App, config: StageConfig) {
   const names = resourceNames(config.stage);
   for (const stack of [foundation, appStack, oidc]) {
     Tags.of(stack).add(names.stageTag, config.stage);
+  }
+  for (const stack of [foundation, appStack]) {
+    iam.PermissionsBoundary.of(stack).apply(
+      iam.ManagedPolicy.fromManagedPolicyArn(
+        stack,
+        "StageRoleBoundary",
+        boundaryArn(config.stage, config.account, stack.partition),
+      ),
+    );
   }
   return { foundation, app: appStack, oidc, ids };
 }

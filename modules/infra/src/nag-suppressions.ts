@@ -169,6 +169,13 @@ export function applySuppressions(stacks: Stacks): void {
       },
     ],
   );
+  suppress(oidc, "RoleBoundary", [
+    {
+      id: "AwsSolutions-IAM5",
+      reason:
+        "A permissions boundary caps services for stack-created roles; it grants nothing by itself.",
+    },
+  ]);
   suppress(oidc, "DeployRole/DefaultPolicy", [
     {
       id: "AwsSolutions-IAM5",

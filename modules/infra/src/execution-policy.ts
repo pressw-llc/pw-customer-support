@@ -3,6 +3,7 @@ import { AWS_REGION, type StageName, stackIds } from "./config";
 
 export interface ScopedStatement {
   sid: string;
+  effect?: "Allow" | "Deny";
   actions: string[];
   resources: string[];
   conditions?: Record<string, Record<string, string | string[]>>;
@@ -14,6 +15,66 @@ export interface ExecutionPolicyInput {
   account: string;
   partition?: string;
   certificateArn?: string;
+}
+
+export const TAG_ACTIONS = [
+  "ec2:CreateTags",
+  "ec2:DeleteTags",
+  "elasticloadbalancing:AddTags",
+  "elasticloadbalancing:RemoveTags",
+  "cloudfront:TagResource",
+  "cloudfront:UntagResource",
+  "rds:AddTagsToResource",
+  "rds:RemoveTagsFromResource",
+  "sqs:TagQueue",
+  "sqs:UntagQueue",
+  "sns:TagResource",
+  "sns:UntagResource",
+  "lambda:TagResource",
+  "lambda:UntagResource",
+  "logs:TagResource",
+  "logs:UntagResource",
+  "secretsmanager:TagResource",
+  "secretsmanager:UntagResource",
+  "ecs:TagResource",
+  "ecs:UntagResource",
+  "cloudwatch:TagResource",
+  "cloudwatch:UntagResource",
+  "iam:TagRole",
+  "iam:UntagRole",
+  "iam:TagPolicy",
+  "iam:UntagPolicy",
+  "s3:PutBucketTagging",
+];
+
+export const UNTAG_ACTIONS = TAG_ACTIONS.filter((action) =>
+  /(Untag|Remove|DeleteTags)/.test(action),
+);
+
+export const BOUNDARY_ACTIONS = [
+  "logs:*",
+  "s3:*",
+  "sqs:*",
+  "secretsmanager:*",
+  "ecr:*",
+  "ec2:CreateNetworkInterface",
+  "ec2:DescribeNetworkInterfaces",
+  "ec2:DeleteNetworkInterface",
+  "ec2:AssignPrivateIpAddresses",
+  "ec2:UnassignPrivateIpAddresses",
+  "cloudfront:CreateInvalidation",
+  "cloudfront:GetInvalidation",
+  "lambda:InvokeFunction",
+  "sns:Publish",
+  "cloudwatch:PutMetricData",
+];
+
+export function boundaryArn(
+  stage: StageName,
+  account: string,
+  partition = "aws",
+): string {
+  return `arn:${partition}:iam::${account}:policy/${resourceNames(stage).permissionsBoundary}`;
 }
 
 const SERVICE_LINKED_ROLES = [
@@ -38,6 +99,14 @@ export function executionStatements(
     `arn:${partition}:${service}:${withRegion ? AWS_REGION : ""}:${service === "s3" ? "" : account}:${resource}`;
   const stageTagged = { StringEquals: { [tag]: stage } };
   const createTagged = { StringEquals: { [requestTag]: stage } };
+  const tagExisting = {
+    StringEquals: { [tag]: stage },
+    "ForAllValues:StringNotEquals": { "aws:TagKeys": [names.stageTag] },
+  };
+  const boundary = boundaryArn(stage, account, partition);
+  const withBoundary = {
+    StringEquals: { "iam:PermissionsBoundary": boundary },
+  };
 
   const statements: ScopedStatement[] = [
     {
@@ -51,11 +120,9 @@ export function executionStatements(
     {
       sid: "StageRoles",
       actions: [
-        "iam:CreateRole",
         "iam:DeleteRole",
         "iam:GetRole",
         "iam:UpdateRole",
-        "iam:UpdateAssumeRolePolicy",
         "iam:PutRolePolicy",
         "iam:GetRolePolicy",
         "iam:DeleteRolePolicy",
@@ -65,6 +132,38 @@ export function executionStatements(
         "iam:UntagRole",
       ],
       resources: stacks.map((name) => arn("iam", `role/${name}-*`, false)),
+    },
+    {
+      sid: "CreateBoundedRoles",
+      actions: ["iam:CreateRole", "iam:PutRolePermissionsBoundary"],
+      resources: stacks.map((name) => arn("iam", `role/${name}-*`, false)),
+      conditions: withBoundary,
+    },
+    {
+      sid: "DenyUnboundedRoles",
+      effect: "Deny",
+      actions: ["iam:CreateRole", "iam:PutRolePermissionsBoundary"],
+      resources: ["*"],
+      conditions: {
+        StringNotEquals: { "iam:PermissionsBoundary": boundary },
+      },
+    },
+    {
+      sid: "DenyBoundaryRemoval",
+      effect: "Deny",
+      actions: ["iam:DeleteRolePermissionsBoundary"],
+      resources: ["*"],
+    },
+    {
+      sid: "DenyBoundaryPolicyChanges",
+      effect: "Deny",
+      actions: [
+        "iam:CreatePolicyVersion",
+        "iam:DeletePolicy",
+        "iam:DeletePolicyVersion",
+        "iam:SetDefaultPolicyVersion",
+      ],
+      resources: [boundary],
     },
     {
       sid: "PassStageRoles",
@@ -192,12 +291,19 @@ export function executionStatements(
         "ec2:DeleteVpcEndpoints",
         "ec2:ModifyVpcEndpoint",
         "ec2:DeleteFlowLogs",
-        "ec2:DeleteTags",
       ],
       resources: ["*"],
       conditions: stageTagged,
       unscopedBecause:
         "Existing EC2 resources are matched by the stage tag because their ids are generated.",
+    },
+    {
+      sid: "TagExistingNetworkResources",
+      actions: ["ec2:DeleteTags"],
+      resources: ["*"],
+      conditions: tagExisting,
+      unscopedBecause:
+        "Existing EC2 resources are matched by the stage tag, and the stage key itself cannot change.",
     },
     {
       sid: "DatabaseByName",
@@ -361,6 +467,36 @@ export function executionStatements(
         "Load balancer names are generated, so the stage tag on the request limits creation.",
     },
     {
+      sid: "LoadBalancerTagOnCreate",
+      actions: ["elasticloadbalancing:AddTags"],
+      resources: ["*"],
+      conditions: {
+        ...createTagged,
+        StringEqualsIfExists: {
+          "elasticloadbalancing:CreateAction": [
+            "CreateLoadBalancer",
+            "CreateTargetGroup",
+            "CreateListener",
+            "CreateRule",
+          ],
+        },
+        Null: { [tag]: "true" },
+      },
+      unscopedBecause:
+        "Tagging at creation has no ARN yet; the request tag, the create action, and an untagged target limit it.",
+    },
+    {
+      sid: "LoadBalancerTagExisting",
+      actions: [
+        "elasticloadbalancing:AddTags",
+        "elasticloadbalancing:RemoveTags",
+      ],
+      resources: ["*"],
+      conditions: tagExisting,
+      unscopedBecause:
+        "Existing load balancers are matched by the stage tag, and the stage key itself cannot change.",
+    },
+    {
       sid: "LoadBalancerChangeTagged",
       actions: [
         "elasticloadbalancing:ModifyLoadBalancerAttributes",
@@ -374,8 +510,6 @@ export function executionStatements(
         "elasticloadbalancing:DeleteListener",
         "elasticloadbalancing:ModifyRule",
         "elasticloadbalancing:DeleteRule",
-        "elasticloadbalancing:AddTags",
-        "elasticloadbalancing:RemoveTags",
         "elasticloadbalancing:RegisterTargets",
         "elasticloadbalancing:DeregisterTargets",
       ],
@@ -433,12 +567,27 @@ export function executionStatements(
       actions: [
         "cloudfront:CreateDistribution",
         "cloudfront:CreateDistributionWithTags",
-        "cloudfront:TagResource",
       ],
       resources: ["*"],
       conditions: createTagged,
       unscopedBecause:
         "New distributions have no ARN yet, so the stage tag on the request limits them.",
+    },
+    {
+      sid: "DistributionTagOnCreate",
+      actions: ["cloudfront:TagResource"],
+      resources: ["*"],
+      conditions: { ...createTagged, Null: { [tag]: "true" } },
+      unscopedBecause:
+        "A new distribution has no ARN yet; the request tag and an untagged target limit it, so an existing distribution cannot be retagged.",
+    },
+    {
+      sid: "DistributionTagExisting",
+      actions: ["cloudfront:TagResource", "cloudfront:UntagResource"],
+      resources: ["*"],
+      conditions: tagExisting,
+      unscopedBecause:
+        "Existing distributions are matched by the stage tag, and the stage key itself cannot change.",
     },
     {
       sid: "DistributionsChangeTagged",
@@ -447,7 +596,6 @@ export function executionStatements(
         "cloudfront:DeleteDistribution",
         "cloudfront:GetDistribution",
         "cloudfront:CreateInvalidation",
-        "cloudfront:UntagResource",
       ],
       resources: ["*"],
       conditions: stageTagged,
@@ -537,6 +685,25 @@ export function executionStatements(
       resources: ["*"],
       unscopedBecause:
         "Application Auto Scaling targets and policies have generated ids and no tag conditions.",
+    },
+    {
+      sid: "DenyStageTagChange",
+      effect: "Deny",
+      actions: TAG_ACTIONS,
+      resources: ["*"],
+      conditions: {
+        "ForAnyValue:StringEquals": { "aws:TagKeys": [names.stageTag] },
+        Null: { [tag]: "false" },
+      },
+    },
+    {
+      sid: "DenyStageTagRemoval",
+      effect: "Deny",
+      actions: UNTAG_ACTIONS,
+      resources: ["*"],
+      conditions: {
+        "ForAnyValue:StringEquals": { "aws:TagKeys": [names.stageTag] },
+      },
     },
     {
       sid: "OwnAssetObjects",

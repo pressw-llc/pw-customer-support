@@ -15,7 +15,12 @@ import {
   WORKER_COMMAND,
   WORKER_MEMORY_MIB,
 } from "./app-stack";
-import { executionStatements } from "./execution-policy";
+import {
+  BOUNDARY_ACTIONS,
+  boundaryArn,
+  executionStatements,
+  TAG_ACTIONS,
+} from "./execution-policy";
 import { loadStageConfig } from "./load-config";
 import { createSupportStacks, stackIds } from "./stacks";
 import { AWS_REGION, MIGRATE_COMMAND, secretsPath } from "./support-stack";
@@ -791,12 +796,12 @@ describe("GitHub OIDC bootstrap stack", () => {
     }
   });
 
-  test("only production creates the account-wide OIDC provider", () => {
+  test("every stage creates the GitHub OIDC provider in its own account", () => {
     oidcT.hasResourceProperties("AWS::IAM::OIDCProvider", {
       Url: "https://token.actions.githubusercontent.com",
       ClientIdList: ["sts.amazonaws.com"],
     });
-    stagingStack.oidcT.resourceCountIs("AWS::IAM::OIDCProvider", 0);
+    stagingStack.oidcT.resourceCountIs("AWS::IAM::OIDCProvider", 1);
   });
 
   test("the staging role cannot assume any production bootstrap role, and the reverse", () => {
@@ -936,7 +941,9 @@ describe("GitHub OIDC bootstrap stack", () => {
       const tagKey = `aws:ResourceTag/${resourceNames(stage).stageTag}`;
       expect(text).toContain(tagKey);
       expect(text).toContain(`aws:RequestTag/${resourceNames(stage).stageTag}`);
-      const unscoped = statements.filter((s) => s.resources.includes("*"));
+      const unscoped = statements.filter(
+        (s) => s.resources.includes("*") && s.effect !== "Deny",
+      );
       expect(unscoped.length).toBeGreaterThan(0);
       for (const statement of unscoped) {
         const readOnly = statement.actions.every((action) =>
@@ -1345,12 +1352,246 @@ describe("stage-specific physical names", () => {
     expect(text).not.toContain(":secret:pw-support/production/");
   });
 
-  test("only the production stack creates the account-wide OIDC provider", () => {
+  test("every stage creates the GitHub OIDC provider in its own account", () => {
     production.oidcT.resourceCountIs("AWS::IAM::OIDCProvider", 1);
-    staging.oidcT.resourceCountIs("AWS::IAM::OIDCProvider", 0);
+    staging.oidcT.resourceCountIs("AWS::IAM::OIDCProvider", 1);
   });
 });
 
 function isJustified(statement: Statement): boolean {
   return statement.Sid !== undefined;
 }
+
+describe("role permissions boundary", () => {
+  const stagingStack = build("staging");
+
+  test("every role the stacks create carries the stage boundary", () => {
+    for (const [stack, stage] of [
+      [prod, "production"],
+      [stagingStack, "staging"],
+    ] as const) {
+      const name = resourceNames(stage).permissionsBoundary;
+      let roles = 0;
+      for (const template of [stack.foundationT, stack.appT]) {
+        for (const role of Object.values(
+          template.findResources("AWS::IAM::Role"),
+        )) {
+          roles += 1;
+          expect(JSON.stringify(role.Properties.PermissionsBoundary)).toContain(
+            `policy/${name}`,
+          );
+        }
+      }
+      expect(roles).toBeGreaterThan(8);
+    }
+  });
+
+  test("the boundary admits only the services the stacks use and no IAM or STS", () => {
+    const policy = Object.values(
+      oidcT.findResources("AWS::IAM::ManagedPolicy"),
+    ).find(
+      (candidate) =>
+        candidate.Properties.ManagedPolicyName ===
+        resourceNames("production").permissionsBoundary,
+    );
+    const actions = policy?.Properties.PolicyDocument.Statement.flatMap(
+      (statement: Statement) => asList(statement.Action),
+    );
+    expect(actions).toEqual(BOUNDARY_ACTIONS);
+    for (const action of actions) {
+      expect(action).not.toMatch(/^(iam|sts|organizations|account|kms):/);
+    }
+  });
+
+  test("the execution role creates roles only with the stage boundary and cannot change it", () => {
+    for (const stage of ["production", "staging"] as const) {
+      const statements = executionStatements({
+        stage,
+        account: "000000000000",
+      });
+      const arn = boundaryArn(stage, "000000000000");
+      const allowed = statements.filter((s) => s.effect !== "Deny");
+      for (const statement of allowed) {
+        for (const action of statement.actions) {
+          expect(action).not.toBe("iam:UpdateAssumeRolePolicy");
+          expect(action).not.toBe("iam:DeleteRolePermissionsBoundary");
+        }
+        if (
+          statement.actions.some((a) =>
+            ["iam:CreateRole", "iam:PutRolePermissionsBoundary"].includes(a),
+          )
+        ) {
+          expect(statement.conditions).toEqual({
+            StringEquals: { "iam:PermissionsBoundary": arn },
+          });
+        }
+      }
+      const sids = statements
+        .filter((s) => s.effect === "Deny")
+        .map((s) => s.sid);
+      expect(sids).toEqual(
+        expect.arrayContaining([
+          "DenyUnboundedRoles",
+          "DenyBoundaryRemoval",
+          "DenyBoundaryPolicyChanges",
+        ]),
+      );
+      const unbounded = statements.find((s) => s.sid === "DenyUnboundedRoles");
+      expect(unbounded?.conditions).toEqual({
+        StringNotEquals: { "iam:PermissionsBoundary": arn },
+      });
+      expect(
+        statements.find((s) => s.sid === "DenyBoundaryPolicyChanges")
+          ?.resources,
+      ).toEqual([arn]);
+    }
+  });
+
+  test("the rendered execution policy keeps the explicit denies", () => {
+    const text = JSON.stringify(
+      Object.values(oidcT.findResources("AWS::IAM::ManagedPolicy")).flatMap(
+        (policy) => policy.Properties.PolicyDocument.Statement,
+      ),
+    );
+    for (const sid of [
+      "DenyUnboundedRoles",
+      "DenyBoundaryRemoval",
+      "DenyBoundaryPolicyChanges",
+      "DenyStageTagChange",
+      "DenyStageTagRemoval",
+    ]) {
+      expect(text, sid).toContain(`"Sid":"${sid}"`);
+    }
+    expect(text).toContain('"Effect":"Deny"');
+  });
+});
+
+describe("stage tag conditions", () => {
+  const stages = ["production", "staging"] as const;
+  const hasKey = (condition: unknown, key: string) =>
+    JSON.stringify(condition ?? {}).includes(key);
+
+  test("every allowed tag action on a wildcard resource is tag-on-create or tag-existing, never open", () => {
+    for (const stage of stages) {
+      const tag = `aws:ResourceTag/${resourceNames(stage).stageTag}`;
+      const request = `aws:RequestTag/${resourceNames(stage).stageTag}`;
+      let audited = 0;
+      for (const statement of executionStatements({
+        stage,
+        account: "000000000000",
+      })) {
+        if (statement.effect === "Deny") continue;
+        const tagging = statement.actions.filter((a) =>
+          TAG_ACTIONS.includes(a),
+        );
+        if (tagging.length === 0 || !statement.resources.includes("*"))
+          continue;
+        audited += 1;
+        const conditions = statement.conditions as Record<
+          string,
+          Record<string, unknown>
+        >;
+        const onCreate =
+          hasKey(conditions, "CreateAction") ||
+          (hasKey(conditions, request) && conditions.Null?.[tag] === "true");
+        const onExisting =
+          conditions.StringEquals?.[tag] === stage &&
+          JSON.stringify(
+            conditions["ForAllValues:StringNotEquals"]?.["aws:TagKeys"],
+          ) === JSON.stringify([resourceNames(stage).stageTag]);
+        expect(onCreate || onExisting, `${stage} ${statement.sid}`).toBe(true);
+      }
+      expect(audited).toBeGreaterThanOrEqual(5);
+    }
+  });
+
+  test("CloudFront tagging cannot retag an existing distribution into this stage", () => {
+    for (const stage of stages) {
+      const tag = `aws:ResourceTag/${resourceNames(stage).stageTag}`;
+      const statements = executionStatements({
+        stage,
+        account: "000000000000",
+      });
+      const creating = statements.filter(
+        (s) =>
+          s.effect !== "Deny" &&
+          s.actions.includes("cloudfront:TagResource") &&
+          s.sid === "DistributionTagOnCreate",
+      );
+      expect(creating).toHaveLength(1);
+      expect(
+        (creating[0]?.conditions as { Null: Record<string, string> }).Null[tag],
+      ).toBe("true");
+      const creates = statements.find(
+        (s) => s.sid === "DistributionsCreateTagged",
+      );
+      expect(creates?.actions).not.toContain("cloudfront:TagResource");
+      const existing = statements.find(
+        (s) => s.sid === "DistributionTagExisting",
+      );
+      expect(
+        (existing?.conditions as { StringEquals: Record<string, string> })
+          .StringEquals[tag],
+      ).toBe(stage);
+      const change = statements.find(
+        (s) => s.sid === "DistributionsChangeTagged",
+      );
+      expect(change?.actions).not.toContain("cloudfront:UntagResource");
+    }
+  });
+
+  test("EC2 and load balancer tagging follow the same split", () => {
+    for (const stage of stages) {
+      const statements = executionStatements({
+        stage,
+        account: "000000000000",
+      });
+      const sids = statements.map((s) => s.sid);
+      for (const sid of [
+        "NetworkTagOnCreate",
+        "TagExistingNetworkResources",
+        "LoadBalancerTagOnCreate",
+        "LoadBalancerTagExisting",
+      ]) {
+        expect(sids).toContain(sid);
+      }
+      const network = statements.find((s) => s.sid === "NetworkChangeTagged");
+      expect(network?.actions).not.toContain("ec2:DeleteTags");
+      const balancer = statements.find(
+        (s) => s.sid === "LoadBalancerChangeTagged",
+      );
+      expect(balancer?.actions).not.toContain("elasticloadbalancing:AddTags");
+      expect(balancer?.actions).not.toContain(
+        "elasticloadbalancing:RemoveTags",
+      );
+    }
+  });
+
+  test("the stage key cannot change or be removed after creation on any tagging action", () => {
+    for (const stage of stages) {
+      const key = resourceNames(stage).stageTag;
+      const statements = executionStatements({
+        stage,
+        account: "000000000000",
+      });
+      const change = statements.find((s) => s.sid === "DenyStageTagChange");
+      const removal = statements.find((s) => s.sid === "DenyStageTagRemoval");
+      expect(change?.effect).toBe("Deny");
+      expect(removal?.effect).toBe("Deny");
+      for (const action of TAG_ACTIONS)
+        expect(change?.actions).toContain(action);
+      for (const action of [
+        "ec2:DeleteTags",
+        "elasticloadbalancing:RemoveTags",
+        "cloudfront:UntagResource",
+        "sqs:UntagQueue",
+        "iam:UntagRole",
+      ]) {
+        expect(removal?.actions).toContain(action);
+      }
+      expect(JSON.stringify(change?.conditions)).toContain(key);
+      expect(JSON.stringify(removal?.conditions)).toContain(key);
+      expect(JSON.stringify(change?.conditions)).toContain('"Null"');
+    }
+  });
+});

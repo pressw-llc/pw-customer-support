@@ -14,7 +14,11 @@ import {
   type StageConfig,
   stackIds,
 } from "./config";
-import { executionStatements, type ScopedStatement } from "./execution-policy";
+import {
+  BOUNDARY_ACTIONS,
+  executionStatements,
+  type ScopedStatement,
+} from "./execution-policy";
 
 export const OIDC_ISSUER = "token.actions.githubusercontent.com";
 export const MAX_POLICY_CHARS = 2_800;
@@ -33,6 +37,7 @@ export function toPolicyStatement(
 ): iam.PolicyStatement {
   return new iam.PolicyStatement({
     sid: statement.sid,
+    effect: statement.effect === "Deny" ? iam.Effect.DENY : iam.Effect.ALLOW,
     actions: statement.actions,
     resources: statement.resources,
     conditions: statement.conditions,
@@ -49,6 +54,7 @@ export function chunkStatements(
   for (const statement of statements) {
     const length = JSON.stringify({
       Sid: statement.sid,
+      Effect: statement.effect,
       Action: statement.actions,
       Resource: statement.resources,
       Condition: statement.conditions,
@@ -68,6 +74,7 @@ export function chunkStatements(
 export class GithubOidcStack extends Stack {
   readonly deployRole: iam.Role;
   readonly executionPolicies: iam.ManagedPolicy[];
+  readonly boundary: iam.ManagedPolicy;
 
   constructor(scope: Construct, id: string, props: GithubOidcStackProps) {
     super(scope, id, {
@@ -165,6 +172,18 @@ export class GithubOidcStack extends Stack {
         },
       }),
     );
+
+    this.boundary = new iam.ManagedPolicy(this, "RoleBoundary", {
+      managedPolicyName: names.permissionsBoundary,
+      description: `Caps every role the ${stage} stacks create to the services they use`,
+      statements: [
+        new iam.PolicyStatement({
+          sid: "ServicesTheStacksUse",
+          actions: BOUNDARY_ACTIONS,
+          resources: ["*"],
+        }),
+      ],
+    });
 
     const chunks = chunkStatements(
       executionStatements({
