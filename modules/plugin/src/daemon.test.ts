@@ -2,9 +2,11 @@ import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import {
   mkdirSync,
   mkdtempSync,
+  readdirSync,
   readFileSync,
   rmSync,
   statSync,
+  utimesSync,
   writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
@@ -15,6 +17,7 @@ import {
   daemonPaths,
   daemonStatus,
   isAlive,
+  pruneReports,
   readPid,
   runningPid,
   startDaemon,
@@ -28,7 +31,10 @@ const SLEEPER = [
   process.execPath,
   "-e",
   "console.log('up'); setInterval(() => {}, 1000)",
+  "watch",
+  "run",
 ];
+const NONCE = "a".repeat(32);
 
 beforeEach(() => {
   dir = mkdtempSync(join(tmpdir(), "pw-support-daemon-"));
@@ -43,7 +49,7 @@ describe("pid files", () => {
   test("writes, reads, and clears only its own pid", () => {
     const paths = daemonPaths(dir);
     expect(readPid(paths)).toBeNull();
-    writePid(paths, process.pid);
+    writePid(paths, process.pid, NONCE);
     expect(readPid(paths)).toBe(process.pid);
     expect(statSync(paths.pidFile).mode & 0o777).toBe(0o600);
     clearPid(paths, 1);
@@ -54,14 +60,75 @@ describe("pid files", () => {
 
   test("drops a stale pid and ignores garbage", () => {
     const paths = daemonPaths(dir);
-    writePid(paths, 2 ** 22 + 12345);
+    writePid(paths, 2 ** 22 + 12345, NONCE);
     expect(isAlive(2 ** 22 + 12345)).toBe(false);
     expect(runningPid(paths)).toBeNull();
     expect(readPid(paths)).toBeNull();
-    writePid(paths, 0);
+    writePid(paths, 0, NONCE);
+    expect(readPid(paths)).toBeNull();
     writeFileSync(paths.pidFile, "abc");
     expect(readPid(paths)).toBeNull();
+    writeFileSync(paths.pidFile, String(process.pid));
+    expect(readPid(paths)).toBeNull();
     expect(isAlive(process.pid)).toBe(true);
+  });
+
+  test("an unrelated live process behind a stale pid file is neither trusted nor signalled", async () => {
+    const paths = daemonPaths(dir);
+    const bystander = Bun.spawn(["sleep", "30"], {
+      stdio: ["ignore", "ignore", "ignore"],
+    });
+    try {
+      writePid(paths, bystander.pid, NONCE);
+      expect(isAlive(bystander.pid)).toBe(true);
+      const signals: string[] = [];
+      const deps = {
+        kill: (_pid: number, signal: string) => signals.push(signal),
+      };
+      expect(runningPid(paths)).toBeNull();
+      expect(readPid(paths)).toBeNull();
+      writePid(paths, bystander.pid, NONCE);
+      expect(await stopDaemon(paths, { deps })).toBe("not_running");
+      expect(signals).toEqual([]);
+      expect(daemonStatus(paths).running).toBe(false);
+      expect(isAlive(bystander.pid)).toBe(true);
+    } finally {
+      bystander.kill();
+    }
+  });
+
+  test("a process with the watcher command line but another nonce is rejected", () => {
+    const paths = daemonPaths(dir);
+    writePid(paths, process.pid, NONCE);
+    const deps = {
+      commandLine: () => `bun cli.ts watch run --nonce ${"b".repeat(32)}`,
+    };
+    expect(runningPid(paths, deps)).toBeNull();
+    writePid(paths, process.pid, NONCE);
+    const matching = {
+      commandLine: () => `bun cli.ts watch run --nonce ${NONCE}`,
+    };
+    expect(runningPid(paths, matching)).toBe(process.pid);
+  });
+});
+
+describe("run reports", () => {
+  test("keeps only the newest reports and ignores other files", () => {
+    const runs = join(dir, "runs");
+    mkdirSync(runs);
+    for (let index = 0; index < 5; index++) {
+      const path = join(runs, `run-${index}.json`);
+      writeFileSync(path, "{}");
+      const at = new Date(Date.now() - (5 - index) * 1000);
+      utimesSync(path, at, at);
+    }
+    writeFileSync(join(runs, "note.txt"), "keep");
+    pruneReports(runs, 2);
+    expect(readdirSync(runs).sort()).toEqual([
+      "note.txt",
+      "run-3.json",
+      "run-4.json",
+    ]);
   });
 });
 
@@ -121,6 +188,8 @@ describe("daemon lifecycle", () => {
       process.execPath,
       "-e",
       "process.on('SIGTERM', () => {}); setInterval(() => {}, 1000)",
+      "watch",
+      "run",
     ];
     const started = await startDaemon({
       paths,
