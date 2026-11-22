@@ -7,7 +7,7 @@ import {
   setAdapterRuntime,
   sqsTransport,
 } from "@pw-support/channels";
-import { RESOURCE_NAMES } from "@pw-support/contracts";
+import { resourceNames, stageFromEnv } from "@pw-support/contracts";
 import {
   createWorkerRuntime,
   runExtractionSelfTest,
@@ -51,7 +51,7 @@ export async function main(options: MainOptions = {}): Promise<void> {
   );
   const adapterUrl = await resolveQueueUrl(
     triage.sqs,
-    RESOURCE_NAMES.linearAdapterQueue,
+    resourceNames(stageFromEnv(process.env)).linearAdapterQueue,
   );
   const urls = new Map([[channels.linearAdapter.name, adapterUrl]]);
 

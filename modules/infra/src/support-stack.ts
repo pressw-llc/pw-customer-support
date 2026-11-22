@@ -1,6 +1,6 @@
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { RESOURCE_NAMES } from "@pw-support/contracts";
+import { type ResourceNames, resourceNames } from "@pw-support/contracts";
 import {
   CfnOutput,
   DockerBuildSecret,
@@ -23,8 +23,16 @@ import { SecretsAccess } from "./secrets-access";
 import { RegionalStack } from "./stack-base";
 
 export { AWS_REGION };
-export const SECRETS_PREFIX = RESOURCE_NAMES.secretsPrefix;
-export const ANTHROPIC_SECRET_NAME = "pw-support-anthropic/api-key";
+export function secretsPath(names: ResourceNames): string {
+  return `${names.secretsPrefix}${names.secretsScope}/`;
+}
+
+export function stageEnvironment(names: ResourceNames): Record<string, string> {
+  return {
+    SUPPORT_STAGE: names.stage,
+    SECRETS_SCOPE: names.secretsScope,
+  };
+}
 
 export const REPO_ROOT = join(
   dirname(fileURLToPath(import.meta.url)),
@@ -53,6 +61,7 @@ export interface SupportStackProps extends StackProps {
 
 export class SupportStack extends RegionalStack {
   readonly config: StageConfig;
+  readonly names: ResourceNames;
   readonly network: SupportNetwork;
   readonly database: SupportDatabase;
   readonly attachmentsBucket: s3.Bucket;
@@ -70,10 +79,12 @@ export class SupportStack extends RegionalStack {
       terminationProtection: props.config.stage === "production",
     });
     this.config = props.config;
+    this.names = resourceNames(props.config.stage);
 
     this.network = new SupportNetwork(this, "Network");
     this.database = new SupportDatabase(this, "Database", {
       network: this.network,
+      secretName: this.names.databaseSecret,
     });
 
     this.attachmentsBucket = new s3.Bucket(this, "AttachmentsBucket", {
@@ -85,17 +96,18 @@ export class SupportStack extends RegionalStack {
     });
 
     this.queues = new SupportQueues(this, "Queues", {
+      names: this.names,
       alarmEmail: props.config.alarmEmail,
     });
 
     this.anthropicSecret = new secretsmanager.Secret(this, "AnthropicKey", {
-      secretName: ANTHROPIC_SECRET_NAME,
+      secretName: this.names.anthropicSecret,
       description:
         "Anthropic API key for the triage worker. Set it with put-secret-value after the first deploy.",
     });
 
     this.secretsAccess = new SecretsAccess(this, "SecretsAccess", {
-      prefix: SECRETS_PREFIX,
+      prefix: secretsPath(this.names),
     });
 
     this.cluster = new ecs.Cluster(this, "Cluster", {
@@ -122,6 +134,7 @@ export class SupportStack extends RegionalStack {
       readonlyRootFilesystem: false,
       environment: {
         NODE_ENV: "production",
+        ...stageEnvironment(this.names),
         ...databaseEnvironment(this.database),
       },
       logging: ecs.LogDrivers.awsLogs({

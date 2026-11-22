@@ -1,7 +1,4 @@
-import {
-  LINEAR_ADAPTER_VISIBILITY_TIMEOUT_SECONDS,
-  RESOURCE_NAMES,
-} from "@pw-support/contracts";
+import { LINEAR_ADAPTER_VISIBILITY_TIMEOUT_SECONDS } from "@pw-support/contracts";
 import {
   CfnOutput,
   Duration,
@@ -30,6 +27,7 @@ import {
   imageAssetOptions,
   REPO_ROOT,
   type SupportStack,
+  stageEnvironment,
 } from "./support-stack";
 
 export const API_PORT = 8787;
@@ -99,7 +97,8 @@ export class SupportAppStack extends RegionalStack {
       API_PORT: String(API_PORT),
       ...databaseEnvironment(foundation.database),
       ATTACHMENTS_BUCKET: foundation.attachmentsBucket.bucketName,
-      TRIAGE_WAKE_QUEUE: RESOURCE_NAMES.triageWakeQueue,
+      ...stageEnvironment(foundation.names),
+      TRIAGE_WAKE_QUEUE: foundation.names.triageWakeQueue,
       COGNITO_ISSUER: config.cognitoIssuer,
       COGNITO_AUDIENCE: config.adminClientId,
       MCP_AUDIENCE: config.mcpClientId,
@@ -208,7 +207,8 @@ export class SupportAppStack extends RegionalStack {
         NODE_ENV: "production",
         ...databaseEnvironment(foundation.database),
         ATTACHMENTS_BUCKET: foundation.attachmentsBucket.bucketName,
-        TRIAGE_WAKE_QUEUE: RESOURCE_NAMES.triageWakeQueue,
+        ...stageEnvironment(foundation.names),
+        TRIAGE_WAKE_QUEUE: foundation.names.triageWakeQueue,
         TRIAGE_AGENT_ID: config.triageAgentId,
         BUN_JSC_forceRAMSize: String(WORKER_HEAP_BYTES),
       },
@@ -248,6 +248,7 @@ export class SupportAppStack extends RegionalStack {
         logGroup: logGroup("LinearOutboundLogs"),
         environment: {
           NODE_ENV: "production",
+          ...stageEnvironment(foundation.names),
           ...databaseEnvironment(foundation.database),
           RDS_CA_BUNDLE_PATH: LAMBDA_RDS_CA_PATH,
         },

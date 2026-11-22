@@ -1,10 +1,10 @@
+import { resourceNames } from "@pw-support/contracts";
 import { CfnOutput, Duration, Stack, type StackProps } from "aws-cdk-lib";
 import * as iam from "aws-cdk-lib/aws-iam";
 import type { Construct } from "constructs";
 import { AWS_REGION, GITHUB_REPOSITORY, type StageConfig } from "./config";
 
 export const OIDC_ISSUER = "token.actions.githubusercontent.com";
-export const DEPLOY_ROLE_NAME = "pw-support-github-deploy";
 export const DEFAULT_QUALIFIER = "hnb659fds";
 
 export interface GithubOidcStackProps extends StackProps {
@@ -31,15 +31,18 @@ export class GithubOidcStack extends Stack {
     const repository = props.repository ?? GITHUB_REPOSITORY;
     const qualifier = props.qualifier ?? DEFAULT_QUALIFIER;
 
-    const provider = new iam.CfnOIDCProvider(this, "Provider", {
-      url: `https://${OIDC_ISSUER}`,
-      clientIdList: ["sts.amazonaws.com"],
-    });
+    const providerArn =
+      props.config.stage === "production"
+        ? new iam.CfnOIDCProvider(this, "Provider", {
+            url: `https://${OIDC_ISSUER}`,
+            clientIdList: ["sts.amazonaws.com"],
+          }).attrArn
+        : `arn:${this.partition}:iam::${this.account}:oidc-provider/${OIDC_ISSUER}`;
 
     this.deployRole = new iam.Role(this, "DeployRole", {
-      roleName: DEPLOY_ROLE_NAME,
+      roleName: resourceNames(props.config.stage).githubDeployRole,
       maxSessionDuration: Duration.hours(1),
-      assumedBy: new iam.WebIdentityPrincipal(provider.attrArn, {
+      assumedBy: new iam.WebIdentityPrincipal(providerArn, {
         StringEquals: { [`${OIDC_ISSUER}:aud`]: "sts.amazonaws.com" },
         StringLike: {
           [`${OIDC_ISSUER}:sub`]: trustedSubjects(

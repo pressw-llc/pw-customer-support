@@ -6,12 +6,12 @@ import { Construct } from "constructs";
 import type { SupportNetwork } from "./network";
 import { LOG_RETENTION } from "./network";
 
-export const DB_SECRET_NAME = "pw-support-db/credentials";
 export const DB_NAME = "support";
 export const DB_USER = "support";
 
 export interface SupportDatabaseProps {
   network: SupportNetwork;
+  secretName: string;
 }
 
 export class SupportDatabase extends Construct {
@@ -26,7 +26,7 @@ export class SupportDatabase extends Construct {
         version: rds.AuroraPostgresEngineVersion.VER_16_9,
       }),
       credentials: rds.Credentials.fromGeneratedSecret(DB_USER, {
-        secretName: DB_SECRET_NAME,
+        secretName: props.secretName,
       }),
       defaultDatabaseName: DB_NAME,
       vpc: props.network.vpc,

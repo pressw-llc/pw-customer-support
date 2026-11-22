@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { RESOURCE_NAMES } from "./resources";
+import { RESOURCE_NAMES, resourceNames, stageFromEnv } from "./resources";
 
 export const ACK_WARN_MINUTES = 15;
 export const ACK_CRITICAL_MINUTES = 60;
@@ -57,9 +57,9 @@ export function resolveSecretsScope(
   env: Record<string, string | undefined> = process.env,
 ): string {
   const scope = env.SECRETS_SCOPE;
-  return scope && slugSchema.safeParse(scope).success
-    ? scope
-    : SECRET_SCOPE_GLOBAL;
+  if (scope && slugSchema.safeParse(scope).success) return scope;
+  const staged = resourceNames(stageFromEnv(env)).secretsScope;
+  return slugSchema.safeParse(staged).success ? staged : SECRET_SCOPE_GLOBAL;
 }
 
 export function secretId(scope: string, secretName: string): string {

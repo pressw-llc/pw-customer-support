@@ -12,8 +12,9 @@ import {
 } from "@aws-sdk/client-sqs";
 import {
   LINEAR_ADAPTER_VISIBILITY_TIMEOUT_SECONDS,
-  RESOURCE_NAMES,
   resolveStackEnv,
+  resourceNames,
+  stageFromEnv,
   TRIAGE_WAKE_MAX_RECEIVES,
   TRIAGE_WAKE_VISIBILITY_TIMEOUT_SECONDS,
 } from "@pw-support/contracts";
@@ -29,14 +30,15 @@ export interface StackConfig {
 }
 
 export function stackConfig(env: NodeJS.ProcessEnv = process.env): StackConfig {
+  const names = resourceNames(stageFromEnv(env));
   return {
     endpoint: resolveStackEnv(env).awsEndpointUrl,
     region: env.AWS_REGION ?? "us-east-1",
-    bucket: env.ATTACHMENTS_BUCKET ?? RESOURCE_NAMES.attachmentsBucket,
-    wakeQueue: env.TRIAGE_WAKE_QUEUE ?? RESOURCE_NAMES.triageWakeQueue,
-    wakeDlq: env.TRIAGE_WAKE_DLQ ?? RESOURCE_NAMES.triageWakeDlq,
-    linearAdapterQueue: RESOURCE_NAMES.linearAdapterQueue,
-    linearAdapterDlq: RESOURCE_NAMES.linearAdapterDlq,
+    bucket: env.ATTACHMENTS_BUCKET ?? names.attachmentsBucket,
+    wakeQueue: env.TRIAGE_WAKE_QUEUE ?? names.triageWakeQueue,
+    wakeDlq: env.TRIAGE_WAKE_DLQ ?? names.triageWakeDlq,
+    linearAdapterQueue: names.linearAdapterQueue,
+    linearAdapterDlq: names.linearAdapterDlq,
   };
 }
 

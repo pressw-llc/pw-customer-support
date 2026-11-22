@@ -18,4 +18,8 @@ export {
 } from "./load-config";
 export { SecretsAccess, secretsPrefixArn } from "./secrets-access";
 export { createSupportStacks, stackIds } from "./stacks";
-export { SECRETS_PREFIX, SupportStack } from "./support-stack";
+export {
+  SupportStack,
+  secretsPath,
+  stageEnvironment,
+} from "./support-stack";

@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import {
   LINEAR_ADAPTER_VISIBILITY_TIMEOUT_SECONDS,
+  resourceNames,
   TRIAGE_DEFAULTS,
   TRIAGE_WAKE_VISIBILITY_TIMEOUT_SECONDS,
 } from "@pw-support/contracts";
@@ -16,12 +17,7 @@ import {
 } from "./app-stack";
 import { loadStageConfig } from "./load-config";
 import { createSupportStacks, stackIds } from "./stacks";
-import {
-  ANTHROPIC_SECRET_NAME,
-  AWS_REGION,
-  MIGRATE_COMMAND,
-  SECRETS_PREFIX,
-} from "./support-stack";
+import { AWS_REGION, MIGRATE_COMMAND, secretsPath } from "./support-stack";
 
 function build(
   stage: "production" | "staging" = "production",
@@ -43,6 +39,7 @@ function build(
   };
 }
 
+const names = resourceNames("production");
 const prod = build();
 const { foundationT, appT, oidcT } = prod;
 
@@ -230,10 +227,7 @@ describe("queues", () => {
 
   test("creates four queues, each main queue redriving to its DLQ after five receives", () => {
     expect(Object.keys(queues)).toHaveLength(4);
-    for (const name of [
-      "pw-support-triage-wake",
-      "pw-support-adapter-linear",
-    ]) {
+    for (const name of [names.triageWakeQueue, names.linearAdapterQueue]) {
       const queue = byName(name);
       expect(queue?.Properties.RedrivePolicy.maxReceiveCount).toBe(5);
       expect(queue?.Properties.RedrivePolicy.deadLetterTargetArn).toBeDefined();
@@ -243,22 +237,19 @@ describe("queues", () => {
   });
 
   test("holds failed messages for 14 days in the DLQs", () => {
-    for (const name of [
-      "pw-support-triage-wake-dlq",
-      "pw-support-adapter-linear-dlq",
-    ]) {
+    for (const name of [names.triageWakeDlq, names.linearAdapterDlq]) {
       expect(byName(name)?.Properties.MessageRetentionPeriod).toBe(14 * 86400);
       expect(byName(name)?.Properties.RedrivePolicy).toBeUndefined();
     }
   });
 
   test("sets explicit visibility timeouts from the shared constants", () => {
-    expect(byName("pw-support-triage-wake")?.Properties.VisibilityTimeout).toBe(
+    expect(byName(names.triageWakeQueue)?.Properties.VisibilityTimeout).toBe(
       TRIAGE_WAKE_VISIBILITY_TIMEOUT_SECONDS,
     );
-    expect(
-      byName("pw-support-adapter-linear")?.Properties.VisibilityTimeout,
-    ).toBe(LINEAR_ADAPTER_VISIBILITY_TIMEOUT_SECONDS);
+    expect(byName(names.linearAdapterQueue)?.Properties.VisibilityTimeout).toBe(
+      LINEAR_ADAPTER_VISIBILITY_TIMEOUT_SECONDS,
+    );
     expect(TRIAGE_WAKE_VISIBILITY_TIMEOUT_SECONDS).toBeGreaterThan(
       TRIAGE_DEFAULTS.leaseSeconds,
     );
@@ -424,7 +415,7 @@ describe("worker service", () => {
       "ANTHROPIC_API_KEY",
     ]);
     foundationT.hasResourceProperties("AWS::SecretsManager::Secret", {
-      Name: ANTHROPIC_SECRET_NAME,
+      Name: resourceNames("production").anthropicSecret,
     });
   });
 
@@ -662,7 +653,7 @@ describe("IAM scope", () => {
       JSON.stringify(s.Resource).includes("secret:"),
     )) {
       expect(JSON.stringify(statement.Resource)).toContain(
-        `:secret:${SECRETS_PREFIX}*`,
+        `:secret:${secretsPath(resourceNames("production"))}*`,
       );
     }
   });
@@ -822,5 +813,143 @@ describe("stage rules", () => {
     expect(JSON.stringify(envOf(container).ADMIN_ORIGINS)).toContain(
       "https://admin.example.com",
     );
+  });
+});
+
+describe("stage-specific physical names", () => {
+  const NAME_KEYS = /(Name|Names)$/;
+  const SKIP = new Set([
+    "TagKey",
+    "DBName",
+    "Key",
+    "ParameterName",
+    "StreamPrefix",
+  ]);
+
+  function collect(template: Template, found: Map<string, string[]>) {
+    const resources = template.toJSON().Resources as Record<
+      string,
+      { Type: string; Properties?: Record<string, unknown> }
+    >;
+    for (const [id, resource] of Object.entries(resources)) {
+      for (const [key, value] of Object.entries(resource.Properties ?? {})) {
+        if (
+          typeof value === "string" &&
+          NAME_KEYS.test(key) &&
+          !SKIP.has(key)
+        ) {
+          const owner = `${resource.Type}:${id}`;
+          found.set(value, [...(found.get(value) ?? []), owner]);
+        }
+      }
+    }
+  }
+
+  function physicalNames(stack: ReturnType<typeof build>) {
+    const found = new Map<string, string[]>();
+    for (const template of [stack.foundationT, stack.appT, stack.oidcT]) {
+      collect(template, found);
+    }
+    return found;
+  }
+
+  const staging = build("staging");
+  const production = build("production");
+
+  test("production and staging in one account share no explicit physical name", () => {
+    const a = physicalNames(production);
+    const b = physicalNames(staging);
+    const shared = [...a.keys()].filter(
+      (name) => b.has(name) && !/^[A-Za-z0-9-]*\/?(true|false)$/.test(name),
+    );
+    const owned = shared.filter((name) =>
+      [...(a.get(name) ?? []), ...(b.get(name) ?? [])].some((owner) =>
+        /SQS::Queue|SecretsManager::Secret|IAM::Role|S3::Bucket|ECS::Cluster|Lambda::Function|ECS::Service|Logs::LogGroup/.test(
+          owner,
+        ),
+      ),
+    );
+    expect(owned).toEqual([]);
+  });
+
+  test("the explicit names cover queues, secrets, and the deploy role per stage", () => {
+    for (const [stack, stage] of [
+      [production, "production"],
+      [staging, "staging"],
+    ] as const) {
+      const expected = resourceNames(stage);
+      const found = physicalNames(stack);
+      for (const name of [
+        expected.triageWakeQueue,
+        expected.triageWakeDlq,
+        expected.linearAdapterQueue,
+        expected.linearAdapterDlq,
+        expected.databaseSecret,
+        expected.anthropicSecret,
+        expected.githubDeployRole,
+      ]) {
+        expect(found.has(name), name).toBe(true);
+      }
+    }
+    expect(resourceNames("production").triageWakeQueue).not.toBe(
+      resourceNames("staging").triageWakeQueue,
+    );
+  });
+
+  test("the local stage keeps today's names", () => {
+    const local = resourceNames("local");
+    expect(local.triageWakeQueue).toBe("pw-support-triage-wake");
+    expect(local.linearAdapterDlq).toBe("pw-support-adapter-linear-dlq");
+    expect(local.attachmentsBucket).toBe("pw-support-attachments");
+    expect(local.secretsScope).toBe("global");
+  });
+
+  test("API, worker, migration, and Lambda carry the stage and the same stage names", () => {
+    for (const [stack, stage] of [
+      [production, "production"],
+      [staging, "staging"],
+    ] as const) {
+      const expected = resourceNames(stage);
+      const envs = [
+        envOf(containerEnv(stack.foundationT, "migrate")),
+        envOf(containerEnv(stack.appT, "web")),
+        envOf(containerEnv(stack.appT, "worker")),
+        Object.fromEntries(
+          Object.entries(
+            Object.values(
+              stack.appT.findResources("AWS::Lambda::Function"),
+            ).find((fn) => fn.Properties.PackageType === "Image")?.Properties
+              .Environment.Variables,
+          ),
+        ),
+      ];
+      for (const env of envs) {
+        expect(env.SUPPORT_STAGE).toBe(stage);
+        expect(env.SECRETS_SCOPE).toBe(expected.secretsScope);
+      }
+      for (const env of [envs[1], envs[2]]) {
+        expect(env?.TRIAGE_WAKE_QUEUE).toBe(expected.triageWakeQueue);
+      }
+      const queues = stack.foundationT.findResources("AWS::SQS::Queue");
+      const queueNames = Object.values(queues).map(
+        (queue) => queue.Properties.QueueName,
+      );
+      expect(queueNames).toContain(envs[1]?.TRIAGE_WAKE_QUEUE as string);
+    }
+  });
+
+  test("the secrets policies are scoped to the stage's secrets path", () => {
+    const text = JSON.stringify(
+      Object.values(
+        staging.foundationT.findResources("AWS::IAM::ManagedPolicy"),
+      ),
+    );
+    expect(text).toContain(":secret:pw-support/staging/*");
+    expect(text).not.toContain(":secret:pw-support/production/");
+  });
+
+  test("only the production stack creates the account-wide OIDC provider", () => {
+    production.oidcT.resourceCountIs("AWS::IAM::OIDCProvider", 1);
+    staging.oidcT.resourceCountIs("AWS::IAM::OIDCProvider", 0);
   });
 });

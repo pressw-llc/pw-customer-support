@@ -3,9 +3,10 @@ import {
   DEFAULT_ADMIN_DEV_PORT,
   LOCAL_MCP_CLIENT_ID,
   LOCAL_OIDC_CLIENT_ID,
-  RESOURCE_NAMES,
   resolveSecretsScope,
   resolveStackEnv,
+  resourceNames,
+  stageFromEnv,
 } from "@pw-support/contracts";
 import type { AuthConfig } from "./auth";
 
@@ -112,7 +113,9 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): ApiConfig {
     env.AWS_SECRET_ACCESS_KEY ?? (local ? "test" : undefined);
   return {
     port: positiveInt(env.API_PORT, DEFAULT_PORT),
-    bucket: env.ATTACHMENTS_BUCKET ?? RESOURCE_NAMES.attachmentsBucket,
+    bucket:
+      env.ATTACHMENTS_BUCKET ??
+      resourceNames(stageFromEnv(env)).attachmentsBucket,
     maxBodyBytes: positiveInt(
       env.MAX_REQUEST_BYTES,
       ATTACHMENT_LIMITS.maxFiles * ATTACHMENT_LIMITS.maxBytes +

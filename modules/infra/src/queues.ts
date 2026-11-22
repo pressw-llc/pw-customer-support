@@ -1,6 +1,6 @@
 import {
   LINEAR_ADAPTER_VISIBILITY_TIMEOUT_SECONDS,
-  RESOURCE_NAMES,
+  type ResourceNames,
   TRIAGE_WAKE_MAX_RECEIVES,
   TRIAGE_WAKE_VISIBILITY_TIMEOUT_SECONDS,
 } from "@pw-support/contracts";
@@ -17,6 +17,7 @@ export const ADAPTER_OLDEST_AGE_ALARM_SECONDS = 10 * 60;
 export const DLQ_RETENTION = Duration.days(14);
 
 export interface SupportQueuesProps {
+  names: ResourceNames;
   alarmEmail?: string;
 }
 
@@ -28,8 +29,9 @@ export class SupportQueues extends Construct {
   readonly alarmTopic: sns.Topic;
   readonly alarms: cloudwatch.Alarm[] = [];
 
-  constructor(scope: Construct, id: string, props: SupportQueuesProps = {}) {
+  constructor(scope: Construct, id: string, props: SupportQueuesProps) {
     super(scope, id);
+    const { names } = props;
 
     const queue = (
       name: string,
@@ -53,25 +55,25 @@ export class SupportQueues extends Construct {
 
     this.triageWakeDlq = queue(
       "TriageWakeDlq",
-      RESOURCE_NAMES.triageWakeDlq,
+      names.triageWakeDlq,
       undefined,
       undefined,
     );
     this.triageWakeQueue = queue(
       "TriageWakeQueue",
-      RESOURCE_NAMES.triageWakeQueue,
+      names.triageWakeQueue,
       TRIAGE_WAKE_VISIBILITY_TIMEOUT_SECONDS,
       this.triageWakeDlq,
     );
     this.linearAdapterDlq = queue(
       "LinearAdapterDlq",
-      RESOURCE_NAMES.linearAdapterDlq,
+      names.linearAdapterDlq,
       undefined,
       undefined,
     );
     this.linearAdapterQueue = queue(
       "LinearAdapterQueue",
-      RESOURCE_NAMES.linearAdapterQueue,
+      names.linearAdapterQueue,
       LINEAR_ADAPTER_VISIBILITY_TIMEOUT_SECONDS,
       this.linearAdapterDlq,
     );
