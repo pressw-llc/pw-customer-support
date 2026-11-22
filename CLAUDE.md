@@ -65,6 +65,15 @@ The API persists the request, the first message, and `request.created` in one tr
 
 This repository is public. Keep client names, client data, and real keys out of it. Use `acme` in fixtures.
 
+## Merge and validation policy
+
+The deliverable of this repository is the code. The owner configures and deploys the system after the merge.
+- A PR merges on hermetic evidence: `bun run check` passes on the head.
+- Live validation against Anthropic Managed Agents, real Linear, AWS, the telemetry pool, or npmjs is not a merge requirement.
+- A criterion that needs an owner-held credential is waived live when the PR body states the owner waiver and links a tracking issue.
+- A waived live run is not a blocking review finding and is not work left for after the merge.
+- `.delivery/pr/` holds the PR reviewer's instructions. The reviewer reads them from the default branch.
+
 ## Delivery loop
 
 Start work with `/delivery-loop:scope <branch>`. Use `/delivery-loop:activate` for planning or review with no worktree.
