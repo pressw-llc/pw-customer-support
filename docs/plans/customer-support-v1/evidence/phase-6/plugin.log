@@ -6,6 +6,8 @@ Provides:
 
   ❯ mcpServers: pw-support http ${PW_SUPPORT_API_URL:-http://127.0.0.1:8787}/mcp
   ❯ skills: support:laptop-triage
+  ❯ commands: support:login
+  ❯ commands: support:logout
   ❯ commands: support:status
   ❯ commands: support:subscribe
   ❯ commands: support:subscriptions
@@ -13,7 +15,7 @@ Provides:
   ❯ commands: support:watch
   ❯ bin: pw-support
 
-Hosts not read for: skills (1), commands (5), bin (1), mcpServers (1)
+Hosts not read for: skills (1), commands (7), bin (1), mcpServers (1)
 Hosts not declared: list what these parts reach under "network.hosts" in plugin.json
 
 Plugin directory checks for ./modules/plugin/dist/plugin. The plugin directory is the catalog that plugins are submitted to; this is a subset of what it runs.

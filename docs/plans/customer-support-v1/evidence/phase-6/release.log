@@ -1,10 +1,10 @@
 $ bun scripts/validate/phase-6-release.ts
-PASS start two Verdaccio registries: http://127.0.0.1:60919 and http://127.0.0.1:60920
+PASS start two Verdaccio registries: http://127.0.0.1:53290 and http://127.0.0.1:53291
 PASS publish refuses to start without both tokens
 PASS release --publish pushes one tarball to both: published to both
 PASS both registries hold the same tarball: shasum e879068c664535fb7d29d54a26dbda694292d3b6
-PASS a fresh app installs and builds from registry A: @pressw-llc/support-react@0.1.0 installed from http://127.0.0.1:60919
-PASS a fresh app installs and builds from registry B: @pressw-llc/support-react@0.1.0 installed from http://127.0.0.1:60920
+PASS a fresh app installs and builds from registry A: @pressw-llc/support-react@0.1.0 installed from http://127.0.0.1:53290
+PASS a fresh app installs and builds from registry B: @pressw-llc/support-react@0.1.0 installed from http://127.0.0.1:53291
 PASS a second publish is idempotent
 PASS a failing second registry prints the retry command
 PASS publish plan against the real registry URLs, no tokens: 
