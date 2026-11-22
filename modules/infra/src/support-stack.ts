@@ -1,78 +1,207 @@
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
+import { type ResourceNames, resourceNames } from "@pw-support/contracts";
 import {
-  LINEAR_ADAPTER_VISIBILITY_TIMEOUT_SECONDS,
-  RESOURCE_NAMES,
-  TRIAGE_WAKE_MAX_RECEIVES,
-  TRIAGE_WAKE_VISIBILITY_TIMEOUT_SECONDS,
-} from "@pw-support/contracts";
-import { Duration, RemovalPolicy, Stack, type StackProps } from "aws-cdk-lib";
+  CfnOutput,
+  DefaultStackSynthesizer,
+  DockerBuildSecret,
+  type StackProps,
+} from "aws-cdk-lib";
+import * as ec2 from "aws-cdk-lib/aws-ec2";
+import * as ecr_assets from "aws-cdk-lib/aws-ecr-assets";
+import * as ecs from "aws-cdk-lib/aws-ecs";
+import type * as iam from "aws-cdk-lib/aws-iam";
+import * as logs from "aws-cdk-lib/aws-logs";
 import * as s3 from "aws-cdk-lib/aws-s3";
-import * as sqs from "aws-cdk-lib/aws-sqs";
+import * as secretsmanager from "aws-cdk-lib/aws-secretsmanager";
 import type { Construct } from "constructs";
-import { AdminSite, cognitoFromContext } from "./admin-site";
+import { AWS_REGION, type StageConfig } from "./config";
+import { DB_NAME, DB_USER, SupportDatabase } from "./database";
+import { LOG_RETENTION, SupportNetwork } from "./network";
+import { SupportQueues } from "./queues";
 import { SecretsAccess } from "./secrets-access";
+import { RegionalStack, removalFor } from "./stack-base";
 
-export const SECRETS_PREFIX = RESOURCE_NAMES.secretsPrefix;
-export const AWS_REGION = "us-east-1";
+export { AWS_REGION };
+export function secretsPath(names: ResourceNames): string {
+  return `${names.secretsPrefix}${names.secretsScope}/`;
+}
 
-export class SupportStack extends Stack {
+export function stageEnvironment(names: ResourceNames): Record<string, string> {
+  return {
+    SUPPORT_STAGE: names.stage,
+    SECRETS_SCOPE: names.secretsScope,
+  };
+}
+
+export const REPO_ROOT = join(
+  dirname(fileURLToPath(import.meta.url)),
+  "..",
+  "..",
+  "..",
+);
+export const BUILD_SECRET_PATH = ".deploy/github_token";
+
+export function imageAssetOptions(target: string) {
+  return {
+    file: "Dockerfile",
+    target,
+    platform: ecr_assets.Platform.LINUX_AMD64,
+    buildSecrets: {
+      github_token: DockerBuildSecret.fromSrc(BUILD_SECRET_PATH),
+    },
+  };
+}
+
+export const MIGRATE_COMMAND = ["bun", "scripts/db-migrate.ts"];
+
+export interface SupportStackProps extends StackProps {
+  config: StageConfig;
+}
+
+export class SupportStack extends RegionalStack {
+  readonly config: StageConfig;
+  readonly names: ResourceNames;
+  readonly network: SupportNetwork;
+  readonly database: SupportDatabase;
   readonly attachmentsBucket: s3.Bucket;
-  readonly triageWakeQueue: sqs.Queue;
-  readonly triageWakeDlq: sqs.Queue;
-  readonly linearAdapterQueue: sqs.Queue;
-  readonly linearAdapterDlq: sqs.Queue;
-  readonly adminSite: AdminSite;
+  readonly queues: SupportQueues;
   readonly secretsAccess: SecretsAccess;
+  readonly anthropicSecret: secretsmanager.Secret;
+  readonly cluster: ecs.Cluster;
+  readonly apiImage: ecr_assets.DockerImageAsset;
+  readonly migrationTask: ecs.FargateTaskDefinition;
 
-  constructor(scope: Construct, id: string, props?: StackProps) {
-    super(scope, id, props);
+  constructor(scope: Construct, id: string, props: SupportStackProps) {
+    super(scope, id, {
+      ...props,
+      env: { account: props.config.account, region: AWS_REGION },
+      synthesizer: new DefaultStackSynthesizer({
+        qualifier: resourceNames(props.config.stage).bootstrapQualifier,
+      }),
+      terminationProtection: props.config.stage === "production",
+    });
+    this.config = props.config;
+    this.names = resourceNames(props.config.stage);
+
+    this.network = new SupportNetwork(this, "Network", {
+      removalPolicy: removalFor(props.config.stage),
+    });
+    this.database = new SupportDatabase(this, "Database", {
+      network: this.network,
+      removalPolicy: removalFor(props.config.stage),
+      deletionProtection: props.config.stage === "production",
+    });
 
     this.attachmentsBucket = new s3.Bucket(this, "AttachmentsBucket", {
       blockPublicAccess: s3.BlockPublicAccess.BLOCK_ALL,
       encryption: s3.BucketEncryption.S3_MANAGED,
       enforceSSL: true,
-      removalPolicy: RemovalPolicy.RETAIN,
+      versioned: true,
+      removalPolicy: removalFor(props.config.stage),
     });
 
-    this.triageWakeDlq = new sqs.Queue(this, "TriageWakeDlq", {
-      queueName: RESOURCE_NAMES.triageWakeDlq,
-      encryption: sqs.QueueEncryption.SQS_MANAGED,
+    this.queues = new SupportQueues(this, "Queues", {
+      names: this.names,
+      alarmEmail: props.config.alarmEmail,
     });
 
-    this.triageWakeQueue = new sqs.Queue(this, "TriageWakeQueue", {
-      queueName: RESOURCE_NAMES.triageWakeQueue,
-      encryption: sqs.QueueEncryption.SQS_MANAGED,
-      visibilityTimeout: Duration.seconds(
-        TRIAGE_WAKE_VISIBILITY_TIMEOUT_SECONDS,
-      ),
-      deadLetterQueue: {
-        queue: this.triageWakeDlq,
-        maxReceiveCount: TRIAGE_WAKE_MAX_RECEIVES,
-      },
-    });
-
-    this.linearAdapterDlq = new sqs.Queue(this, "LinearAdapterDlq", {
-      queueName: RESOURCE_NAMES.linearAdapterDlq,
-      encryption: sqs.QueueEncryption.SQS_MANAGED,
-    });
-
-    this.linearAdapterQueue = new sqs.Queue(this, "LinearAdapterQueue", {
-      queueName: RESOURCE_NAMES.linearAdapterQueue,
-      encryption: sqs.QueueEncryption.SQS_MANAGED,
-      visibilityTimeout: Duration.seconds(
-        LINEAR_ADAPTER_VISIBILITY_TIMEOUT_SECONDS,
-      ),
-      deadLetterQueue: {
-        queue: this.linearAdapterDlq,
-        maxReceiveCount: TRIAGE_WAKE_MAX_RECEIVES,
-      },
-    });
-
-    this.adminSite = new AdminSite(this, "AdminSite", {
-      cognito: cognitoFromContext((key) => this.node.tryGetContext(key)),
+    this.anthropicSecret = new secretsmanager.Secret(this, "AnthropicKey", {
+      secretName: this.names.anthropicSecret,
+      removalPolicy: removalFor(props.config.stage),
+      description:
+        "Anthropic API key for the triage worker. Set it with put-secret-value after the first deploy.",
     });
 
     this.secretsAccess = new SecretsAccess(this, "SecretsAccess", {
-      prefix: SECRETS_PREFIX,
+      prefix: secretsPath(this.names),
     });
+
+    this.cluster = new ecs.Cluster(this, "Cluster", {
+      vpc: this.network.vpc,
+      containerInsightsV2: ecs.ContainerInsights.ENABLED,
+    });
+
+    this.apiImage = new ecr_assets.DockerImageAsset(this, "AppImage", {
+      directory: REPO_ROOT,
+      ...imageAssetOptions("api"),
+    });
+
+    this.migrationTask = new ecs.FargateTaskDefinition(this, "MigrationTask", {
+      cpu: 512,
+      memoryLimitMiB: 1024,
+      runtimePlatform: {
+        cpuArchitecture: ecs.CpuArchitecture.X86_64,
+        operatingSystemFamily: ecs.OperatingSystemFamily.LINUX,
+      },
+    });
+    this.migrationTask.addContainer("migrate", {
+      image: ecs.ContainerImage.fromDockerImageAsset(this.apiImage),
+      command: MIGRATE_COMMAND,
+      readonlyRootFilesystem: false,
+      environment: {
+        NODE_ENV: "production",
+        ...stageEnvironment(this.names),
+        ...databaseEnvironment(this.database),
+      },
+      logging: ecs.LogDrivers.awsLogs({
+        streamPrefix: "migrate",
+        logGroup: new logs.LogGroup(this, "MigrationLogs", {
+          retention: LOG_RETENTION,
+          removalPolicy: removalFor(props.config.stage),
+        }),
+      }),
+    });
+    this.database.secret.grantRead(this.migrationTask.taskRole);
+
+    new CfnOutput(this, "ClusterName", { value: this.cluster.clusterName });
+    new CfnOutput(this, "MigrationTaskDefinitionArn", {
+      value: this.migrationTask.taskDefinitionArn,
+    });
+    new CfnOutput(this, "ServiceSubnets", {
+      value: this.network.vpc
+        .selectSubnets({ subnetType: ec2.SubnetType.PRIVATE_WITH_EGRESS })
+        .subnetIds.join(","),
+    });
+    new CfnOutput(this, "ServiceSecurityGroupId", {
+      value: this.network.serviceSecurityGroup.securityGroupId,
+    });
+    new CfnOutput(this, "AttachmentsBucketName", {
+      value: this.attachmentsBucket.bucketName,
+    });
+  }
+}
+
+export const RDS_CA_PATH = "/etc/ssl/rds/us-east-1-bundle.pem";
+
+export function databaseEnvironment(
+  database: SupportDatabase,
+): Record<string, string> {
+  return {
+    DB_HOST: database.cluster.clusterEndpoint.hostname,
+    DB_PORT: database.cluster.clusterEndpoint.port.toString(),
+    DB_USER: DB_USER,
+    DB_NAME,
+    DB_SECRET_ARN: database.secret.secretArn,
+  };
+}
+
+export function grantServiceRole(
+  role: iam.IRole,
+  stack: SupportStack,
+  access: "api" | "worker",
+): void {
+  stack.database.secret.grantRead(role);
+  if (access === "api") {
+    stack.attachmentsBucket.grantRead(role);
+    stack.attachmentsBucket.grantPut(role);
+    stack.queues.triageWakeQueue.grantSendMessages(role);
+    role.addManagedPolicy(stack.secretsAccess.writePolicy);
+  } else {
+    stack.attachmentsBucket.grantRead(role);
+    stack.queues.triageWakeQueue.grantConsumeMessages(role);
+    stack.queues.triageWakeQueue.grantSendMessages(role);
+    stack.queues.linearAdapterQueue.grantSendMessages(role);
+    role.addManagedPolicy(stack.secretsAccess.readPolicy);
   }
 }

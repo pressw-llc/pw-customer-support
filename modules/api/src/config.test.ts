@@ -1,5 +1,11 @@
 import { expect, test } from "bun:test";
-import { loadConfig, mcpAuthConfig, productionConfigErrors } from "./config";
+import {
+  adminPolicyMissing,
+  loadConfig,
+  mcpAuthConfig,
+  productionConfigErrors,
+  productionStartupProblems,
+} from "./config";
 
 test("defaults target the local Compose stack", () => {
   const config = loadConfig({});
@@ -159,7 +165,7 @@ test("outside production mcp keeps the admin audience fallback and stays enabled
 });
 
 test("productionConfigErrors names each missing setting once and no secret", () => {
-  const production = { NODE_ENV: "production" };
+  const production = { NODE_ENV: "production", ADMIN_REQUIRED_GROUP: "staff" };
   const errors = productionConfigErrors(production);
   expect(errors).toHaveLength(1);
   expect(errors[0]).toContain("MCP_AUDIENCE and MCP_REQUIRED_GROUP");
@@ -170,4 +176,78 @@ test("productionConfigErrors names each missing setting once and no secret", () 
   const ready = { ...audienceOnly, MCP_REQUIRED_GROUP: "engineers" };
   expect(productionConfigErrors(ready)).toEqual([]);
   expect(productionConfigErrors({})).toEqual([]);
+});
+
+test("production without an admin group or email domain disables /admin and reports one error", () => {
+  const production = {
+    NODE_ENV: "production",
+    MCP_AUDIENCE: "m",
+    MCP_REQUIRED_GROUP: "engineers",
+  };
+  expect(adminPolicyMissing(production)).toBe(true);
+  expect(loadConfig(production).admin.disabled).toBe(true);
+  const errors = productionConfigErrors(production);
+  expect(errors).toHaveLength(1);
+  expect(errors[0]).toContain(
+    "ADMIN_REQUIRED_GROUP or ADMIN_ALLOWED_EMAIL_DOMAINS",
+  );
+});
+
+test("a group or an email domain enables /admin in production, and development is unchanged", () => {
+  const production = { NODE_ENV: "production" };
+  for (const policy of [
+    { ADMIN_REQUIRED_GROUP: "staff" },
+    { ADMIN_ALLOWED_EMAIL_DOMAINS: "pressw.com" },
+  ]) {
+    expect(adminPolicyMissing({ ...production, ...policy })).toBe(false);
+    expect(
+      loadConfig({ ...production, ...policy }).admin.disabled,
+    ).toBeUndefined();
+  }
+  expect(
+    adminPolicyMissing({ ...production, ADMIN_ALLOWED_EMAIL_DOMAINS: " , " }),
+  ).toBe(true);
+  expect(adminPolicyMissing({})).toBe(false);
+  expect(loadConfig({}).admin.disabled).toBeUndefined();
+});
+
+test("production startup refuses to run without the stack's names and database settings", () => {
+  expect(productionStartupProblems({})).toEqual([]);
+  expect(productionStartupProblems({ NODE_ENV: "development" })).toEqual([]);
+  const problems = productionStartupProblems({ NODE_ENV: "production" });
+  for (const name of [
+    "ATTACHMENTS_BUCKET",
+    "SUPPORT_STAGE",
+    "TRIAGE_WAKE_QUEUE",
+    "DB_SECRET_ARN",
+    "DB_HOST",
+  ]) {
+    expect(problems.join("\n")).toContain(`${name} must be set in production`);
+  }
+  const ready = {
+    NODE_ENV: "production",
+    ATTACHMENTS_BUCKET: "b",
+    SUPPORT_STAGE: "production",
+    TRIAGE_WAKE_QUEUE: "q",
+    DB_SECRET_ARN: "arn",
+    DB_HOST: "h",
+  };
+  expect(productionStartupProblems(ready)).toEqual([]);
+});
+
+test("production startup refuses the local stage, a database URL, and a Linear URL override", () => {
+  const ready = {
+    NODE_ENV: "production",
+    ATTACHMENTS_BUCKET: "b",
+    SUPPORT_STAGE: "local",
+    TRIAGE_WAKE_QUEUE: "q",
+    DB_SECRET_ARN: "arn",
+    DB_HOST: "h",
+    DATABASE_URL: "postgres://x/y",
+    LINEAR_API_URL: "http://stub",
+  };
+  const problems = productionStartupProblems(ready).join("\n");
+  expect(problems).toContain("not local");
+  expect(problems).toContain("DATABASE_URL is not allowed");
+  expect(problems).toContain("LINEAR_API_URL must not be set");
 });

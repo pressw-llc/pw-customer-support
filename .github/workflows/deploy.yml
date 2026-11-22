@@ -1,0 +1,38 @@
+name: Deploy
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  packages: read
+  id-token: write
+
+concurrency:
+  group: deploy-production
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    environment: production
+    timeout-minutes: 60
+    env:
+      GITHUB_TOKEN: ${{ secrets.PACKAGES_READ_TOKEN || github.token }}
+      SUPPORT_STAGE_CONFIG: ${{ vars.SUPPORT_STAGE_CONFIG }}
+      SMOKE_PROJECT_KEY: ${{ secrets.SMOKE_PROJECT_KEY }}
+      SMOKE_LINEAR_API_KEY: ${{ secrets.SMOKE_LINEAR_API_KEY }}
+      SMOKE_LINEAR_TEAM_ID: ${{ vars.SMOKE_LINEAR_TEAM_ID }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.3.14
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ vars.AWS_DEPLOY_ROLE_ARN }}
+          aws-region: us-east-1
+      - run: bun run deploy --stage production

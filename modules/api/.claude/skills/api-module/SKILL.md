@@ -1,7 +1,7 @@
 ---
 
 name: api-module
-description: Work in the api module: the Hono HTTP server on Bun. Use when you add or change intake routes, static checks, attachment storage, rate limits, or later admin, webhook, and MCP routes.
+description: Work in the api module: the Hono HTTP server on Bun. Use when you add or change intake routes, static checks, attachment storage, rate limits, admin, webhook, and MCP routes, or production config.
 ---
 
 # api module
@@ -12,29 +12,29 @@ description: Work in the api module: the Hono HTTP server on Bun. Use when you a
 
 ## Layout
 
-| File                  | Role                                                                                                                                                                                                                                     |
-| --------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `app.ts`              | `createApp(deps)`: CORS, body limit, identity, rate limit, thin routes, error handler                                                                                                                                                    |
-| `intake-service.ts`   | Persist, then run checks, store files, record rejections, shape responses                                                                                                                                                                |
-| `middleware.ts`       | `identify` resolves the key and upserts the customer. `rateLimit` counts per key and per user                                                                                                                                            |
-| `file-type.ts`        | `detectFile` by magic bytes and `preflightAttachment` for count, size, and empty checks                                                                                                                                                  |
-| `message-checks.ts`   | `checkMessage` strips well-formed markup in linear time and enforces the length caps                                                                                                                                                     |
-| `storage.ts`          | `ObjectStorage` interface and the S3 implementation                                                                                                                                                                                      |
-| `config.ts`           | `loadConfig(env)` with local defaults for the Compose stack                                                                                                                                                                              |
-| `wake.ts`             | SQS client, queue lookup, and the wake sender that sends `DelaySeconds`. Triage reuses it                                                                                                                                                |
-| `auth.ts`             | `createTokenValidator` and `parseBearer`. The MCP route reuses them                                                                                                                                                                      |
-| `mcp.ts`              | `mcpRoutes` and `buildMcpServer`: the six state-only tools on `/mcp`                                                                                                                                                                     |
-| `mcp-laptop.ts`       | `/mcp/laptop` with the watcher or submit credential, the three job tools, and `/laptop/watcher` register and revoke                                                                                                                      |
-| `mcp-shared.ts`       | Shared token middleware, body cap, tool-call rate limit, and the `LaptopBackend` port                                                                                                                                                    |
-| `admin.ts`            | `adminRoutes` and `requireStaff`: CORS, token check, body cap, mutation rate limit, `/admin/*` handlers                                                                                                                                  |
-| `admin-presenters.ts` | Map db rows to the admin contracts                                                                                                                                                                                                       |
-| `testing/`            | `fixtures.ts` builds magic-byte buffers. `harness.ts` builds an app against real Postgres and LocalStack. `oidc.ts` is a local issuer with signing helpers. `dump.ts` dumps the database. Both are exported as `@pw-support/api/testing` |
+| File                  | Role                                                                                                                                                                                                                                                                     |
+| --------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `app.ts`              | `createApp(deps)`: CORS, body limit, identity, rate limit, thin routes, error handler                                                                                                                                                                                    |
+| `intake-service.ts`   | Persist, then run checks, store files, record rejections, shape responses                                                                                                                                                                                                |
+| `middleware.ts`       | `identify` resolves the key and upserts the customer. `rateLimit` counts per key and per user                                                                                                                                                                            |
+| `file-type.ts`        | `detectFile` by magic bytes and `preflightAttachment` for count, size, and empty checks                                                                                                                                                                                  |
+| `message-checks.ts`   | `checkMessage` strips well-formed markup in linear time and enforces the length caps                                                                                                                                                                                     |
+| `storage.ts`          | `ObjectStorage` interface and the S3 implementation                                                                                                                                                                                                                      |
+| `config.ts`           | `loadConfig(env)` with local defaults for the Compose stack                                                                                                                                                                                                              |
+| `wake.ts`             | SQS client, queue lookup, and the wake sender that sends `DelaySeconds`. Triage reuses it                                                                                                                                                                                |
+| `auth.ts`             | `createTokenValidator` and `parseBearer`. The MCP route reuses them                                                                                                                                                                                                      |
+| `mcp.ts`              | `mcpRoutes` and `buildMcpServer`: the six state-only tools on `/mcp`                                                                                                                                                                                                     |
+| `mcp-laptop.ts`       | `/mcp/laptop` with the watcher or submit credential, the three job tools, and `/laptop/watcher` register and revoke                                                                                                                                                      |
+| `mcp-shared.ts`       | Shared token middleware, body cap, tool-call rate limit, and the `LaptopBackend` port                                                                                                                                                                                    |
+| `admin.ts`            | `adminRoutes` and `requireStaff`: CORS, token check, body cap, mutation rate limit, `/admin/*` handlers                                                                                                                                                                  |
+| `admin-presenters.ts` | Map db rows to the admin contracts                                                                                                                                                                                                                                       |
+| `testing/`            | `testing/fixtures.ts` builds magic-byte buffers. `testing/harness.ts` builds an app against real Postgres and LocalStack. `testing/oidc.ts` is a local issuer with signing helpers. `testing/dump.ts` dumps the database. Both are exported as `@pw-support/api/testing` |
 
 ## Routes
 
 `POST /v1/requests`, `GET /v1/requests`, `GET /v1/requests/:id`, `POST /v1/requests/:id/messages`, `POST /v1/requests/:id/read`, `GET /v1/attachments/:id`. Each needs `X-Support-Key` and `X-Support-User`.
 
-`POST /webhooks/linear` takes the Linear `Comment` webhook. It sits outside `/v1`, skips key identity, and caps the body at `LINEAR_WEBHOOK_MAX_BYTES`. The route hands the raw bytes and two headers to the `LinearWebhookIntake` from `@pw-support/channels`. Without an intake it answers 503. `server.ts` builds one managed secrets provider and passes it to both the intake and the admin save route, so the webhook secret comes from Secrets Manager with the environment as fallback and the route fails closed with neither.
+`POST /webhooks/linear` takes the Linear `Comment` webhook. It sits outside `/v1`, skips key identity, and caps the body at `LINEAR_WEBHOOK_MAX_BYTES`. The route hands the raw bytes and two headers to the `LinearWebhookIntake` from `@pw-support/channels`. Without an intake it answers 503. `apps/server/src/server.ts` builds one managed secrets provider and passes it to both the intake and the admin save route, so the webhook secret comes from Secrets Manager with the environment as fallback and the route fails closed with neither.
 
 ## Rules
 
@@ -55,10 +55,11 @@ description: Work in the api module: the Hono HTTP server on Bun. Use when you a
 - Write an integration secret to Secrets Manager first, then store the reference in Postgres. Never store the value.
 - `/mcp` serves six tools and never returns customer text. Every string in an output schema is an id, timestamp, channel key, state token, or ticket identifier, and the contracts test keeps it that way. Never add a body, preview, filename, title, or staff text field. Build one `McpServer` per request with the identity from the token, so no tool argument can name an engineer. Fail closed with 401 and `WWW-Authenticate`, and 403 when `MCP_REQUIRED_GROUP` fails.
 - `/mcp/laptop` is never declared in a plugin config. It needs the engineer token plus a watcher credential bound to that engineer and machine, or a submit credential bound to one job and claim. Store only hashes. Keep `ADMIN_ALLOWED_EMAIL_DOMAINS` off `/mcp`, because a Cognito access token has no email.
-- Count only `tools/call` against the per-engineer limit. Keep `job_renew` and `job_submit_result` in their own bucket.
+- Count only tool-call against the per-engineer limit. Keep `job_renew` and `job_submit_result` in their own bucket.
 - `job_claim` extends the lease after preparation and returns `lease_lost` with no content when that fails. Never return content for a job that this claim no longer holds.
 - Accept only the `MCP_AUDIENCE` client ids on `/mcp`. A refused claim returns `refused`. A refused result returns paths and short messages and never the value. A claim or result for another engineer's job answers like a stale claim.
 - The laptop backend (`prepare`, `submit`) implements the `LaptopBackend` port from this module. `@pw-support/triage` provides it and `apps/server` wires it through `createApp` deps. This module never depends on triage and has no code path that reads an attachment for a laptop.
+- With `NODE_ENV=production`, `loadConfig` drops every local default: no mock issuer, no test credentials, no local endpoint. `productionWarnings` flags an unset `MCP_REQUIRED_GROUP`, and the deploy config requires it. Production needs `ADMIN_REQUIRED_GROUP` or `ADMIN_ALLOWED_EMAIL_DOMAINS`, or every `/admin` route answers 503 `admin_not_configured`. The admin app sends the ID token, which carries `cognito:groups` and `email`. The database connection is built by `@pw-support/db` from `DB_SECRET_ARN`.
 - Import other modules only through their package entrypoint.
 
 ## Tests

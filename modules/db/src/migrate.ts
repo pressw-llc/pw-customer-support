@@ -1,8 +1,7 @@
 import { readdirSync, readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import postgres from "postgres";
-import { resolveDatabaseUrl } from "./client";
+import { createSql } from "./client";
 
 export const MIGRATIONS_DIR = join(
   dirname(fileURLToPath(import.meta.url)),
@@ -39,9 +38,9 @@ export async function migrate(
   url?: string,
   dir: string = MIGRATIONS_DIR,
 ): Promise<string[]> {
-  const sql = postgres(resolveDatabaseUrl(url), {
-    max: 1,
-    onnotice: () => {},
+  const sql = createSql({
+    url,
+    extra: { max: 1, onnotice: () => {} },
   });
   const applied: string[] = [];
   try {

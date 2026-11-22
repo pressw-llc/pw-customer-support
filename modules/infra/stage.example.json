@@ -1,0 +1,15 @@
+{
+  "account": "123456789012",
+  "cognitoIssuer": "https://cognito-idp.us-east-1.amazonaws.com/us-east-1_EXAMPLE",
+  "adminClientId": "example-admin-client-id",
+  "mcpClientId": "example-mcp-client-id",
+  "mcpRequiredGroup": "example-support-staff",
+  "adminRequiredGroup": "example-support-admins",
+  "adminAllowedEmailDomains": ["example.com"],
+  "certificateArn": "arn:aws:acm:us-east-1:123456789012:certificate/00000000-0000-0000-0000-000000000000",
+  "apiDomain": "support-api.example.com",
+  "triageAgentId": "agent_example",
+  "adminLogoutUrl": "https://example.auth.us-east-1.amazoncognito.com/logout",
+  "extraAdminOrigins": [],
+  "alarmEmail": "ops@example.com"
+}

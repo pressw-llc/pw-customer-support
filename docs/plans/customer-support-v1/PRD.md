@@ -30,8 +30,8 @@ PressW has no shared intake path for client support requests. V1 gives client de
 | T11 | The PressW PR reviewer is the `pressw-agent` GitHub App. The App already reviews this repository. | fact | [PR #1](https://github.com/pressw-llc/pw-customer-support/pull/1) carries a `pressw-agent` approval |
 | T12 | CodeRabbit reviews this repository today. `pr-automation` disables it with `.coderabbit.yaml`. | fact | [PR #1](https://github.com/pressw-llc/pw-customer-support/pull/1), [.coderabbit.yaml](https://github.com/pressw-llc/pr-automation/blob/main/.coderabbit.yaml) |
 | T13 | unpkg and jsDelivr serve only the public npmjs registry. | inference | derived from both CDNs' documented npm source |
-| T14 | A Claude artifact can load the widget bundle from a CDN and call the PressW API. | assumption | verify with a published test artifact, in Phase 1 |
-| T15 | Lambda pipeline steps run under LocalStack or the in-process runner for local development. | fact | The `linear-outbound` handler runs behind an SQS poller against LocalStack SQS. See [pipelines.test.ts](../../../pipelines/pipelines.test.ts). LocalStack Lambda is not used. |
+| T14 | A Claude artifact can load the widget bundle from a CDN and call the PressW API. | assumption | not verified: needs the bundle on a public CDN and a public API.  |
+| T15 | Lambda pipeline steps run under LocalStack or the in-process runner for local development. | fact | The `linear-outbound` handler runs behind an SQS poller against LocalStack SQS. See [pipelines.test.ts](../../../pipelines/pipelines.test.ts). `bun run validate:deploy` also deploys the step into LocalStack Lambda with an SQS event source mapping that reports batch item failures, and a request reaches the Linear stub through it. LocalStack 3 lacks `nodejs22.x`, so the rehearsal runs the same bundle on `nodejs20.x`. |
 | T16 | The pipeline schema defaults its tenant column to a client-flavored literal. | fact | [schema.ts:86](https://github.com/pressw-llc/pw-managed-pipelines/blob/main/packages/pw-pipeline/src/persistence/schema.ts#L86) |
 
 ## Scope

@@ -3,9 +3,10 @@ import {
   DEFAULT_ADMIN_DEV_PORT,
   LOCAL_MCP_CLIENT_ID,
   LOCAL_OIDC_CLIENT_ID,
-  RESOURCE_NAMES,
   resolveSecretsScope,
   resolveStackEnv,
+  resourceNames,
+  stageFromEnv,
 } from "@pw-support/contracts";
 import type { AuthConfig } from "./auth";
 
@@ -30,6 +31,7 @@ export interface ApiConfig {
   admin: {
     maxBodyBytes: number;
     mutationsPerWindow: number;
+    disabled?: boolean;
   };
   secretsScope: string;
   s3: {
@@ -56,14 +58,55 @@ export function mcpMissingSettings(env: NodeJS.ProcessEnv): string[] {
   return missing;
 }
 
+export function adminPolicyMissing(env: NodeJS.ProcessEnv): boolean {
+  return (
+    env.NODE_ENV === "production" &&
+    !env.ADMIN_REQUIRED_GROUP &&
+    csv(env.ADMIN_ALLOWED_EMAIL_DOMAINS).length === 0
+  );
+}
+
+export function productionStartupProblems(
+  env: NodeJS.ProcessEnv = process.env,
+): string[] {
+  if (env.NODE_ENV !== "production") return [];
+  const problems = [
+    "ATTACHMENTS_BUCKET",
+    "SUPPORT_STAGE",
+    "TRIAGE_WAKE_QUEUE",
+    "DB_SECRET_ARN",
+    "DB_HOST",
+  ]
+    .filter((name) => !env[name])
+    .map((name) => `${name} must be set in production`);
+  if (env.SUPPORT_STAGE === "local") {
+    problems.push("SUPPORT_STAGE must name the deployed stage, not local");
+  }
+  if (env.DATABASE_URL) {
+    problems.push("DATABASE_URL is not allowed in production");
+  }
+  if (env.LINEAR_API_URL) {
+    problems.push("LINEAR_API_URL must not be set in production");
+  }
+  return problems;
+}
+
 export function productionConfigErrors(
   env: NodeJS.ProcessEnv = process.env,
 ): string[] {
+  const errors: string[] = [];
   const missing = mcpMissingSettings(env);
-  if (missing.length === 0) return [];
-  return [
-    `${missing.join(" and ")} must be set in production; /mcp, /mcp/laptop, and /laptop/watcher answer 503 until they are`,
-  ];
+  if (missing.length > 0) {
+    errors.push(
+      `${missing.join(" and ")} must be set in production; /mcp, /mcp/laptop, and /laptop/watcher answer 503 until they are`,
+    );
+  }
+  if (adminPolicyMissing(env)) {
+    errors.push(
+      "ADMIN_REQUIRED_GROUP or ADMIN_ALLOWED_EMAIL_DOMAINS must be set in production; every /admin route answers 503 admin_not_configured until one is",
+    );
+  }
+  return errors;
 }
 
 const DEFAULT_PORT = 8787;
@@ -95,7 +138,9 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): ApiConfig {
     env.AWS_SECRET_ACCESS_KEY ?? (local ? "test" : undefined);
   return {
     port: positiveInt(env.API_PORT, DEFAULT_PORT),
-    bucket: env.ATTACHMENTS_BUCKET ?? RESOURCE_NAMES.attachmentsBucket,
+    bucket:
+      env.ATTACHMENTS_BUCKET ??
+      resourceNames(stageFromEnv(env)).attachmentsBucket,
     maxBodyBytes: positiveInt(
       env.MAX_REQUEST_BYTES,
       ATTACHMENT_LIMITS.maxFiles * ATTACHMENT_LIMITS.maxBytes +
@@ -138,6 +183,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): ApiConfig {
     admin: {
       maxBodyBytes: positiveInt(env.ADMIN_MAX_BODY_BYTES, 16 * 1024),
       mutationsPerWindow: positiveInt(env.ADMIN_RATE_LIMIT_PER_WINDOW, 60),
+      ...(adminPolicyMissing(env) ? { disabled: true } : {}),
     },
     secretsScope: resolveSecretsScope(env),
     s3: {

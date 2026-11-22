@@ -23,6 +23,7 @@ import {
 } from "@pw-support/db";
 import { eq, like } from "drizzle-orm";
 import { z } from "zod";
+import { loadConfig } from "./config";
 import { dumpDatabase } from "./testing/dump";
 import { fixtures } from "./testing/fixtures";
 import { createHarness, form } from "./testing/harness";
@@ -215,6 +216,65 @@ describe("A19: admin routes fail closed", () => {
     } finally {
       outage.stop();
       await closed.close();
+    }
+  });
+});
+
+describe("production admin policy", () => {
+  async function productionAdmin(policy: Record<string, string>) {
+    const production = loadConfig({
+      NODE_ENV: "production",
+      COGNITO_ISSUER: idp.issuer,
+      COGNITO_AUDIENCE: idp.authConfig().audiences[0] as string,
+      ...policy,
+    });
+    return createHarness({
+      config: { auth: production.auth, admin: production.admin },
+    });
+  }
+
+  test("503 admin_not_configured on every route when neither a group nor a domain is set", async () => {
+    const closed = await productionAdmin({});
+    try {
+      for (const [method, path] of [
+        ["GET", "/me"],
+        ["GET", "/requests"],
+        ["GET", "/projects"],
+        ["PUT", "/integrations/linear_api_key"],
+      ] as const) {
+        const response = await closed.app.request(`/admin${path}`, {
+          method,
+          headers: bearer,
+        });
+        expect(response.status).toBe(503);
+        expect(await response.json()).toEqual({
+          error: "admin_not_configured",
+        });
+      }
+    } finally {
+      await closed.close();
+    }
+  });
+
+  test("403 for a pool user outside the group and 200 inside it", async () => {
+    const open = await productionAdmin({ ADMIN_REQUIRED_GROUP: "staff" });
+    try {
+      const outside = await idp.token({
+        claims: { "cognito:groups": ["other"] },
+      });
+      const denied = await open.app.request("/admin/me", {
+        headers: { Authorization: `Bearer ${outside}` },
+      });
+      expect(denied.status).toBe(403);
+      const inside = await idp.token({
+        claims: { "cognito:groups": ["staff"] },
+      });
+      const allowed = await open.app.request("/admin/me", {
+        headers: { Authorization: `Bearer ${inside}` },
+      });
+      expect(allowed.status).toBe(200);
+    } finally {
+      await open.close();
     }
   });
 });

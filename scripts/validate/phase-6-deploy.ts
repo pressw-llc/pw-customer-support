@@ -1,0 +1,1022 @@
+import {
+  mkdirSync,
+  mkdtempSync,
+  readdirSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import {
+  CloudFormationClient,
+  CreateStackCommand,
+  DescribeStackEventsCommand,
+  DescribeStacksCommand,
+} from "@aws-sdk/client-cloudformation";
+import {
+  GetFunctionCommand,
+  LambdaClient,
+  ListEventSourceMappingsCommand,
+} from "@aws-sdk/client-lambda";
+import {
+  CreateBucketCommand,
+  HeadBucketCommand,
+  PutObjectCommand,
+  S3Client,
+} from "@aws-sdk/client-s3";
+import {
+  CreateSecretCommand,
+  GetSecretValueCommand,
+  PutSecretValueCommand,
+  SecretsManagerClient,
+} from "@aws-sdk/client-secrets-manager";
+import {
+  GetQueueAttributesCommand,
+  GetQueueUrlCommand,
+  SQSClient,
+} from "@aws-sdk/client-sqs";
+import { startLinearStub } from "@pw-support/channels/testing";
+import {
+  LINEAR_ADAPTER_VISIBILITY_TIMEOUT_SECONDS,
+  resolveStackEnv,
+  resourceNames,
+  TRIAGE_WAKE_VISIBILITY_TIMEOUT_SECONDS,
+} from "@pw-support/contracts";
+import {
+  closeDb,
+  createCredentialsProvider,
+  createDb,
+  ensureProject,
+  secretsManagerFetcher,
+  setProjectLinearTeam,
+} from "@pw-support/db";
+import { findStageConflicts } from "../deploy/lib";
+import { runSmoke } from "../smoke/lib";
+import { freePort } from "./free-port";
+import {
+  buildSubset,
+  type CfnTemplate,
+  withLambdaStep,
+  withOutputs,
+} from "./local-subset";
+import { type Managed, startProcess, waitForHttp } from "./proc";
+import { assert, exec, Steps, waitFor } from "./steps";
+
+const root = join(import.meta.dir, "..", "..");
+const SUFFIX = crypto.randomUUID().slice(0, 8);
+const STAGE = "production";
+const LS_CONTAINER = `pw-support-deploy-ls-${SUFFIX}`;
+const LS_PORT = freePort();
+const LS_URL = `http://127.0.0.1:${LS_PORT}`;
+const LS_FROM_DOCKER = `http://host.docker.internal:${LS_PORT}`;
+const API_PORT = freePort();
+const STUB_PORT = freePort();
+const CONTAINER_API_PORT = freePort();
+const API_IMAGE = `pw-support-api:rehearsal-${SUFFIX}`;
+const WORKER_IMAGE = `pw-support-worker:rehearsal-${SUFFIX}`;
+const stack = resolveStackEnv(process.env);
+const POSTGRES_HOST_PORT = stack.postgresPort;
+
+const steps = new Steps();
+const work = mkdtempSync(join(tmpdir(), "pw-deploy-rehearsal-"));
+const processes: Managed[] = [];
+const containers: string[] = [LS_CONTAINER];
+const stub = startLinearStub({ port: STUB_PORT });
+const teamId = stub.teams[0]?.id as string;
+
+const awsConfig = {
+  endpoint: LS_URL,
+  region: "us-east-1",
+  credentials: { accessKeyId: "test", secretAccessKey: "test" },
+};
+const cfn = new CloudFormationClient(awsConfig);
+const sqs = new SQSClient(awsConfig);
+const s3 = new S3Client({ ...awsConfig, forcePathStyle: true });
+const secrets = new SecretsManagerClient(awsConfig);
+const lambda = new LambdaClient(awsConfig);
+
+const state: {
+  outputs: Record<string, string>;
+  lambdaOk: boolean;
+  lambdaDetail: string;
+  projectKey: string;
+} = {
+  outputs: {},
+  lambdaOk: false,
+  lambdaDetail: "not attempted",
+  projectKey: "",
+};
+
+const cleanEnv = {
+  ...process.env,
+  SUPPORT_STAGE_CONFIG: undefined,
+  AWS_ACCESS_KEY_ID: undefined,
+  AWS_PROFILE: undefined,
+  AWS_WEB_IDENTITY_TOKEN_FILE: undefined,
+};
+
+async function waitStack(name: string, expect: string): Promise<void> {
+  await waitFor(
+    async () => {
+      const result = await cfn.send(
+        new DescribeStacksCommand({ StackName: name }),
+      );
+      const status = result.Stacks?.[0]?.StackStatus ?? "";
+      if (status.endsWith("FAILED") || status.includes("ROLLBACK")) {
+        const events = await cfn.send(
+          new DescribeStackEventsCommand({ StackName: name }),
+        );
+        const failed = (events.StackEvents ?? [])
+          .filter((event) => event.ResourceStatus?.endsWith("FAILED"))
+          .map(
+            (event) =>
+              `${event.LogicalResourceId}: ${event.ResourceStatusReason}`,
+          );
+        throw new Error(`${name} ${status}: ${failed.join("; ")}`);
+      }
+      return status === expect;
+    },
+    `${name} ${expect}`,
+    180_000,
+  ).catch((error) => {
+    throw error;
+  });
+}
+
+async function outputsOf(name: string): Promise<Record<string, string>> {
+  const result = await cfn.send(new DescribeStacksCommand({ StackName: name }));
+  return Object.fromEntries(
+    (result.Stacks?.[0]?.Outputs ?? []).map((o) => [
+      o.OutputKey as string,
+      o.OutputValue as string,
+    ]),
+  );
+}
+
+function readTemplate(name: string): CfnTemplate {
+  return JSON.parse(
+    readFileSync(
+      join(root, "modules", "infra", "cdk.out", `${name}.template.json`),
+      "utf8",
+    ),
+  ) as CfnTemplate;
+}
+
+function localEnv(
+  extra: Record<string, string> = {},
+): Record<string, string | undefined> {
+  return {
+    NODE_ENV: undefined,
+    SUPPORT_STAGE: STAGE,
+    SECRETS_SCOPE: resourceNames(STAGE).secretsScope,
+    TRIAGE_WAKE_QUEUE: resourceNames(STAGE).triageWakeQueue,
+    AWS_ENDPOINT_URL: LS_URL,
+    AWS_ACCESS_KEY_ID: "test",
+    AWS_SECRET_ACCESS_KEY: "test",
+    ATTACHMENTS_BUCKET: state.outputs.AttachmentsBucket,
+    LINEAR_API_URL: stub.url,
+    LINEAR_API_KEY: "local-rehearsal",
+    TRIAGE_INITIAL_DELAY_SECONDS: "1",
+    TRIAGE_SWEEP_INTERVAL_SECONDS: "2",
+    API_PORT: String(API_PORT),
+    ...extra,
+  };
+}
+
+const stubReadback = async (token: string) => {
+  const issue = stub.issues.find((candidate) =>
+    candidate.description.includes(token),
+  );
+  return issue
+    ? { id: issue.id, identifier: issue.identifier, url: issue.url }
+    : undefined;
+};
+
+async function submitSmoke(apiUrl: string, container?: string) {
+  try {
+    const result = await runSmoke({
+      apiUrl,
+      projectKey: state.projectKey,
+      readback: stubReadback,
+      timeoutMs: 150_000,
+      intervalMs: 1_000,
+    });
+    return `${result.ticket.identifier} ${result.ticket.url} (request ${result.requestId})`;
+  } catch (error) {
+    const reason = error instanceof Error ? error.message : String(error);
+    throw new Error(
+      `the smoke request to ${apiUrl}/v1/requests failed: ${reason}${container ? `\n${await containerState(container)}` : ""}`,
+    );
+  }
+}
+
+async function removeLambdaContainers(pattern: string): Promise<void> {
+  const listed = await exec([
+    "docker",
+    "ps",
+    "-a",
+    "--filter",
+    `name=${pattern}`,
+    "--format",
+    "{{.Names}}",
+  ]);
+  for (const name of listed.out.split("\n").filter(Boolean))
+    await exec(["docker", "rm", "-f", name]);
+}
+
+async function deliveryState(): Promise<string> {
+  const lines: string[] = [];
+  const queueUrl = state.outputs.LinearAdapterQueueUrl as string | undefined;
+  if (queueUrl) {
+    const attrs = await sqs
+      .send(
+        new GetQueueAttributesCommand({
+          QueueUrl: queueUrl,
+          AttributeNames: [
+            "ApproximateNumberOfMessages",
+            "ApproximateNumberOfMessagesNotVisible",
+          ],
+        }),
+      )
+      .catch((error) => ({ Attributes: { error: String(error) } }));
+    lines.push(`adapter queue ${JSON.stringify(attrs.Attributes)}`);
+  }
+  const listed = await exec([
+    "docker",
+    "ps",
+    "-a",
+    "--filter",
+    `name=${LS_CONTAINER}-lambda`,
+    "--format",
+    "{{.Names}}",
+  ]);
+  for (const name of listed.out.split("\n").filter(Boolean)) {
+    const logs = await exec(["docker", "logs", "--tail", "20", name]);
+    lines.push(`lambda ${name}:\n${logs.out.slice(-1200)}`);
+  }
+  return lines.join("\n");
+}
+
+async function containerState(name: string): Promise<string> {
+  const inspected = await exec([
+    "docker",
+    "inspect",
+    name,
+    "--format",
+    "status={{.State.Status}} exit={{.State.ExitCode}} oom={{.State.OOMKilled}}",
+  ]);
+  const logs = await exec(["docker", "logs", "--tail", "15", name]);
+  const worker = await exec([
+    "docker",
+    "logs",
+    "--tail",
+    "30",
+    `pw-support-worker-${SUFFIX}`,
+  ]);
+  return `${inspected.out.trim() || "container is gone"}\n${logs.out.slice(-800)}\nworker:\n${worker.out.slice(-1500)}\n${await deliveryState()}`;
+}
+
+async function assertReachable(
+  label: string,
+  url: string,
+  container?: string,
+): Promise<void> {
+  try {
+    const response = await fetch(url, { signal: AbortSignal.timeout(5_000) });
+    assert(response.ok, `status ${response.status}`);
+  } catch (error) {
+    const reason = error instanceof Error ? error.message : String(error);
+    throw new Error(
+      `${label} is unreachable at ${url}: ${reason}${container ? `\n${await containerState(container)}` : ""}`,
+    );
+  }
+}
+
+async function assertReachableFromContainer(
+  label: string,
+  url: string,
+): Promise<void> {
+  const probe = await exec([
+    "docker",
+    "run",
+    "--rm",
+    "--add-host",
+    "host.docker.internal:host-gateway",
+    API_IMAGE,
+    "bun",
+    "-e",
+    `const r = await fetch(${JSON.stringify(url)}, { method: "POST", body: "{}", headers: { authorization: "x" } }); console.log("status", r.status);`,
+  ]);
+  assert(
+    probe.code === 0 && probe.out.includes("status"),
+    `${label} is unreachable from a container at ${url}: ${probe.out.trim().slice(-300)}`,
+  );
+}
+
+async function buildImage(target: string, tag: string): Promise<string> {
+  const tokenFile = join(work, "github_token");
+  writeFileSync(
+    tokenFile,
+    process.env.GITHUB_TOKEN || process.env.GH_PACKAGES_TOKEN || "",
+    {
+      mode: 0o600,
+    },
+  );
+  const built = await exec(
+    [
+      "docker",
+      "build",
+      "--secret",
+      `id=github_token,src=${tokenFile}`,
+      "--target",
+      target,
+      "-t",
+      tag,
+      ".",
+    ],
+    { cwd: root },
+  );
+  assert(
+    built.code === 0,
+    `docker build ${target} failed:\n${built.out.slice(-1500)}`,
+  );
+  return tag;
+}
+
+try {
+  await steps.run(
+    "deploy --dry-run succeeds with placeholder config",
+    async () => {
+      const result = await exec(["bun", "run", "deploy", "--dry-run"], {
+        cwd: root,
+        env: cleanEnv,
+      });
+      assert(result.code === 0, result.out.slice(-1500));
+      assert(/DRY RUN complete/.test(result.out), result.out.slice(-800));
+      assert(
+        /placeholders for/.test(result.out),
+        "placeholders were not reported",
+      );
+      return "config, build, images, and synth passed with no AWS call";
+    },
+  );
+
+  await steps.run(
+    "deploy fails clearly when a required production value is missing",
+    async () => {
+      const result = await exec(
+        ["bun", "run", "deploy", "--dry-run", "--skip-assets"],
+        {
+          cwd: root,
+          env: {
+            ...cleanEnv,
+            SUPPORT_STAGE_CONFIG: JSON.stringify({
+              account: "123456789012",
+              cognitoIssuer:
+                "https://cognito-idp.us-east-1.amazonaws.com/us-east-1_X",
+              adminClientId: "a",
+              mcpClientId: "m",
+            }),
+          },
+        },
+      );
+      assert(
+        result.code === 2,
+        `exit ${result.code}: ${result.out.slice(-600)}`,
+      );
+      for (const key of [
+        "mcpRequiredGroup is required",
+        "certificateArn is required",
+        "triageAgentId is required",
+      ]) {
+        assert(result.out.includes(key), `message lacks "${key}"`);
+      }
+      return "exit 2 naming mcpRequiredGroup, certificateArn, and triageAgentId";
+    },
+  );
+
+  await steps.run("the Compose stack is up and migrated", async () => {
+    const up = await exec(["bun", "scripts/stack.ts", "up"], { cwd: root });
+    assert(up.code === 0, up.out.slice(-800));
+    const migrated = await exec(["bun", "run", "db:migrate"], { cwd: root });
+    assert(migrated.code === 0, migrated.out.slice(-800));
+  });
+
+  await steps.run(
+    "start a dedicated LocalStack with the Docker socket",
+    async () => {
+      await removeLambdaContainers("pw-support-deploy-ls-.*-lambda-");
+      const started = await exec([
+        "docker",
+        "run",
+        "-d",
+        "--rm",
+        "--name",
+        LS_CONTAINER,
+        "-p",
+        `127.0.0.1:${LS_PORT}:4566`,
+        "-v",
+        "/var/run/docker.sock:/var/run/docker.sock",
+        "-e",
+        "SERVICES=s3,sqs,secretsmanager,cloudformation,lambda,iam,sns,logs,sts,cloudwatch,events",
+        "-e",
+        "LAMBDA_RUNTIME_ENVIRONMENT_TIMEOUT=120",
+        "localstack/localstack:3",
+      ]);
+      assert(started.code === 0, started.out);
+      await waitFor(
+        async () => (await fetch(`${LS_URL}/_localstack/health`)).ok,
+        "LocalStack health",
+        90_000,
+      );
+      return LS_URL;
+    },
+  );
+
+  await steps.run(
+    "the one stage per account guard reads CloudFormation and refuses another stage's stacks",
+    async () => {
+      const topic = {
+        Resources: { Topic: { Type: "AWS::SNS::Topic", Properties: {} } },
+      };
+      await cfn.send(
+        new CreateStackCommand({
+          StackName: "PwSupportStaging",
+          TemplateBody: JSON.stringify(topic),
+          Tags: [{ Key: "pw-support:stage", Value: "staging" }],
+        }),
+      );
+      await waitStack("PwSupportStaging", "CREATE_COMPLETE");
+      const production = await findStageConflicts(cfn, "production");
+      assert(production.length === 1, `conflicts ${production}`);
+      assert(
+        production[0]?.includes("one stage per AWS account"),
+        production[0] ?? "",
+      );
+      const staging = await findStageConflicts(cfn, "staging");
+      assert(staging.length === 0, `staging conflicts ${staging}`);
+      return "LocalStack account 000000000000 holds a staging stack: production is refused, staging is not";
+    },
+  );
+
+  await steps.run(
+    "a partial stage file with only the account synthesizes the OIDC stack alone",
+    async () => {
+      const out = join(work, "oidc-out");
+      const result = await exec(
+        [
+          "bunx",
+          "cdk",
+          "synth",
+          "--quiet",
+          "--no-notices",
+          "--output",
+          out,
+          "-c",
+          "stage=production",
+          "-c",
+          "scope=oidc",
+          "-c",
+          "placeholders=false",
+        ],
+        {
+          cwd: join(root, "modules", "infra"),
+          env: {
+            ...cleanEnv,
+            SUPPORT_STAGE_CONFIG: JSON.stringify({ account: "123456789012" }),
+          },
+        },
+      );
+      assert(result.code === 0, result.out.slice(-600));
+      const files = readdirSync(out).filter((f) =>
+        f.endsWith(".template.json"),
+      );
+      assert(
+        files.join() === "PwSupportGithubOidc.template.json",
+        `templates ${files}`,
+      );
+      return "only PwSupportGithubOidc was synthesized";
+    },
+  );
+
+  await steps.run(
+    "deploy the S3, SQS, and Secrets Manager subset of the stack",
+    async () => {
+      const synth = await exec(["bun", "run", "synth"], { cwd: root });
+      assert(synth.code === 0, synth.out.slice(-800));
+      const subset = buildSubset(readTemplate("PwSupport"));
+      const wanted = [
+        "AttachmentsBucket",
+        "TriageWakeQueue",
+        "LinearAdapterQueue",
+        "TriageWakeDlq",
+        "LinearAdapterDlq",
+        "DatabaseCluster",
+      ];
+      for (const fragment of wanted.slice(0, 5)) {
+        assert(
+          subset.kept.some((id) => id.includes(fragment)),
+          `subset lacks ${fragment}: kept ${subset.kept.join(", ")}`,
+        );
+      }
+      const ids = (fragment: string, type: string) =>
+        Object.entries(subset.template.Resources).find(
+          ([id, r]) => r.Type === type && id.includes(fragment),
+        )?.[0] as string;
+      const template = withOutputs(subset.template, {
+        AttachmentsBucket: ids("AttachmentsBucket", "AWS::S3::Bucket"),
+        TriageWakeQueueUrl: ids("QueuesTriageWakeQueue", "AWS::SQS::Queue"),
+        LinearAdapterQueueUrl: ids(
+          "QueuesLinearAdapterQueue",
+          "AWS::SQS::Queue",
+        ),
+      });
+      await cfn.send(
+        new CreateStackCommand({
+          StackName: "pw-support-subset",
+          TemplateBody: JSON.stringify(template),
+        }),
+      );
+      await waitStack("pw-support-subset", "CREATE_COMPLETE");
+      state.outputs = await outputsOf("pw-support-subset");
+      return `${subset.kept.length} resources deployed, ${subset.dropped.length} need real AWS (RDS, ECS, ELB, CloudFront, IAM, VPC)`;
+    },
+  );
+
+  await steps.run(
+    "queues carry redrive, retention, and the shared visibility timeouts",
+    async () => {
+      const attrs = async (url: string) =>
+        (
+          await sqs.send(
+            new GetQueueAttributesCommand({
+              QueueUrl: url,
+              AttributeNames: ["All"],
+            }),
+          )
+        ).Attributes ?? {};
+      const wake = await attrs(state.outputs.TriageWakeQueueUrl as string);
+      const adapter = await attrs(
+        state.outputs.LinearAdapterQueueUrl as string,
+      );
+      for (const queue of [wake, adapter]) {
+        const redrive = JSON.parse(queue.RedrivePolicy ?? "{}");
+        assert(redrive.maxReceiveCount === 5, `redrive ${queue.RedrivePolicy}`);
+        assert(
+          String(redrive.deadLetterTargetArn).includes("-dlq"),
+          "redrive target is not a DLQ",
+        );
+      }
+      assert(
+        Number(wake.VisibilityTimeout) ===
+          TRIAGE_WAKE_VISIBILITY_TIMEOUT_SECONDS,
+        "wake visibility",
+      );
+      assert(
+        Number(adapter.VisibilityTimeout) ===
+          LINEAR_ADAPTER_VISIBILITY_TIMEOUT_SECONDS,
+        "adapter visibility",
+      );
+      await s3.send(
+        new HeadBucketCommand({
+          Bucket: state.outputs.AttachmentsBucket as string,
+        }),
+      );
+      return "wake and adapter queues redrive to DLQs after 5 receives; bucket exists";
+    },
+  );
+
+  await steps.run(
+    "the credentials provider reads an RDS-shaped secret by ARN and picks up a new value",
+    async () => {
+      const created = await secrets.send(
+        new CreateSecretCommand({
+          Name: "rds-cluster-rehearsal",
+          SecretString: JSON.stringify({
+            username: "support",
+            password: "initial-by-rehearsal",
+          }),
+        }),
+      );
+      const secretArn = created.ARN as string;
+      const shape = await secrets.send(
+        new GetSecretValueCommand({ SecretId: secretArn }),
+      );
+      assert(
+        Object.keys(JSON.parse(shape.SecretString ?? "{}"))
+          .sort()
+          .join() === "password,username",
+        "the secret must hold only username and password, as RDS stores it",
+      );
+      const provider = createCredentialsProvider({
+        fetchSecret: secretsManagerFetcher(secretArn, secrets),
+      });
+      const first = await provider.get();
+      assert(first.username && first.password, "no credentials");
+      await secrets.send(
+        new PutSecretValueCommand({
+          SecretId: secretArn,
+          SecretString: JSON.stringify({
+            username: first.username,
+            password: "rotated-by-rehearsal",
+          }),
+        }),
+      );
+      provider.invalidate();
+      const second = await provider.get();
+      assert(second.password === "rotated-by-rehearsal", "rotation not seen");
+      return `user ${first.username}, a new value is read after invalidate`;
+    },
+  );
+
+  await steps.run(
+    "deploy the linear-outbound Lambda step into LocalStack Lambda (T15)",
+    async () => {
+      try {
+        const bundle = join(work, "lambda");
+        mkdirSync(bundle);
+        const built = await exec(
+          [
+            "bun",
+            "build",
+            "pipelines/linear-outbound/lambda-entries/production.ts",
+            "--target",
+            "node",
+            "--format",
+            "esm",
+            "--outfile",
+            join(bundle, "index.mjs"),
+          ],
+          { cwd: root },
+        );
+        assert(built.code === 0, built.out);
+        const zipped = await exec([
+          "zip",
+          "-j",
+          join(bundle, "index.zip"),
+          join(bundle, "index.mjs"),
+        ]);
+        assert(zipped.code === 0, zipped.out);
+        await s3.send(
+          new CreateBucketCommand({ Bucket: "pw-support-lambda-code" }),
+        );
+        await s3.send(
+          new PutObjectCommand({
+            Bucket: "pw-support-lambda-code",
+            Key: "index.zip",
+            Body: readFileSync(join(bundle, "index.zip")),
+          }),
+        );
+        const queueUrl = state.outputs.LinearAdapterQueueUrl as string;
+        const attributes = await sqs.send(
+          new GetQueueAttributesCommand({
+            QueueUrl: queueUrl,
+            AttributeNames: ["QueueArn"],
+          }),
+        );
+        const appTemplate = readTemplate("PwSupportApp");
+        const fn = Object.values(appTemplate.Resources).find(
+          (resource) =>
+            resource.Type === "AWS::Lambda::Function" &&
+            resource.Properties?.PackageType === "Image",
+        )?.Properties as { Timeout: number; MemorySize: number } | undefined;
+        const mapping = Object.values(appTemplate.Resources).find(
+          (resource) => resource.Type === "AWS::Lambda::EventSourceMapping",
+        )?.Properties as
+          | { BatchSize: number; ScalingConfig: { MaximumConcurrency: number } }
+          | undefined;
+        assert(fn && mapping, "the app template has no Lambda step");
+        const template = withLambdaStep(
+          { Resources: {} },
+          {
+            codeBucket: "pw-support-lambda-code",
+            codeKey: "index.zip",
+            role: "arn:aws:iam::000000000000:role/local-lambda",
+            timeout: fn.Timeout,
+            memorySize: fn.MemorySize,
+            batchSize: mapping.BatchSize,
+            maxConcurrency: mapping.ScalingConfig.MaximumConcurrency,
+            eventSourceArn: attributes.Attributes?.QueueArn,
+            runtime: "nodejs20.x",
+            environment: {
+              DATABASE_URL: `postgres://support:support@host.docker.internal:${POSTGRES_HOST_PORT}/support`,
+              SUPPORT_STAGE: STAGE,
+              AWS_ENDPOINT_URL: LS_FROM_DOCKER,
+              LINEAR_API_URL: `http://host.docker.internal:${STUB_PORT}/graphql`,
+              LINEAR_API_KEY: "local-rehearsal",
+              ATTACHMENTS_BUCKET: state.outputs.AttachmentsBucket as string,
+              AWS_ACCESS_KEY_ID: "test",
+              AWS_SECRET_ACCESS_KEY: "test",
+            },
+          },
+        );
+        await cfn.send(
+          new CreateStackCommand({
+            StackName: "pw-support-lambda",
+            TemplateBody: JSON.stringify(template),
+          }),
+        );
+        await waitStack("pw-support-lambda", "CREATE_COMPLETE");
+        await waitFor(
+          async () => {
+            const result = await lambda.send(
+              new GetFunctionCommand({
+                FunctionName: "pw-support-linear-outbound",
+              }),
+            );
+            return result.Configuration?.State === "Active";
+          },
+          "Lambda Active",
+          180_000,
+        );
+        const mappings = await lambda.send(
+          new ListEventSourceMappingsCommand({
+            FunctionName: "pw-support-linear-outbound",
+          }),
+        );
+        const found = mappings.EventSourceMappings?.[0];
+        assert(found, "no event source mapping");
+        assert(
+          found.FunctionResponseTypes?.includes("ReportBatchItemFailures"),
+          "ReportBatchItemFailures missing",
+        );
+        state.lambdaOk = true;
+        state.lambdaDetail = `function Active, mapping ${found.State}, batch ${found.BatchSize}`;
+        return state.lambdaDetail;
+      } catch (error) {
+        state.lambdaDetail =
+          error instanceof Error ? error.message : String(error);
+        throw error;
+      }
+    },
+  );
+
+  await steps.run(
+    "seed a project that routes to the Linear stub team",
+    async () => {
+      const db = createDb();
+      const { key } = await ensureProject(db, {
+        clientSlug: "acme",
+        projectSlug: `deploy-${SUFFIX}`,
+        name: "acme deploy rehearsal",
+      });
+      await setProjectLinearTeam(db, {
+        clientSlug: "acme",
+        projectSlug: `deploy-${SUFFIX}`,
+        linearTeamId: teamId,
+      });
+      await closeDb(db);
+      state.projectKey = key;
+    },
+  );
+
+  const workerCommand = state.lambdaOk
+    ? "pipelines/support-triage/fargate-entries/production.ts"
+    : "pipelines/support-triage/fargate-entries/main.ts";
+
+  await steps.run(
+    "smoke: API, worker, deployed queues, and Linear stub produce a ticket",
+    async () => {
+      processes.push(
+        startProcess("api", ["bun", "apps/server/src/server.ts"], {
+          cwd: root,
+          env: localEnv(),
+        }),
+        startProcess("worker", ["bun", workerCommand], {
+          cwd: root,
+          env: localEnv(),
+        }),
+      );
+      await waitForHttp(`http://127.0.0.1:${API_PORT}/health`);
+      const wakeUrl = (
+        await sqs.send(
+          new GetQueueUrlCommand({
+            QueueName: resourceNames(STAGE).triageWakeQueue,
+          }),
+        )
+      ).QueueUrl;
+      assert(
+        wakeUrl === state.outputs.TriageWakeQueueUrl,
+        "the API resolves a different wake queue than the deployed one",
+      );
+      const detail = await submitSmoke(`http://127.0.0.1:${API_PORT}`);
+      return `${detail}; adapter path ${state.lambdaOk ? "LocalStack Lambda" : "in-process poller (Lambda step failed)"}`;
+    },
+  );
+
+  await steps.run(
+    "the production image builds with a non-root user and no dev dependencies",
+    async () => {
+      await buildImage("api", API_IMAGE);
+      await buildImage("worker", WORKER_IMAGE);
+      const inspect = await exec([
+        "docker",
+        "image",
+        "inspect",
+        API_IMAGE,
+        "--format",
+        "{{.Config.User}}|{{json .Config.Env}}",
+      ]);
+      const [user, env] = inspect.out.trim().split("|");
+      assert(user === "bun", `user is ${user}`);
+      assert(
+        String(env).includes("NODE_ENV=production"),
+        "NODE_ENV is not production",
+      );
+      const dev = await exec([
+        "docker",
+        "run",
+        "--rm",
+        API_IMAGE,
+        "sh",
+        "-c",
+        "test ! -d node_modules/@playwright && test ! -d node_modules/@biomejs && echo clean",
+      ]);
+      assert(dev.out.includes("clean"), `dev dependencies present: ${dev.out}`);
+      const size = await exec([
+        "docker",
+        "image",
+        "inspect",
+        API_IMAGE,
+        "--format",
+        "{{.Size}}",
+      ]);
+      return `user bun, NODE_ENV=production, no @playwright or @biomejs, ${(Number(size.out) / 1e6).toFixed(0)} MB`;
+    },
+  );
+
+  await steps.run(
+    "the image carries the RDS CA bundle and production refuses DATABASE_URL",
+    async () => {
+      const ca = await exec([
+        "docker",
+        "run",
+        "--rm",
+        API_IMAGE,
+        "sh",
+        "-c",
+        "grep -c 'BEGIN CERTIFICATE' /etc/ssl/rds/us-east-1-bundle.pem",
+      ]);
+      assert(Number(ca.out.trim()) >= 1, `no CA certificates: ${ca.out}`);
+      const refused = await exec([
+        "docker",
+        "run",
+        "--rm",
+        "-e",
+        "NODE_ENV=production",
+        "-e",
+        "DATABASE_URL=postgres://x:y@host/db",
+        API_IMAGE,
+        "bun",
+        "scripts/db-migrate.ts",
+      ]);
+      assert(refused.code !== 0, "production accepted DATABASE_URL");
+      assert(
+        refused.out.includes("not allowed in production"),
+        refused.out.slice(-400),
+      );
+      return `${ca.out.trim()} CA certificates readable by the bun user; DATABASE_URL refused`;
+    },
+  );
+
+  await steps.run(
+    "the API container answers /health and passes the extraction self-test",
+    async () => {
+      containers.push(`pw-support-api-${SUFFIX}`);
+      const started = await exec([
+        "docker",
+        "run",
+        "-d",
+        "--rm",
+        "--name",
+        `pw-support-api-${SUFFIX}`,
+        "--add-host",
+        "host.docker.internal:host-gateway",
+        "-p",
+        `127.0.0.1:${CONTAINER_API_PORT}:8787`,
+        "-e",
+        "NODE_ENV=development",
+        "-e",
+        `SUPPORT_STAGE=${STAGE}`,
+        "-e",
+        `DATABASE_URL=postgres://support:support@host.docker.internal:${POSTGRES_HOST_PORT}/support`,
+        "-e",
+        `AWS_ENDPOINT_URL=${LS_FROM_DOCKER}`,
+        "-e",
+        "AWS_ACCESS_KEY_ID=test",
+        "-e",
+        "AWS_SECRET_ACCESS_KEY=test",
+        "-e",
+        `ATTACHMENTS_BUCKET=${state.outputs.AttachmentsBucket}`,
+        API_IMAGE,
+      ]);
+      assert(started.code === 0, started.out);
+      await waitForHttp(
+        `http://127.0.0.1:${CONTAINER_API_PORT}/health`,
+        undefined,
+        60_000,
+      );
+      const body = await (
+        await fetch(`http://127.0.0.1:${CONTAINER_API_PORT}/health`)
+      ).json();
+      assert(
+        (body as { status?: string }).status === "ok",
+        JSON.stringify(body),
+      );
+      const logs = await exec(["docker", "logs", `pw-support-api-${SUFFIX}`]);
+      assert(
+        logs.out.includes("[api] extraction self-test passed"),
+        `no self-test line:\n${logs.out.slice(-600)}`,
+      );
+      return "/health ok, self-test line present";
+    },
+  );
+
+  await steps.run(
+    "the worker container processes one job to a stub ticket",
+    async () => {
+      for (const proc of processes) await proc.stop();
+      processes.length = 0;
+      await assertReachable(
+        "the API container",
+        `http://127.0.0.1:${CONTAINER_API_PORT}/health`,
+        `pw-support-api-${SUFFIX}`,
+      );
+      await assertReachableFromContainer(
+        "the Linear stub",
+        `http://host.docker.internal:${STUB_PORT}/graphql`,
+      );
+      const entry = state.lambdaOk
+        ? ["bun", "pipelines/support-triage/fargate-entries/production.ts"]
+        : ["bun", "pipelines/support-triage/fargate-entries/main.ts"];
+      containers.push(`pw-support-worker-${SUFFIX}`);
+      const started = await exec([
+        "docker",
+        "run",
+        "-d",
+        "--rm",
+        "--name",
+        `pw-support-worker-${SUFFIX}`,
+        "--add-host",
+        "host.docker.internal:host-gateway",
+        "-e",
+        "NODE_ENV=development",
+        "-e",
+        `SUPPORT_STAGE=${STAGE}`,
+        "-e",
+        `DATABASE_URL=postgres://support:support@host.docker.internal:${POSTGRES_HOST_PORT}/support`,
+        "-e",
+        `AWS_ENDPOINT_URL=${LS_FROM_DOCKER}`,
+        "-e",
+        "AWS_ACCESS_KEY_ID=test",
+        "-e",
+        "AWS_SECRET_ACCESS_KEY=test",
+        "-e",
+        `ATTACHMENTS_BUCKET=${state.outputs.AttachmentsBucket}`,
+        "-e",
+        `LINEAR_API_URL=http://host.docker.internal:${STUB_PORT}/graphql`,
+        "-e",
+        "LINEAR_API_KEY=local-rehearsal",
+        "-e",
+        "TRIAGE_INITIAL_DELAY_SECONDS=1",
+        "-e",
+        "TRIAGE_SWEEP_INTERVAL_SECONDS=2",
+        WORKER_IMAGE,
+        ...entry,
+      ]);
+      assert(started.code === 0, started.out);
+      await waitFor(
+        async () =>
+          (
+            await exec(["docker", "logs", `pw-support-worker-${SUFFIX}`])
+          ).out.includes("[worker] extraction self-test passed"),
+        "worker self-test line",
+        60_000,
+      );
+      const detail = await submitSmoke(
+        `http://127.0.0.1:${CONTAINER_API_PORT}`,
+        `pw-support-api-${SUFFIX}`,
+      );
+      const logs = await exec([
+        "docker",
+        "logs",
+        `pw-support-worker-${SUFFIX}`,
+      ]);
+      assert(/\[worker\] started/.test(logs.out), "worker did not log a start");
+      return `${detail}; worker container logged self-test and start`;
+    },
+  );
+} finally {
+  for (const proc of processes) await proc.stop();
+  for (const name of containers) await exec(["docker", "rm", "-f", name]);
+  await removeLambdaContainers(`${LS_CONTAINER}-lambda`);
+  await exec(["docker", "rmi", "-f", API_IMAGE, WORKER_IMAGE]);
+  await stub.stop();
+  rmSync(work, { recursive: true, force: true });
+}
+
+console.log(
+  `\nLocalStack Lambda (T15): ${state.lambdaOk ? "worked" : "did not work"}: ${state.lambdaDetail.slice(0, 400)}`,
+);
+process.exit(steps.summarize());

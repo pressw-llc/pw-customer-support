@@ -7,6 +7,7 @@ import {
   loadConfig,
   mcpAuthConfig,
   productionConfigErrors,
+  productionStartupProblems,
 } from "@pw-support/api";
 import {
   createLinearWebhookIntake,
@@ -14,14 +15,26 @@ import {
   createSecretsManagerClient,
   createSecretWriter,
 } from "@pw-support/channels";
-import { loadTimingConfig, RESOURCE_NAMES } from "@pw-support/contracts";
+import {
+  loadTimingConfig,
+  resourceNames,
+  stageFromEnv,
+} from "@pw-support/contracts";
 import { createDb } from "@pw-support/db";
 import {
   createLaptopBackend,
   jevFromSecrets,
   loadTriageConfig,
+  runExtractionSelfTest,
 } from "@pw-support/triage";
 
+const startupProblems = productionStartupProblems();
+if (startupProblems.length > 0) {
+  for (const problem of startupProblems) console.error(`[config] ${problem}`);
+  process.exit(1);
+}
+await runExtractionSelfTest();
+console.log("[api] extraction self-test passed");
 const config = loadConfig();
 for (const error of productionConfigErrors()) {
   console.error(`[config] ${error}`);
@@ -53,7 +66,9 @@ const timing = loadTimingConfig();
 const triageConfig = loadTriageConfig();
 const wake = createSqsWakeSender({
   client: createSqsClient(),
-  queueName: process.env.TRIAGE_WAKE_QUEUE || RESOURCE_NAMES.triageWakeQueue,
+  queueName:
+    process.env.TRIAGE_WAKE_QUEUE ||
+    resourceNames(stageFromEnv(process.env)).triageWakeQueue,
 });
 const app = createApp({
   db,

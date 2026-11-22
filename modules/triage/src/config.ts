@@ -1,6 +1,7 @@
 import {
   loadTimingConfig,
-  RESOURCE_NAMES,
+  resourceNames,
+  stageFromEnv,
   type TriageTiming,
 } from "@pw-support/contracts";
 
@@ -70,7 +71,9 @@ export function loadTriageConfig(env: EnvLike = process.env): TriageConfig {
       id: text(env.TRIAGE_AGENT_ID),
       timeoutMs: number(env.TRIAGE_AGENT_TIMEOUT_SECONDS, 240) * 1000,
     },
-    wakeQueue: text(env.TRIAGE_WAKE_QUEUE) ?? RESOURCE_NAMES.triageWakeQueue,
+    wakeQueue:
+      text(env.TRIAGE_WAKE_QUEUE) ??
+      resourceNames(stageFromEnv(env)).triageWakeQueue,
     sweepIntervalMs: number(env.TRIAGE_SWEEP_INTERVAL_SECONDS, 30) * 1000,
   };
 }
