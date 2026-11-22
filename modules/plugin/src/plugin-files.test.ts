@@ -56,11 +56,7 @@ function allowedBash(head: string): string[] {
   return [...line.matchAll(/Bash\((.*?)\)(?=,|$)/g)].map((m) => m[1] as string);
 }
 
-function bodyInvocations(rawBody: string): string[] {
-  const body = rawBody
-    .split("\n")
-    .filter((line) => !line.includes("in a terminal"))
-    .join("\n");
+function bodyInvocations(body: string): string[] {
   const escaped = CLI.replace(/[$.{}"]/g, "\\$&");
   return [...body.matchAll(new RegExp(`${escaped}[^\`\\n]*`, "g"))].map((m) =>
     m[0].trim(),
@@ -166,5 +162,75 @@ describe("bin/pw-support", () => {
     } finally {
       rmSync(cwd, { recursive: true, force: true });
     }
+  });
+});
+
+describe("terminal instructions never use the plugin root variable", () => {
+  const README = join(ROOT, "..", "..", "README.md");
+  const documents = [...pluginFiles(), README].filter((f) => f.endsWith(".md"));
+  const VARIABLE = "${CLAUDE_PLUGIN_ROOT}";
+  const FENCE = "`".repeat(3);
+
+  function terminalBlocks(text: string): string[] {
+    const lines = text.split("\n");
+    const blocks: string[] = [];
+    for (let i = 0; i < lines.length; i++) {
+      if (!(lines[i] as string).startsWith(FENCE)) continue;
+      let before = i - 1;
+      while (before >= 0 && lines[before] === "") before--;
+      const end = lines.findIndex((l, j) => j > i && l.startsWith(FENCE));
+      if (/terminal/i.test(lines[before] ?? "")) {
+        blocks.push(lines.slice(i + 1, end).join("\n"));
+      }
+      i = end;
+    }
+    return blocks;
+  }
+
+  test("no line that mentions a terminal holds the variable", () => {
+    for (const file of documents) {
+      for (const line of readFileSync(file, "utf8").split("\n")) {
+        if (!/terminal/i.test(line)) continue;
+        expect(
+          line.includes(VARIABLE),
+          `${relative(ROOT, file)}: ${line}`,
+        ).toBe(false);
+      }
+    }
+  });
+
+  test("terminal blocks use a checkout path, never the variable or a bare name", () => {
+    let seen = 0;
+    for (const file of documents) {
+      for (const block of terminalBlocks(readFileSync(file, "utf8"))) {
+        seen += 1;
+        expect(block.includes(VARIABLE), block).toBe(false);
+        for (const line of block.split("\n")) {
+          if (!/pw-support\s+(?:login|logout|token|watch)/.test(line)) continue;
+          expect(line.startsWith("modules/plugin/bin/pw-support "), line).toBe(
+            true,
+          );
+        }
+      }
+    }
+    expect(seen).toBeGreaterThanOrEqual(2);
+  });
+
+  test("login and logout run as slash commands through the plugin root", () => {
+    for (const name of ["login", "logout"]) {
+      const { head, body } = frontmatter(
+        readFileSync(join(ROOT, "commands", `${name}.md`), "utf8"),
+      );
+      expect(allowedBash(head)).toContain(`${CLI} ${name}`);
+      expect(bodyInvocations(body)).toContain(`${CLI} ${name}`);
+    }
+  });
+
+  test("CLI error strings name the running script, not a bare command", async () => {
+    const { NotLoggedInError } = await import("./oauth");
+    const message = new NotLoggedInError().message;
+    expect(message).toContain("run the login command:");
+    expect(message).toContain(join(ROOT, "bin", "pw-support"));
+    expect(message).not.toContain("run pw-support");
   });
 });

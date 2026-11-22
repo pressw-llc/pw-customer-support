@@ -160,7 +160,7 @@ async function logout(config: PluginConfig, io: CliIo) {
   io.out("Logged out.");
   if (revocation === "failed") {
     io.err(
-      "The server did not confirm the watcher credential revocation. Run pw-support login and pw-support logout again while online.",
+      "The server did not confirm the watcher credential revocation. Run the login command and then the logout command again while online.",
     );
   }
 }

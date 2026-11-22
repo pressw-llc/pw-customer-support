@@ -1,10 +1,13 @@
 import { z } from "zod";
 import type { PluginConfig } from "./config";
+import { cliCommand } from "./hint";
 import { createPkce } from "./pkce";
 import type { StoredTokens, TokenStore } from "./token-store";
 
 export class NotLoggedInError extends Error {
-  constructor(message = "not logged in; run pw-support login") {
+  constructor(
+    message = `not logged in; run the login command: ${cliCommand("login")}`,
+  ) {
     super(message);
     this.name = "NotLoggedInError";
   }
@@ -285,7 +288,9 @@ export async function getAccessToken(
       return renewed.accessToken;
     }
     if (!stored.refreshToken)
-      throw new NotLoggedInError("session expired; run pw-support login");
+      throw new NotLoggedInError(
+        `session expired; run the login command: ${cliCommand("login")}`,
+      );
     const endpoints = await discover(config.issuer, fetcher);
     const tokens = await tokenRequest(
       endpoints.token_endpoint,
@@ -310,6 +315,8 @@ export async function getAccessToken(
     const latest = store.read();
     if (latest && stillValid(latest, now, minimum)) return latest.accessToken;
     if (error instanceof NotLoggedInError) throw error;
-    throw new NotLoggedInError("session refresh failed; run pw-support login");
+    throw new NotLoggedInError(
+      `session refresh failed; run the login command: ${cliCommand("login")}`,
+    );
   }
 }
