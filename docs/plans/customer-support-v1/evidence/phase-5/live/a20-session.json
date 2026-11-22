@@ -1,0 +1,74 @@
+{
+  "init": {
+    "tools": [
+      "mcp__pw-support__job_claim",
+      "mcp__pw-support__job_renew",
+      "mcp__pw-support__job_submit_result",
+      "mcp__pw-support__jobs_offers",
+      "mcp__pw-support__request_get",
+      "mcp__pw-support__requests_query",
+      "mcp__pw-support__subscription_add",
+      "mcp__pw-support__subscription_remove",
+      "mcp__pw-support__subscriptions_list"
+    ],
+    "mcp_servers": [
+      {
+        "name": "pw-support",
+        "status": "connected",
+        "source": "dynamic"
+      }
+    ],
+    "permissionMode": "dontAsk"
+  },
+  "toolUses": [
+    {
+      "name": "mcp__pw-support__subscriptions_list",
+      "input": {}
+    },
+    {
+      "name": "mcp__pw-support__subscription_add",
+      "input": {
+        "prefix": "acme-v5-a20-c437b8"
+      }
+    },
+    {
+      "name": "mcp__pw-support__requests_query",
+      "input": {
+        "channelPrefix": "acme-v5-a20-c437b8",
+        "limit": 5
+      }
+    },
+    {
+      "name": "mcp__pw-support__subscription_remove",
+      "input": {
+        "prefix": "acme-v5-a20-c437b8"
+      }
+    }
+  ],
+  "toolResults": [
+    {
+      "error": false,
+      "chars": 24
+    },
+    {
+      "error": false,
+      "chars": 116
+    },
+    {
+      "error": false,
+      "chars": 418
+    },
+    {
+      "error": false,
+      "chars": 20
+    }
+  ],
+  "result": {
+    "subtype": "success",
+    "is_error": false,
+    "num_turns": 5,
+    "total_cost_usd": 0.09687600000000002,
+    "permission_denials": 0
+  },
+  "events": 14
+}

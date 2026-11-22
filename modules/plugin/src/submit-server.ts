@@ -32,6 +32,23 @@ const DESCRIPTION = [
   `labels (max ${TRIAGE_LIMITS.labelsMax} of ${triageLabels.join("|")}), needs_human (boolean).`,
 ].join(" ");
 
+const loose = (type: z.ZodTypeAny, description: string) =>
+  z.union([type, z.any()]).describe(description);
+
+const INPUT = z
+  .object({
+    title: loose(z.string(), `string, max ${TRIAGE_LIMITS.titleMax} chars`),
+    summary: loose(z.string(), `string, max ${TRIAGE_LIMITS.summaryMax} chars`),
+    category: loose(z.string(), `one of ${triageCategories.join(", ")}`),
+    priority: loose(z.string(), `one of ${triagePriorities.join(", ")}`),
+    labels: loose(
+      z.array(z.string()),
+      `JSON array of at most ${TRIAGE_LIMITS.labelsMax} values from ${triageLabels.join(", ")}, empty array when none`,
+    ),
+    needs_human: loose(z.boolean(), "JSON boolean true or false"),
+  })
+  .passthrough();
+
 export function createSubmitServer(options: SubmitServerOptions): McpServer {
   const server = new McpServer({ name: SUBMIT_SERVER_NAME, version: "1.0.0" });
   let used = false;
@@ -39,7 +56,7 @@ export function createSubmitServer(options: SubmitServerOptions): McpServer {
     SUBMIT_RESULT_TOOL,
     {
       description: DESCRIPTION,
-      inputSchema: z.object({}).passthrough(),
+      inputSchema: INPUT,
     },
     async (args) => {
       if (used) {

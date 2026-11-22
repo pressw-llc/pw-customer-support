@@ -11,6 +11,7 @@ export interface WatcherDeps {
   log: (event: string, detail?: LogDetail) => void;
   pollMs: number;
   runTimeoutMs: number;
+  onReport?: (jobId: string, report: RunReport) => void;
 }
 
 export type TickResult =
@@ -84,9 +85,10 @@ export async function tick(
       },
       run.signal,
     );
+    deps.onReport?.(claim.jobId, report);
     deps.log("subagent finished", {
       job: claim.jobId,
-      tools: report.tools?.length ?? null,
+      tools: report.tools?.join(",") ?? null,
       toolSetOk: report.toolSetOk,
       exitCode: report.exitCode,
       turns: report.turns,

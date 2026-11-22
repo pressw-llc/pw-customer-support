@@ -1,3 +1,5 @@
+import { mkdirSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
 import type { PluginConfig } from "./config";
 import { clearPid, createFileLogger, daemonPaths, writePid } from "./daemon";
 import { getAccessToken } from "./oauth";
@@ -10,6 +12,7 @@ export async function runWatchCommand(input: {
   config: PluginConfig;
   cliPath: string;
   fetcher?: typeof fetch;
+  env?: Record<string, string | undefined>;
 }): Promise<void> {
   const { config } = input;
   const paths = daemonPaths(config.configDir);
@@ -21,6 +24,8 @@ export async function runWatchCommand(input: {
       fetcher: input.fetcher,
       minValiditySeconds,
     });
+  const reportDir = (input.env ?? process.env).PW_SUPPORT_RUN_REPORT_DIR;
+  if (reportDir) mkdirSync(reportDir, { recursive: true, mode: 0o700 });
   const controller = new AbortController();
   const stop = () => controller.abort();
   process.on("SIGTERM", stop);
@@ -39,6 +44,14 @@ export async function runWatchCommand(input: {
         log: createFileLogger(paths.logFile),
         pollMs: config.pollSeconds * 1000,
         runTimeoutMs: config.runTimeoutSeconds * 1000,
+        onReport: reportDir
+          ? (jobId, report) =>
+              writeFileSync(
+                join(reportDir, `run-${jobId}.json`),
+                JSON.stringify(report, null, 2),
+                { mode: 0o600 },
+              )
+          : undefined,
       },
       controller.signal,
     );

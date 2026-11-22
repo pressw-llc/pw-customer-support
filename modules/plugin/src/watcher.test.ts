@@ -107,8 +107,11 @@ describe("watcher tick", () => {
 
   test("claims, runs the subagent with the prepared content only, and completes", async () => {
     const h = harness({});
+    const reported: string[] = [];
+    h.deps.onReport = (jobId) => reported.push(jobId);
     const result = await tick(h.deps, new AbortController().signal);
     expect(result).toEqual({ kind: "completed" });
+    expect(reported).toEqual([JOB]);
     expect(h.calls).toEqual(["offers", "claim", "run"]);
     expect(h.inputs[0]).toEqual({
       jobId: JOB,

@@ -8,7 +8,7 @@ description: Work in the api module: the Hono HTTP server on Bun. Use when you a
 
 ## Ownership
 
-`modules/api` owns the HTTP surface. It serves `GET /health`, the public intake routes under `/v1`, and the staff routes under `/admin`. Later phases add the Linear webhook and the MCP route.
+`modules/api` owns the HTTP surface. It serves `GET /health`, the public intake routes under `/v1`, the staff routes under `/admin`, the Linear webhook, and the engineer MCP route at `/mcp`.
 
 ## Layout
 
@@ -22,7 +22,8 @@ description: Work in the api module: the Hono HTTP server on Bun. Use when you a
 | `storage.ts`          | `ObjectStorage` interface and the S3 implementation                                                                                                                                                                                      |
 | `config.ts`           | `loadConfig(env)` with local defaults for the Compose stack                                                                                                                                                                              |
 | `wake.ts`             | SQS client, queue lookup, and the wake sender that sends `DelaySeconds`. Triage reuses it                                                                                                                                                |
-| `auth.ts`             | `createTokenValidator` and `parseBearer`. The Phase 5 MCP route reuses them                                                                                                                                                              |
+| `auth.ts`             | `createTokenValidator` and `parseBearer`. The MCP route reuses them                                                                                                                                                                      |
+| `mcp.ts`              | `mcpRoutes` and `buildMcpServer`: the nine engineer tools over Streamable HTTP, stateless                                                                                                                                                |
 | `admin.ts`            | `adminRoutes` and `requireStaff`: CORS, token check, body cap, mutation rate limit, `/admin/*` handlers                                                                                                                                  |
 | `admin-presenters.ts` | Map db rows to the admin contracts                                                                                                                                                                                                       |
 | `server.ts`           | Process entry. It is glue and no test loads it                                                                                                                                                                                           |
@@ -51,6 +52,9 @@ description: Work in the api module: the Hono HTTP server on Bun. Use when you a
 - Verify tokens with RS256 only. Accept `COGNITO_AUDIENCE` in `aud`, or in `client_id` when `aud` is absent.
 - Never log or return an admin request body or an error message that could echo it. The admin error handler logs the error name and the path.
 - Write an integration secret to Secrets Manager first, then store the reference in Postgres. Never store the value.
+- `mcp.ts` serves `POST /mcp` for engineers. Build one `McpServer` per request with the identity from the token, so no tool argument can name an engineer. Fail closed with 401 and `WWW-Authenticate`. Rate limit per engineer subject. Never put message text in a tool that the description does not mark as content.
+- Accept only the `MCP_AUDIENCE` client ids on `/mcp`. A refused claim returns `refused`. A refused result returns paths and short messages and never the value. A claim or result for another engineer's job answers like a stale claim.
+- The laptop backend (`prepare`, `submit`) comes from `@pw-support/triage` through `createApp` deps, so the api module has no code path that reads an attachment for a laptop.
 - Import other modules only through their package entrypoint.
 
 ## Tests

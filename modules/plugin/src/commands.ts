@@ -120,6 +120,7 @@ async function watch(args: string[], config: PluginConfig, io: CliIo) {
       config,
       cliPath: io.cliPath,
       fetcher: io.fetcher,
+      env: io.env,
     });
     return;
   }

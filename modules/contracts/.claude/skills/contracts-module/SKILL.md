@@ -22,7 +22,10 @@ description: Work in the contracts module: zod schemas and types that every othe
 - `comment.received` is the event that carries a stored inbound comment to the adapter. `reply.held`, `reply.sent`, `reply.flagged`, `reply.cancelled`, and `reply.expired` record the outcome. `message.intake_completed` wakes follow-up delivery. `stripMarkup`, `stripMarkupDetailed`, and `clip` in `markup.ts` are the shared linear-time markup stripper. A `<` starts a tag only before an optional `/` and a name in `KNOWN_ELEMENT_NAMES`, or `!--`, `!doctype`, `?`. An element tag must be well formed: the name ends at whitespace, `/`, or `>`, attributes parse in one linear scan that honors quotes, a bare attribute must be a boolean attribute, the `>` closes the same construct, and an unquoted `<` rejects it. `a<b and c>d` survives. A `<name-with-dash` custom element counts as HTML only with a `name=value` attribute, and `</name-with-dash>` always does. Other text stays verbatim. An unclosed `<script` or `<style` opener drops through the end of its line.
 - `ThreadMessage` carries `authorName`, the staff display name.
 - `admin.ts` holds the admin request, project, key, reply, and integration schemas, the `INTEGRATIONS` table that maps a kind to its secret name and env variable, `secretId`, the acknowledgement thresholds, and `ackState`.
-- `stack-config.ts` also derives the local OIDC issuer from `SUPPORT_OIDC_PORT`.
+- `stack-config.ts` also derives the local OIDC issuer from `SUPPORT_OIDC_PORT` and names the local MCP client id.
+- `channel-key.ts` also holds `channelPrefixSchema`. A subscription prefix has one to three segments and matches whole segments through `channelKeyMatches`.
+- `laptop.ts` holds the MCP tool names and input shapes, the engineer request summary and detail, the job offer, the claim result union, and the submit result union. `triage-prompt.ts` holds `buildTriageSystemPrompt` for the `json` and `tool` deliveries and the `submit_result` tool name.
+- `mcp.subscription.added` and `mcp.subscription.removed` record subscription changes. A claim records `triage.job.claimed` with the engineer subject.
 - `channel-adapter.ts` holds the adapter contract, the adapter queue names, and the adapter message shape.
 
 ## Commands

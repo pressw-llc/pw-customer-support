@@ -35,6 +35,7 @@
     "validate:phase-2": "bun scripts/validate/phase-2-live.ts",
     "validate:phase-3": "bun scripts/validate/phase-3-live.ts",
     "validate:phase-4": "bun scripts/validate/phase-4-live.ts",
+    "validate:phase-5": "bun scripts/validate/phase-5-live.ts",
     "synth": "bun run --filter @pw-support/infra synth",
     "prepare": "git config core.hooksPath .githooks || true"
   },
