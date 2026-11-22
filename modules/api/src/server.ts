@@ -13,7 +13,7 @@ import {
 } from "@pw-support/triage";
 import { createApp } from "./app";
 import { createTokenValidator } from "./auth";
-import { loadConfig } from "./config";
+import { loadConfig, mcpAuthConfig } from "./config";
 import { createS3Storage } from "./storage";
 import { createSqsClient, createSqsWakeSender } from "./wake";
 
@@ -25,14 +25,11 @@ const validator = createTokenValidator(config.auth, {
     if (reason === "not_configured") console.error("[auth] not configured");
   },
 });
-const mcpValidator = createTokenValidator(
-  { ...config.auth, audiences: config.mcp.audiences },
-  {
-    onReject: (reason) => {
-      if (reason === "not_configured") console.error("[mcp] not configured");
-    },
+const mcpValidator = createTokenValidator(mcpAuthConfig(config), {
+  onReject: (reason) => {
+    if (reason === "not_configured") console.error("[mcp] not configured");
   },
-);
+});
 if (!validator.configured) {
   console.error(
     "[auth] COGNITO_ISSUER and COGNITO_AUDIENCE are not set; /admin and /mcp reject every request",

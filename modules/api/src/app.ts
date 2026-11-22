@@ -21,7 +21,7 @@ import { bodyLimit } from "hono/body-limit";
 import { cors } from "hono/cors";
 import { adminRoutes } from "./admin";
 import { createTokenValidator, type TokenValidator } from "./auth";
-import type { ApiConfig } from "./config";
+import { type ApiConfig, mcpAuthConfig } from "./config";
 import {
   type Checks,
   createIntakeService,
@@ -195,10 +195,7 @@ export function createApp(deps: AppDeps): Hono {
       validator:
         deps.mcpValidator ??
         deps.validator ??
-        createTokenValidator({
-          ...deps.config.auth,
-          audiences: deps.config.mcp.audiences,
-        }),
+        createTokenValidator(mcpAuthConfig(deps.config)),
       config: {
         ...deps.config.mcp,
         windowSeconds: deps.config.rateLimit.windowSeconds,

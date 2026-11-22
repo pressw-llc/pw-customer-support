@@ -19,7 +19,12 @@ beforeAll(async () => {
   idp = await startTestIssuer();
   harness = await createHarness({
     config: {
-      mcp: { audiences: [], perWindow: 6, maxBodyBytes: 2048 },
+      mcp: {
+        audiences: [],
+        requiredGroup: undefined,
+        perWindow: 6,
+        maxBodyBytes: 2048,
+      },
     },
     deps: { validator: createTokenValidator(idp.authConfig()) },
   });
@@ -103,5 +108,77 @@ describe("mcp route limits", () => {
       { jsonrpc: "2.0", id: 1, method: "ping" },
     );
     expect(other.status).toBe(200);
+  });
+});
+
+describe("mcp access policy", () => {
+  const ping = { jsonrpc: "2.0", id: 1, method: "ping" };
+
+  test("the admin email domain policy never applies to /mcp", async () => {
+    const policy = await createHarness({
+      config: {
+        auth: idp.authConfig({ allowedEmailDomains: ["pressw.test"] }),
+        mcp: {
+          audiences: ["pw-support-test-client"],
+          requiredGroup: undefined,
+          perWindow: 50,
+          maxBodyBytes: 2048,
+        },
+      },
+    });
+    const url = serveApp(policy.app);
+    try {
+      const token = await idp.token({
+        claims: { sub: `noemail-${sub}` },
+        omit: ["email"],
+      });
+      const headers = { Authorization: `Bearer ${token}` };
+      const admin = await fetch(`${url.url}/admin/me`, { headers });
+      expect(admin.status).toBe(403);
+      const mcp = await postMcp(url.url, headers, ping);
+      expect(mcp.status).toBe(200);
+    } finally {
+      url.stop();
+      await policy.close();
+    }
+  });
+
+  test("an authenticated engineer outside MCP_REQUIRED_GROUP gets 403", async () => {
+    const policy = await createHarness({
+      config: {
+        mcp: {
+          audiences: ["pw-support-test-client"],
+          requiredGroup: "engineers",
+          perWindow: 50,
+          maxBodyBytes: 2048,
+        },
+        auth: idp.authConfig(),
+      },
+    });
+    const url = serveApp(policy.app);
+    try {
+      const outside = await idp.token({ claims: { sub: `out-${sub}` } });
+      const inside = await idp.token({
+        claims: { sub: `in-${sub}`, "cognito:groups": ["engineers"] },
+      });
+      const denied = await postMcp(
+        url.url,
+        { Authorization: `Bearer ${outside}` },
+        ping,
+      );
+      expect(denied.status).toBe(403);
+      expect(await denied.json()).toEqual({ error: "forbidden" });
+      const allowed = await postMcp(
+        url.url,
+        { Authorization: `Bearer ${inside}` },
+        ping,
+      );
+      expect(allowed.status).toBe(200);
+      const missing = await postMcp(url.url, {}, ping);
+      expect(missing.status).toBe(401);
+    } finally {
+      url.stop();
+      await policy.close();
+    }
   });
 });

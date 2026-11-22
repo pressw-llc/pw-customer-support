@@ -22,6 +22,7 @@ export interface ApiConfig {
   adminOrigins: string[];
   mcp: {
     audiences: string[];
+    requiredGroup: string | undefined;
     perWindow: number;
     maxBodyBytes: number;
   };
@@ -34,6 +35,15 @@ export interface ApiConfig {
     region: string;
     endpoint: string | undefined;
     credentials: { accessKeyId: string; secretAccessKey: string } | undefined;
+  };
+}
+
+export function mcpAuthConfig(config: ApiConfig): AuthConfig {
+  return {
+    ...config.auth,
+    audiences: config.mcp.audiences,
+    allowedEmailDomains: [],
+    requiredGroup: config.mcp.requiredGroup,
   };
 }
 
@@ -100,6 +110,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): ApiConfig {
         : local
           ? [LOCAL_MCP_CLIENT_ID, ...adminAudiences]
           : adminAudiences,
+      requiredGroup: env.MCP_REQUIRED_GROUP || undefined,
       perWindow: positiveInt(env.MCP_RATE_LIMIT_PER_WINDOW, 120),
       maxBodyBytes: positiveInt(env.MCP_MAX_BODY_BYTES, 256 * 1024),
     },

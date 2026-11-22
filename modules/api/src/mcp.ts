@@ -79,6 +79,9 @@ function requireEngineer(validator: TokenValidator): MiddlewareHandler<McpEnv> {
   return async (c, next) => {
     const token = parseBearer(c.req.header("Authorization"));
     const result = token ? await validator.verify(token) : null;
+    if (result && !result.ok && result.kind === "forbidden") {
+      return c.json({ error: "forbidden" }, 403);
+    }
     if (!result?.ok) {
       c.header("WWW-Authenticate", 'Bearer realm="pw-support-mcp"');
       return c.json({ error: "unauthorized" }, 401);

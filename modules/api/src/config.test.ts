@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { loadConfig } from "./config";
+import { loadConfig, mcpAuthConfig } from "./config";
 
 test("defaults target the local Compose stack", () => {
   const config = loadConfig({});
@@ -114,4 +114,16 @@ test("auth settings come from the environment", () => {
   expect(loadConfig({ ADMIN_DEV_PORT: "6000" }).adminOrigins[0]).toBe(
     "http://127.0.0.1:6000",
   );
+});
+
+test("the mcp auth config drops the admin email domains and takes its own group", () => {
+  const config = loadConfig({
+    ADMIN_ALLOWED_EMAIL_DOMAINS: "pressw.test",
+    ADMIN_REQUIRED_GROUP: "admins",
+    MCP_REQUIRED_GROUP: "engineers",
+  });
+  expect(config.auth.allowedEmailDomains).toEqual(["pressw.test"]);
+  expect(mcpAuthConfig(config).allowedEmailDomains).toEqual([]);
+  expect(mcpAuthConfig(config).requiredGroup).toBe("engineers");
+  expect(mcpAuthConfig(loadConfig({})).requiredGroup).toBeUndefined();
 });
