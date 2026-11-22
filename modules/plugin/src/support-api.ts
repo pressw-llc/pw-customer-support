@@ -3,10 +3,12 @@ import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/
 import {
   type JobClaimResult,
   type JobOffer,
+  type JobStatusResult,
   type JobSubmitResult,
   jobClaimResultSchema,
   jobOfferSchema,
   jobRenewResultSchema,
+  jobStatusResultSchema,
   jobSubmitResultSchema,
   MCP_LAPTOP_PATH,
   MCP_PATH,
@@ -26,6 +28,7 @@ export interface SupportApi {
     claimToken: string,
     result: unknown,
   ): Promise<JobSubmitResult>;
+  jobStatus(jobId: string, claimToken: string): Promise<JobStatusResult>;
   close(): Promise<void>;
 }
 
@@ -179,6 +182,11 @@ export function createSupportApi(options: SupportApiOptions): SupportApi {
     async submit(jobId, claimToken, result) {
       return jobSubmitResultSchema.parse(
         await laptop.call("job_submit_result", { jobId, claimToken, result }),
+      );
+    },
+    async jobStatus(jobId, claimToken) {
+      return jobStatusResultSchema.parse(
+        await laptop.call("job_status", { jobId, claimToken }),
       );
     },
     async close() {

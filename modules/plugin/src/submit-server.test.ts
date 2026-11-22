@@ -119,6 +119,52 @@ describe("submit server", () => {
     expect(forwarded).toHaveLength(2);
   });
 
+  test("a retry that returns stale_claim after a transport error is recorded as unknown", async () => {
+    let attempt = 0;
+    const { client, outcomes, forwarded } = await connect(async () => {
+      attempt += 1;
+      if (attempt === 1) throw new Error("network");
+      return { accepted: false, reason: "stale_claim", issues: [] };
+    });
+    await client.callTool({ name: "submit_result", arguments: { title: "x" } });
+    const retry = await client.callTool({
+      name: "submit_result",
+      arguments: { title: "x" },
+    });
+    expect(text(retry)).toContain("may or may not");
+    expect(outcomes).toEqual([
+      { accepted: false, reason: "transport" },
+      { accepted: false, reason: "unknown_after_transport_error" },
+    ]);
+    const third = await client.callTool({
+      name: "submit_result",
+      arguments: { title: "x" },
+    });
+    expect((third as { isError?: boolean }).isError).toBe(true);
+    expect(forwarded).toHaveLength(2);
+  });
+
+  test("two transport errors in a row end as unknown, and a plain stale claim stays stale", async () => {
+    const failing = await connect(async () => {
+      throw new Error("network");
+    });
+    await failing.client.callTool({ name: "submit_result", arguments: {} });
+    await failing.client.callTool({ name: "submit_result", arguments: {} });
+    expect(failing.outcomes.at(-1)).toEqual({
+      accepted: false,
+      reason: "unknown_after_transport_error",
+    });
+    const stale = await connect(async () => ({
+      accepted: false,
+      reason: "stale_claim",
+      issues: [],
+    }));
+    await stale.client.callTool({ name: "submit_result", arguments: {} });
+    expect(stale.outcomes).toEqual([
+      { accepted: false, reason: "stale_claim" },
+    ]);
+  });
+
   test("publishes an honest permissive schema with no union wrapper", async () => {
     const { client } = await connect(async () => ({
       accepted: true,

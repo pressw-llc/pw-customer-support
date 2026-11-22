@@ -54,6 +54,9 @@ function harness(options: {
   claim?: JobClaimResult;
   report?: RunReport | (() => Promise<RunReport>);
   renew?: boolean | Error;
+  status?:
+    | { state: "claimed" | "completed" | "not_held"; outcome: string | null }
+    | Error;
 }) {
   const logs: string[] = [];
   const calls: string[] = [];
@@ -74,6 +77,11 @@ function harness(options: {
     },
     async submit() {
       throw new Error("the watcher never submits");
+    },
+    async jobStatus() {
+      calls.push("status");
+      if (options.status instanceof Error) throw options.status;
+      return options.status ?? { state: "not_held", outcome: null };
     },
     async close() {},
   };
@@ -128,6 +136,52 @@ describe("watcher tick", () => {
     expect(JSON.stringify(h.inputs[0])).not.toContain("token-");
     expect(h.logs.join("\n")).not.toContain("CUSTOMER-SECRET");
     expect(h.logs.join("\n")).not.toContain(TOKEN);
+  });
+
+  test("resolves an uncertain delivery by reading the job state before logging", async () => {
+    for (const reason of [
+      "transport",
+      "unknown_after_transport_error",
+    ] as const) {
+      const done = harness({
+        report: report({ outcome: { accepted: false, reason } }),
+        status: { state: "completed", outcome: "agent" },
+      });
+      expect(await tick(done.deps, new AbortController().signal)).toEqual({
+        kind: "completed",
+      });
+      expect(done.calls).toContain("status");
+      expect(done.logs.join("\n")).toContain("result accepted");
+      expect(done.logs.join("\n")).not.toContain("result refused");
+      const open = harness({
+        report: report({ outcome: { accepted: false, reason } }),
+        status: { state: "not_held", outcome: null },
+      });
+      expect(await tick(open.deps, new AbortController().signal)).toEqual({
+        kind: "lapsed",
+        why: "no_outcome",
+      });
+      expect(open.logs.join("\n")).not.toContain("result refused");
+    }
+    const unreachable = harness({
+      report: report({
+        outcome: { accepted: false, reason: "unknown_after_transport_error" },
+      }),
+      status: new Error("down"),
+    });
+    expect(
+      (await tick(unreachable.deps, new AbortController().signal)).kind,
+    ).toBe("lapsed");
+    expect(unreachable.logs.join("\n")).toContain("unavailable");
+    const refused = harness({
+      report: report({
+        outcome: { accepted: false, reason: "invalid_payload" },
+      }),
+    });
+    expect(await tick(refused.deps, new AbortController().signal)).toEqual({
+      kind: "refused",
+    });
+    expect(refused.calls).not.toContain("status");
   });
 
   test("skips a refused claim and a nothing-to-do claim without running", async () => {

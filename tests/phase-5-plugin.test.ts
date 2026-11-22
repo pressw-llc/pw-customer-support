@@ -305,6 +305,10 @@ describe("watcher against the real MCP route", () => {
     if (claim.status !== "ready") throw new Error("expected a ready claim");
     expect(await api.renew(jobId, claim.claimToken)).toBe(true);
     expect(await api.renew(jobId, crypto.randomUUID())).toBe(false);
+    expect(await api.jobStatus(jobId, claim.claimToken)).toEqual({
+      state: "claimed",
+      outcome: null,
+    });
     await expect(api.claim("not-a-job-id")).rejects.toThrow(
       "tool job_claim failed",
     );
@@ -317,6 +321,10 @@ describe("watcher against the real MCP route", () => {
     ).toMatchObject({
       accepted: false,
       reason: "stale_claim",
+    });
+    expect(await api.jobStatus(jobId, claim.claimToken)).toEqual({
+      state: "completed",
+      outcome: "agent",
     });
     await api.close();
   });

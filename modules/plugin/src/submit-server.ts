@@ -17,7 +17,11 @@ export type SubmitOutcome =
   | { accepted: true }
   | {
       accepted: false;
-      reason: "stale_claim" | "invalid_payload" | "transport";
+      reason:
+        | "stale_claim"
+        | "invalid_payload"
+        | "transport"
+        | "unknown_after_transport_error";
     };
 
 export const submitConfigSchema = z.object({
@@ -60,6 +64,7 @@ const INPUT = z
 export function createSubmitServer(options: SubmitServerOptions): McpServer {
   const server = new McpServer({ name: SUBMIT_SERVER_NAME, version: "1.0.0" });
   let used = false;
+  let uncertain = false;
   server.registerTool(
     SUBMIT_RESULT_TOOL,
     {
@@ -79,12 +84,27 @@ export function createSubmitServer(options: SubmitServerOptions): McpServer {
       let outcome: SubmitOutcome;
       try {
         const answer = await options.forward(args);
-        outcome = answer.accepted
-          ? { accepted: true }
-          : { accepted: false, reason: answer.reason };
+        if (answer.accepted) {
+          outcome = { accepted: true };
+        } else if (uncertain && answer.reason === "stale_claim") {
+          outcome = {
+            accepted: false,
+            reason: "unknown_after_transport_error",
+          };
+        } else {
+          outcome = { accepted: false, reason: answer.reason };
+        }
       } catch {
-        used = false;
-        outcome = { accepted: false, reason: "transport" };
+        if (uncertain) {
+          outcome = {
+            accepted: false,
+            reason: "unknown_after_transport_error",
+          };
+        } else {
+          uncertain = true;
+          used = false;
+          outcome = { accepted: false, reason: "transport" };
+        }
       }
       options.onOutcome(outcome);
       return {
@@ -95,7 +115,9 @@ export function createSubmitServer(options: SubmitServerOptions): McpServer {
               ? "Result accepted. Stop now."
               : outcome.reason === "transport"
                 ? "The result could not be delivered. Call the tool once more."
-                : "Result refused. Stop now.",
+                : outcome.reason === "unknown_after_transport_error"
+                  ? "The result may or may not have been delivered. Stop now."
+                  : "Result refused. Stop now.",
           },
         ],
       };

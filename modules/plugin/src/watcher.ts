@@ -94,14 +94,30 @@ export async function tick(
       turns: report.turns,
       permissionDenials: report.permissionDenials,
     });
-    if (report.outcome?.accepted) {
+    let outcome = report.outcome;
+    if (
+      outcome &&
+      !outcome.accepted &&
+      (outcome.reason === "transport" ||
+        outcome.reason === "unknown_after_transport_error")
+    ) {
+      const status = await deps.api
+        .jobStatus(claim.jobId, claim.claimToken)
+        .catch(() => null);
+      deps.log("result delivery was uncertain; checked the job", {
+        job: claim.jobId,
+        state: status?.state ?? "unavailable",
+      });
+      outcome = status?.state === "completed" ? { accepted: true } : null;
+    }
+    if (outcome?.accepted) {
       deps.log("result accepted", { job: claim.jobId });
       return { kind: "completed" };
     }
-    if (report.outcome) {
+    if (outcome) {
       deps.log("result refused; job reopened for the cloud", {
         job: claim.jobId,
-        reason: report.outcome.reason,
+        reason: outcome.reason,
       });
       return { kind: "refused" };
     }
