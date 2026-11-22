@@ -3,6 +3,7 @@ export * from "./client";
 export * from "./comment-refresh";
 export * from "./events";
 export * from "./intake";
+export * from "./laptop-credentials";
 export * from "./migrate";
 export * from "./projects";
 export * from "./rate-limit";

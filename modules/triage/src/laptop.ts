@@ -1,3 +1,4 @@
+import type { LaptopBackend } from "@pw-support/api";
 import type {
   HumanTriageReason,
   LaptopPrepared,
@@ -5,8 +6,6 @@ import type {
 } from "@pw-support/contracts";
 import {
   releaseTriageJob,
-  type SubmitInput,
-  type SubmitResult,
   submitHumanTriage,
   type TriageJob,
 } from "@pw-support/db";
@@ -17,11 +16,6 @@ import { submitResult } from "./submit";
 export interface LaptopBackendDeps extends PrepareDeps {
   wake: WakeSender;
   now?: () => Date;
-}
-
-export interface LaptopBackend {
-  prepare(job: TriageJob): Promise<LaptopPrepared>;
-  submit(input: SubmitInput): Promise<SubmitResult>;
 }
 
 export function createLaptopBackend(deps: LaptopBackendDeps): LaptopBackend {

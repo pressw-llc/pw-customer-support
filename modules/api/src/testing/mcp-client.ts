@@ -1,6 +1,12 @@
+import { randomBytes } from "node:crypto";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
-import { MCP_PATH } from "@pw-support/contracts";
+import {
+  MCP_LAPTOP_PATH,
+  MCP_PATH,
+  WATCHER_HEADER,
+  WATCHER_PATH,
+} from "@pw-support/contracts";
 
 export interface ServedApp {
   url: string;
@@ -34,14 +40,24 @@ export interface McpTestClient {
   close(): Promise<void>;
 }
 
+export interface ConnectOptions {
+  path?: string;
+  headers?: Record<string, string>;
+}
+
 export async function connectMcp(
   baseUrl: string,
-  token: string,
+  token: string | null,
+  options: ConnectOptions = {},
 ): Promise<McpTestClient> {
   const client = new Client({ name: "pw-support-test", version: "1.0.0" });
+  const headers: Record<string, string> = {
+    ...(token === null ? {} : { Authorization: `Bearer ${token}` }),
+    ...options.headers,
+  };
   const transport = new StreamableHTTPClientTransport(
-    new URL(`${baseUrl}${MCP_PATH}`),
-    { requestInit: { headers: { Authorization: `Bearer ${token}` } } },
+    new URL(`${baseUrl}${options.path ?? MCP_PATH}`),
+    { requestInit: { headers } },
   );
   await client.connect(transport);
 
@@ -70,12 +86,15 @@ export async function connectMcp(
   };
 }
 
+export const LAPTOP_PATH = MCP_LAPTOP_PATH;
+
 export async function postMcp(
   baseUrl: string,
   headers: Record<string, string>,
   body: unknown,
+  path: string = MCP_PATH,
 ): Promise<Response> {
-  return fetch(`${baseUrl}${MCP_PATH}`, {
+  return fetch(`${baseUrl}${path}`, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
@@ -83,5 +102,40 @@ export async function postMcp(
       ...headers,
     },
     body: JSON.stringify(body),
+  });
+}
+
+export interface WatcherCredential {
+  machineId: string;
+  secret: string;
+  header: string;
+}
+
+export async function registerWatcher(
+  baseUrl: string,
+  token: string,
+): Promise<WatcherCredential> {
+  const machineId = crypto.randomUUID();
+  const secret = randomBytes(32).toString("base64url");
+  const response = await fetch(`${baseUrl}${WATCHER_PATH}`, {
+    method: "PUT",
+    headers: {
+      Authorization: `Bearer ${token}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({ machineId, secret }),
+  });
+  if (!response.ok) throw new Error(`watcher registration ${response.status}`);
+  return { machineId, secret, header: `${machineId}.${secret}` };
+}
+
+export function connectLaptop(
+  baseUrl: string,
+  token: string,
+  watcher: WatcherCredential,
+): Promise<McpTestClient> {
+  return connectMcp(baseUrl, token, {
+    path: LAPTOP_PATH,
+    headers: { [WATCHER_HEADER]: watcher.header },
   });
 }

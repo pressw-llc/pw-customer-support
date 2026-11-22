@@ -219,6 +219,7 @@ export const triageJobs = support.table(
     claimedByKind: text("claimed_by_kind"),
     claimedBy: text("claimed_by"),
     claimToken: uuid("claim_token"),
+    submitTokenHash: text("submit_token_hash"),
     leaseExpiresAt: timestamp("lease_expires_at", { withTimezone: true }),
     attempts: integer("attempts").notNull().default(0),
     outcome: text("outcome"),
@@ -424,6 +425,17 @@ export const subscriptions = support.table(
       t.engineerSub,
       t.channelPrefix,
     ),
-    index("subscriptions_prefix_idx").on(t.channelPrefix),
   ],
+);
+
+export const watcherCredentials = support.table(
+  "watcher_credentials",
+  {
+    engineerSub: text("engineer_sub").notNull(),
+    machineId: uuid("machine_id").notNull(),
+    secretHash: text("secret_hash").notNull(),
+    createdAt: createdAt(),
+    revokedAt: timestamp("revoked_at", { withTimezone: true }),
+  },
+  (t) => [primaryKey({ columns: [t.engineerSub, t.machineId] })],
 );

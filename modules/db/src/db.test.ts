@@ -417,6 +417,7 @@ describe("migrate on an empty database", () => {
         "ticket_deliveries",
         "tickets",
         "triage_jobs",
+        "watcher_credentials",
         "webhook_deliveries",
       ]);
     } finally {

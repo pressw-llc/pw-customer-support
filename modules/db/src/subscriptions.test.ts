@@ -207,13 +207,18 @@ describe("request queries", () => {
       ada.sub,
       mine.request.id,
     );
-    expect(adaDetail?.messages?.[0]?.body).toBe("help me");
+    expect(adaDetail?.counts).toEqual({
+      messages: 1,
+      attachments: 0,
+      characters: 7,
+    });
+    expect(JSON.stringify(adaDetail)).not.toContain("help me");
     const bobDetail = await getRequestDetailForEngineer(
       db,
       bob.sub,
       mine.request.id,
     );
-    expect(bobDetail?.messages).toBeNull();
+    expect(JSON.stringify(bobDetail)).not.toContain("help me");
     expect(bobDetail?.events[0]?.type).toBe("request.created");
     expect(
       await getRequestDetailForEngineer(

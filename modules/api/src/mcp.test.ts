@@ -1,10 +1,18 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
+import {
+  interactiveToolNames,
+  WATCHER_HEADER,
+  WATCHER_PATH,
+} from "@pw-support/contracts";
 import { createTokenValidator } from "./auth";
 import { safeIssueMessage } from "./mcp";
 import { createHarness } from "./testing/harness";
 import {
+  connectLaptop,
   connectMcp,
+  LAPTOP_PATH,
   postMcp,
+  registerWatcher,
   type ServedApp,
   serveApp,
 } from "./testing/mcp-client";
@@ -68,10 +76,9 @@ describe("mcp route limits", () => {
   });
 
   test("claims and results fail closed when no laptop backend is configured", async () => {
-    const client = await connectMcp(
-      served.url,
-      await idp.token({ claims: { sub: `nolaptop-${sub}` } }),
-    );
+    const token = await idp.token({ claims: { sub: `nolaptop-${sub}` } });
+    const watcher = await registerWatcher(served.url, token);
+    const client = await connectLaptop(served.url, token, watcher);
     const id = crypto.randomUUID();
     const claim = await client.callRaw("job_claim", { jobId: id });
     expect(claim.isError).toBe(true);
@@ -84,14 +91,30 @@ describe("mcp route limits", () => {
     await client.close();
   });
 
-  test("rate limits one engineer without affecting another", async () => {
+  const toolCall = (id: number, name: string, args: object = {}) => ({
+    jsonrpc: "2.0",
+    id,
+    method: "tools/call",
+    params: { name, arguments: args },
+  });
+
+  test("rate limits only tool calls and keeps engineers apart", async () => {
     const token = await idp.token({ claims: { sub } });
+    const headers = { Authorization: `Bearer ${token}` };
+    for (let attempt = 0; attempt < 12; attempt++) {
+      const free = await postMcp(served.url, headers, {
+        jsonrpc: "2.0",
+        id: attempt,
+        method: attempt % 2 ? "ping" : "tools/list",
+      });
+      expect(free.status).toBe(200);
+    }
     const statuses: number[] = [];
     for (let attempt = 0; attempt < 8; attempt++) {
       const response = await postMcp(
         served.url,
-        { Authorization: `Bearer ${token}` },
-        { jsonrpc: "2.0", id: attempt, method: "ping" },
+        headers,
+        toolCall(attempt, "subscriptions_list"),
       );
       statuses.push(response.status);
       if (response.status === 429) {
@@ -105,9 +128,153 @@ describe("mcp route limits", () => {
       {
         Authorization: `Bearer ${await idp.token({ claims: { sub: `o-${sub}` } })}`,
       },
-      { jsonrpc: "2.0", id: 1, method: "ping" },
+      toolCall(1, "subscriptions_list"),
     );
     expect(other.status).toBe(200);
+  });
+
+  test("renew and submit stay available after the general limit is spent", async () => {
+    const lease = `lease-${sub}`;
+    const token = await idp.token({ claims: { sub: lease } });
+    const watcher = await registerWatcher(served.url, token);
+    const headers = {
+      Authorization: `Bearer ${token}`,
+      [WATCHER_HEADER]: watcher.header,
+    };
+    for (let attempt = 0; attempt < 8; attempt++) {
+      await postMcp(
+        served.url,
+        { Authorization: `Bearer ${token}` },
+        toolCall(attempt, "subscriptions_list"),
+      );
+    }
+    const spent = await postMcp(
+      served.url,
+      { Authorization: `Bearer ${token}` },
+      toolCall(99, "subscriptions_list"),
+    );
+    expect(spent.status).toBe(429);
+    const id = crypto.randomUUID();
+    for (let attempt = 0; attempt < 10; attempt++) {
+      const renew = await postMcp(
+        served.url,
+        headers,
+        toolCall(attempt, "job_renew", { jobId: id, claimToken: id }),
+        LAPTOP_PATH,
+      );
+      expect(renew.status).toBe(200);
+    }
+  });
+});
+
+describe("mcp surface split", () => {
+  test("the interactive endpoint lists exactly the six state tools", async () => {
+    const client = await connectMcp(
+      served.url,
+      await idp.token({ claims: { sub: `six-${sub}` } }),
+    );
+    expect((await client.tools()).sort()).toEqual(
+      [...interactiveToolNames].sort(),
+    );
+    await client.close();
+  });
+
+  test("a job tool called on the interactive endpoint fails", async () => {
+    const token = await idp.token({ claims: { sub: `jt-${sub}` } });
+    const client = await connectMcp(served.url, token);
+    const id = crypto.randomUUID();
+    for (const [name, args] of [
+      ["job_claim", { jobId: id }],
+      ["job_renew", { jobId: id, claimToken: id }],
+      ["job_submit_result", { jobId: id, claimToken: id, result: {} }],
+    ] as const) {
+      const raw = await client
+        .callRaw(name, args)
+        .catch(() => ({ isError: true, text: "" }));
+      expect(raw.isError, name).toBe(true);
+    }
+    await client.close();
+  });
+
+  test("the laptop endpoint needs the watcher credential of the same engineer", async () => {
+    const adaToken = await idp.token({ claims: { sub: `a-${sub}` } });
+    const bobToken = await idp.token({ claims: { sub: `b-${sub}` } });
+    const adaWatcher = await registerWatcher(served.url, adaToken);
+    const rpc = { jsonrpc: "2.0", id: 1, method: "tools/list" };
+    const call = (headers: Record<string, string>) =>
+      postMcp(served.url, headers, rpc, LAPTOP_PATH);
+    expect((await call({})).status).toBe(401);
+    expect((await call({ Authorization: `Bearer ${adaToken}` })).status).toBe(
+      401,
+    );
+    const asBob = await call({
+      Authorization: `Bearer ${bobToken}`,
+      [WATCHER_HEADER]: adaWatcher.header,
+    });
+    expect(asBob.status).toBe(403);
+    const forged = await call({
+      Authorization: `Bearer ${adaToken}`,
+      [WATCHER_HEADER]: `${adaWatcher.machineId}.${"x".repeat(43)}`,
+    });
+    expect(forged.status).toBe(403);
+    const malformed = await call({
+      Authorization: `Bearer ${adaToken}`,
+      [WATCHER_HEADER]: "nonsense",
+    });
+    expect(malformed.status).toBe(403);
+    const ok = await call({
+      Authorization: `Bearer ${adaToken}`,
+      [WATCHER_HEADER]: adaWatcher.header,
+    });
+    expect(ok.status).toBe(200);
+    const body = (await ok.json()) as { result: { tools: { name: string }[] } };
+    expect(body.result.tools.map((tool) => tool.name).sort()).toEqual([
+      "job_claim",
+      "job_renew",
+      "job_submit_result",
+    ]);
+  });
+
+  test("a revoked watcher credential is refused", async () => {
+    const token = await idp.token({ claims: { sub: `rv-${sub}` } });
+    const watcher = await registerWatcher(served.url, token);
+    const headers = {
+      Authorization: `Bearer ${token}`,
+      [WATCHER_HEADER]: watcher.header,
+    };
+    const rpc = { jsonrpc: "2.0", id: 1, method: "tools/list" };
+    expect((await postMcp(served.url, headers, rpc, LAPTOP_PATH)).status).toBe(
+      200,
+    );
+    const revoke = await fetch(`${served.url}${WATCHER_PATH}`, {
+      method: "DELETE",
+      headers: {
+        Authorization: `Bearer ${token}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ machineId: watcher.machineId }),
+    });
+    expect(await revoke.json()).toEqual({ revoked: true });
+    expect((await postMcp(served.url, headers, rpc, LAPTOP_PATH)).status).toBe(
+      403,
+    );
+  });
+
+  test("watcher registration needs a token and a valid body", async () => {
+    const url = `${served.url}${WATCHER_PATH}`;
+    const json = { "Content-Type": "application/json" };
+    expect(
+      (await fetch(url, { method: "PUT", headers: json, body: "{}" })).status,
+    ).toBe(401);
+    const token = await idp.token({ claims: { sub: `reg-${sub}` } });
+    const headers = { ...json, Authorization: `Bearer ${token}` };
+    expect(
+      (await fetch(url, { method: "PUT", headers, body: "{}" })).status,
+    ).toBe(400);
+    expect(
+      (await fetch(url, { method: "PUT", headers, body: "not json" })).status,
+    ).toBe(400);
+    expect((await fetch(url, { method: "GET", headers })).status).toBe(405);
   });
 });
 

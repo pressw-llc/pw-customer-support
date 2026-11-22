@@ -5,12 +5,13 @@ import {
   type EngineerRequestSummary,
   MCP_MAX_SUBSCRIPTIONS,
   type StaffIdentity,
+  safeTicketLink,
   type TriageTiming,
 } from "@pw-support/contracts";
 import { and, asc, eq, type SQL, sql } from "drizzle-orm";
 import { inTransaction, type SupportExecutor } from "./client";
 import { appendEvent } from "./events";
-import { events, subscriptions } from "./schema";
+import { events, replies, subscriptions } from "./schema";
 
 export type SubscriptionRow = typeof subscriptions.$inferSelect;
 
@@ -227,7 +228,7 @@ function toSummary(raw: SummaryRaw): EngineerRequestSummary {
       : null,
     ticket:
       raw.ticket_identifier && raw.ticket_url
-        ? { identifier: raw.ticket_identifier, url: raw.ticket_url }
+        ? safeTicketLink(raw.ticket_identifier, raw.ticket_url)
         : null,
     heldReplies: raw.held,
     flaggedReplies: raw.flagged,
@@ -280,9 +281,8 @@ export async function queryRequestSummaries(
   return rows.map(toSummary);
 }
 
-export const DETAIL_MAX_MESSAGES = 20;
-export const DETAIL_MAX_BODY_CHARS = 4000;
 export const DETAIL_MAX_EVENTS = 100;
+export const DETAIL_MAX_REPLIES = 50;
 
 export async function getRequestDetailForEngineer(
   db: SupportExecutor,
@@ -295,38 +295,53 @@ export async function getRequestDetailForEngineer(
   `);
   const raw = rows[0];
   if (!raw) return null;
-  const request = toSummary(raw);
   const timeline = await db
     .select({ type: events.type, createdAt: events.createdAt })
     .from(events)
     .where(eq(events.requestId, requestId))
     .orderBy(asc(events.seq))
     .limit(DETAIL_MAX_EVENTS);
-  let messages: EngineerRequestDetail["messages"] = null;
-  if (request.subscribed) {
-    const thread = await db.execute<{
-      author: string;
-      created_at: Date;
-      body: string;
-    }>(sql`
-      select author, created_at, coalesce(sanitized_body, body) as body
-      from support.messages
-      where request_id = ${requestId} and audience = 'external'
-      order by created_at asc, id asc
-      limit ${DETAIL_MAX_MESSAGES}
-    `);
-    messages = thread.map((row) => ({
-      author: row.author,
-      createdAt: new Date(row.created_at).toISOString(),
-      body: row.body.slice(0, DETAIL_MAX_BODY_CHARS),
-    }));
-  }
+  const [counts] = await db.execute<{
+    messages: number;
+    attachments: number;
+    characters: number;
+  }>(sql`
+    select
+      (select count(*)::int from support.messages m
+        where m.request_id = ${requestId} and m.audience = 'external') as messages,
+      (select count(*)::int from support.attachments a
+        join support.messages m on m.id = a.message_id
+        where m.request_id = ${requestId}) as attachments,
+      (select coalesce(sum(length(m.body)), 0)::int from support.messages m
+        where m.request_id = ${requestId} and m.audience = 'external') as characters
+  `);
+  const replyRows = await db
+    .select({
+      status: replies.status,
+      flagged: replies.flagged,
+      wordingScore: replies.wordingScore,
+      createdAt: replies.createdAt,
+    })
+    .from(replies)
+    .where(eq(replies.requestId, requestId))
+    .orderBy(asc(replies.createdAt))
+    .limit(DETAIL_MAX_REPLIES);
   return {
-    request,
+    request: toSummary(raw),
     events: timeline.map((row) => ({
       type: row.type,
       createdAt: row.createdAt.toISOString(),
     })),
-    messages,
+    counts: {
+      messages: counts?.messages ?? 0,
+      attachments: counts?.attachments ?? 0,
+      characters: counts?.characters ?? 0,
+    },
+    replies: replyRows.map((row) => ({
+      status: row.status,
+      flagged: row.flagged,
+      wordingScore: row.wordingScore,
+      createdAt: row.createdAt.toISOString(),
+    })),
   };
 }

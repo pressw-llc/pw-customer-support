@@ -10,9 +10,18 @@ CREATE TABLE IF NOT EXISTS support.subscriptions (
   )
 );
 
-CREATE INDEX IF NOT EXISTS subscriptions_prefix_idx
-  ON support.subscriptions (channel_prefix);
-
 CREATE INDEX IF NOT EXISTS triage_jobs_offer_idx
   ON support.triage_jobs (created_at)
   WHERE status = 'open' AND laptop_claimed_at IS NULL;
+
+ALTER TABLE support.triage_jobs
+  ADD COLUMN IF NOT EXISTS submit_token_hash text;
+
+CREATE TABLE IF NOT EXISTS support.watcher_credentials (
+  engineer_sub text NOT NULL,
+  machine_id uuid NOT NULL,
+  secret_hash text NOT NULL,
+  created_at timestamptz NOT NULL DEFAULT now(),
+  revoked_at timestamptz,
+  PRIMARY KEY (engineer_sub, machine_id)
+);
