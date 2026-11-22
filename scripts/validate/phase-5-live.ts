@@ -58,6 +58,8 @@ if (!process.env.TYPESAFE_API_KEY) {
   process.exit(2);
 }
 
+import { freePort } from "./free-port";
+
 const root = join(import.meta.dir, "..", "..");
 
 function scrub(text: string): string {
@@ -421,7 +423,7 @@ async function main() {
   stub = s;
   await advanceEventCursor(db, "linear", await maxEventSeq(db));
 
-  const port = 49000 + Math.floor(Math.random() * 900);
+  const port = freePort();
   apiUrl = `http://127.0.0.1:${port}`;
   const baseEnv = {
     ...process.env,

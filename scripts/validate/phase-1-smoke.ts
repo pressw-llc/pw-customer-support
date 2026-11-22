@@ -13,12 +13,7 @@ import {
   migrate,
 } from "@pw-support/db";
 
-function freePort(): number {
-  const probe = Bun.serve({ port: 0, fetch: () => new Response("") });
-  const port = probe.port;
-  probe.stop(true);
-  return port ?? 0;
-}
+import { freePort } from "./free-port";
 
 const PORT = Number(process.env.SMOKE_API_PORT) || freePort();
 const BASE = `http://127.0.0.1:${PORT}`;

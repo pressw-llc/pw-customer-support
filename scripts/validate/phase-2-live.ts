@@ -44,6 +44,9 @@ for (const name of ["TYPESAFE_API_KEY", "ANTHROPIC_API_KEY"]) {
 
 const partial = process.argv.includes("--partial");
 const factor = Number(process.env.VALIDATE_TIME_FACTOR || 1);
+
+import { freePort } from "./free-port";
+
 const root = join(import.meta.dir, "..", "..");
 const lockPath = join(
   root,
@@ -323,7 +326,7 @@ async function main() {
   let client: Awaited<ReturnType<typeof createClient>> | undefined;
   if (!partial) client = await syncRealAgent();
 
-  const port = 48000 + Math.floor(Math.random() * 1000);
+  const port = freePort();
   apiUrl = `http://127.0.0.1:${port}`;
   api = startChild(["bun", "apps/server/src/server.ts"], {
     ...process.env,

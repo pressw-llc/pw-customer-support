@@ -43,6 +43,8 @@ if (!jevKey) {
   process.exit(2);
 }
 
+import { freePort } from "./free-port";
+
 const root = join(import.meta.dir, "..", "..");
 const SECRET = `whsec_validate_${crypto.randomUUID().slice(0, 8)}`;
 const timingEnv = {
@@ -365,7 +367,7 @@ async function main() {
   stub = s;
   await advanceEventCursor(db, "linear", await maxEventSeq(db));
 
-  const port = 48000 + Math.floor(Math.random() * 1000);
+  const port = freePort();
   apiUrl = `http://127.0.0.1:${port}`;
   s.configureWebhook({ url: `${apiUrl}/webhooks/linear`, secret: SECRET });
   const baseEnv = {

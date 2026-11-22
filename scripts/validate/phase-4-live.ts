@@ -22,9 +22,10 @@ import {
 } from "@pw-support/db";
 import { eq } from "drizzle-orm";
 import { generateKeyPair, SignJWT } from "jose";
+import { freePort } from "./free-port";
 
 const stack = resolveStackEnv(process.env);
-const port = Number(process.env.VALIDATE_API_PORT) || 8796;
+const port = Number(process.env.VALIDATE_API_PORT) || freePort();
 const apiUrl = `http://127.0.0.1:${port}`;
 const issuer = stack.localIssuer;
 const scope = `validate-${Date.now().toString(36)}`;
@@ -58,7 +59,9 @@ function spawnApi(apiPort: number, extra: Record<string, string> = {}) {
   }
   return child;
 }
-const policyPort = port + 1;
+const policyPort = Number(process.env.VALIDATE_API_PORT)
+  ? port + 1
+  : freePort();
 const api = spawnApi(port);
 const policyApi = spawnApi(policyPort, { ADMIN_REQUIRED_GROUP: "desk-staff" });
 

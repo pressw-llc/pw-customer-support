@@ -55,7 +55,7 @@ The stack runs Postgres on `127.0.0.1:5447`, LocalStack on `127.0.0.1:4577`, and
 | `VITE_OIDC_CLIENT_ID`                        | blank, `pw-support-admin`                           | Admin app OIDC client id                                                             |
 | `VITE_OIDC_SCOPE`                            | blank, `openid profile email`                       | Admin app OIDC scopes                                                                |
 | `VITE_OIDC_LOGOUT_URL`                       | blank                                               | Admin app IdP logout URL template, used when discovery has no `end_session_endpoint` |
-| `VALIDATE_API_PORT`                          | `8796`                                              | API port for `validate:phase-4`                                                      |
+| `VALIDATE_API_PORT`                          | free port at run time                               | API port for `validate:phase-4`. The policy API uses the next port                   |
 | `E2E_ADMIN_PORT`                             | `5184`                                              | Admin app port for the e2e suite                                                     |
 | `NODE_ENV`                                   | unset                                               | `production` turns off the LocalStack defaults                                       |
 | `RATE_LIMIT_WINDOW_SECONDS`                  | `60`                                                | Rate limit window length                                                             |
