@@ -263,9 +263,13 @@ describe("environment checks", () => {
   });
 
   test("lists missing smoke settings", () => {
-    expect(smokeEnvProblems({})).toHaveLength(2);
+    expect(smokeEnvProblems({})).toHaveLength(3);
     expect(
-      smokeEnvProblems({ SMOKE_PROJECT_KEY: "k", SMOKE_LINEAR_API_KEY: "l" }),
+      smokeEnvProblems({
+        SMOKE_PROJECT_KEY: "k",
+        SMOKE_LINEAR_API_KEY: "l",
+        SMOKE_LINEAR_TEAM_ID: "t",
+      }),
     ).toEqual([]);
   });
 });

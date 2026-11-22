@@ -16,7 +16,7 @@ const ticket: Ticket = {
 function apiFetcher(status: number, calls: Request[] = []): typeof fetch {
   return (async (input: string | URL, init?: RequestInit) => {
     calls.push(new Request(String(input), init));
-    return Response.json({ id: "req-1" }, { status });
+    return Response.json({ requestId: "req-1" }, { status });
   }) as typeof fetch;
 }
 
@@ -116,23 +116,32 @@ describe("Linear readback and archive", () => {
     const readback = linearReadback({
       url: "https://linear",
       apiKey: "lin_key",
+      teamId: "team-1",
       fetcher,
     });
     expect(await readback("smoke-1")).toEqual(ticket);
     expect(seen[0]?.auth).toBe("lin_key");
-    expect(seen[0]?.vars).toEqual({ term: "smoke-1" });
+    expect(seen[0]?.vars).toEqual({ teamId: "team-1", marker: "smoke-1" });
   });
 
   test("returns nothing when no issue matches and rejects on HTTP errors", async () => {
     const empty = linear(() => ({ issues: { nodes: [] } }));
     expect(
-      await linearReadback({ url: "u", apiKey: "k", fetcher: empty.fetcher })(
-        "t",
-      ),
+      await linearReadback({
+        url: "u",
+        apiKey: "k",
+        teamId: "t",
+        fetcher: empty.fetcher,
+      })("t"),
     ).toBeUndefined();
     const broken = linear(() => ({}), 500);
     await expect(
-      linearReadback({ url: "u", apiKey: "k", fetcher: broken.fetcher })("t"),
+      linearReadback({
+        url: "u",
+        apiKey: "k",
+        teamId: "t",
+        fetcher: broken.fetcher,
+      })("t"),
     ).rejects.toThrow("linear 500");
   });
 

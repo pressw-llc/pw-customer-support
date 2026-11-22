@@ -12,23 +12,23 @@ description: Work in the triage module: job claim protocol, Jev filter, sandboxe
 
 ## Layout
 
-| File                                      | Role                                                                                                                                                         |
-| ----------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `config.ts`                               | `loadTriageConfig(env)`: timing, Jev threshold, extraction caps, agent model                                                                                 |
-| `extract.ts`                              | Plans each attachment, loads it lazily and one at a time, extracts text. Images pass through. Zip is never read                                              |
-| `extract-core.ts`                         | Linear `indexOf` scanners, streaming unzip with entry caps, the PDF page cap                                                                                 |
-| `extract-sandbox.ts`, `extract-worker.ts` | Run PDF and Office extraction in a Bun `Worker` with a hard timeout                                                                                          |
-| `submit.ts`                               | `submitResult`: shared submit that sends a wake when an invalid result reopens the job                                                                       |
-| `jev.ts`, `filter.ts`                     | Jev client and the injection filter with overlapping chunks. Fails closed                                                                                    |
-| `agent-runner.ts`                         | Managed agent session: environment, stream, interrupt, abort, archive, remote-definition guard                                                               |
-| `prepare.ts`                              | `prepareAgentInput`: extract, Jev filter, record judgments. The cloud and the laptop share it                                                                |
-| `laptop.ts`                               | `createLaptopBackend`: implements the `LaptopBackend` port from `@pw-support/api`. Prepare for a laptop claim, human triage on a flag, and the shared submit |
-| `process.ts`                              | After a cloud claim: prepare, agent, validate, submit                                                                                                        |
-| `worker.ts`                               | `handleWake`, `sweepOnce`, `startSweeper`, lease heartbeat                                                                                                   |
-| `runtime.ts`                              | Builds the worker deps from the environment                                                                                                                  |
-| `testing/`                                | Harness, fake Jev, fake agent, generated files. Import from `@pw-support/triage/testing`                                                                     |
-| `agents/support-triage/`                  | `defineAgent` definition and `sync.ts`                                                                                                                       |
-| `corpus/`                                 | Injection and benign payloads for the live Jev test                                                                                                          |
+| File                                                      | Role                                                                                                                                                                    |
+| --------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `config.ts`                                               | `loadTriageConfig(env)`: timing, Jev threshold, extraction caps, agent model                                                                                            |
+| `extract.ts`                                              | Plans each attachment, loads it lazily and one at a time, extracts text. Images pass through. Zip is never read                                                         |
+| `extract-core.ts`                                         | Linear `indexOf` scanners, streaming unzip with entry caps, the PDF page cap                                                                                            |
+| `extract-sandbox.ts`, `extract-worker.ts`, `self-test.ts` | Run PDF and Office extraction in a Bun `Worker` with a hard timeout. `runExtractionSelfTest` extracts built-in fixtures through the real Worker at API and worker start |
+| `submit.ts`                                               | `submitResult`: shared submit that sends a wake when an invalid result reopens the job                                                                                  |
+| `jev.ts`, `filter.ts`                                     | Jev client and the injection filter with overlapping chunks. Fails closed                                                                                               |
+| `agent-runner.ts`                                         | Managed agent session: environment, stream, interrupt, abort, archive, remote-definition guard                                                                          |
+| `prepare.ts`                                              | `prepareAgentInput`: extract, Jev filter, record judgments. The cloud and the laptop share it                                                                           |
+| `laptop.ts`                                               | `createLaptopBackend`: implements the `LaptopBackend` port from `@pw-support/api`. Prepare for a laptop claim, human triage on a flag, and the shared submit            |
+| `process.ts`                                              | After a cloud claim: prepare, agent, validate, submit                                                                                                                   |
+| `worker.ts`                                               | `handleWake`, `sweepOnce`, `startSweeper`, lease heartbeat                                                                                                              |
+| `runtime.ts`                                              | Builds the worker deps from the environment                                                                                                                             |
+| `testing/`                                                | Harness, fake Jev, fake agent, generated files. Import from `@pw-support/triage/testing`                                                                                |
+| `agents/support-triage/`                                  | `defineAgent` definition and `sync.ts`                                                                                                                                  |
+| `corpus/`                                                 | Injection and benign payloads for the live Jev test                                                                                                                     |
 
 ## Rules
 
@@ -41,6 +41,7 @@ description: Work in the triage module: job claim protocol, Jev filter, sandboxe
 - Send an image to the agent only when Jev recorded a non-flagged judgment for it. Record every other image as `skipped` in `support.judgments` with a reason.
 - Keep one preparation function. A laptop claim calls `prepareAgentInput` through `createLaptopBackend`, so the filter logic never forks. A laptop gets content only when the filter passes. Any other outcome completes the job as human triage and returns no content.
 - Build the laptop system prompt with `buildTriageSystemPrompt("tool")` from contracts. The cloud agent uses the `"json"` delivery of the same builder.
+- Fail the container start when `runExtractionSelfTest` fails. The Worker file must ship in the image. The deployed worker sets a 4 GiB memory limit for extraction.
 - Run PDF and Office extraction in the Worker sandbox. Never scan XML with a regex. Load attachments from storage lazily and one at a time.
 - Refuse to run a session unless the remote agent has zero tools, zero MCP servers, and zero skills. Complete the job with `agent_definition_unsafe` in that case.
 - Release a job for a transient failure, then send a fresh wake with backoff. Abort the agent when the lease heartbeat loses ownership.

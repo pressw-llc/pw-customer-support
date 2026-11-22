@@ -194,6 +194,10 @@ export function smokeEnvProblems(env: EnvLike): string[] {
   return [
     ["SMOKE_PROJECT_KEY", "a project key minted for the smoke project"],
     ["SMOKE_LINEAR_API_KEY", "a Linear key that can read the smoke team"],
+    [
+      "SMOKE_LINEAR_TEAM_ID",
+      "the id of the Linear team the smoke project routes to",
+    ],
   ]
     .filter(([name]) => !env[name as string])
     .map(([name, hint]) => `${name} is required: ${hint}`);

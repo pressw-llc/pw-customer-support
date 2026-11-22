@@ -15,7 +15,12 @@ import {
 } from "./app-stack";
 import { loadStageConfig } from "./load-config";
 import { createSupportStacks, stackIds } from "./stacks";
-import { AWS_REGION, MIGRATE_COMMAND, SECRETS_PREFIX } from "./support-stack";
+import {
+  ANTHROPIC_SECRET_NAME,
+  AWS_REGION,
+  MIGRATE_COMMAND,
+  SECRETS_PREFIX,
+} from "./support-stack";
 
 function build(
   stage: "production" | "staging" = "production",
@@ -424,9 +429,16 @@ describe("worker service", () => {
       Memory: String(WORKER_MEMORY_MIB),
       RequiresCompatibilities: ["FARGATE"],
     });
-    expect(worker.Secrets.map((secret) => secret.Name)).toContain(
+    expect(worker.Secrets.map((secret) => secret.Name).sort()).toEqual([
+      "ANTHROPIC_API_KEY",
+      "DB_HOST",
       "DB_PASSWORD",
-    );
+      "DB_PORT",
+      "DB_USER",
+    ]);
+    foundationT.hasResourceProperties("AWS::SecretsManager::Secret", {
+      Name: ANTHROPIC_SECRET_NAME,
+    });
   });
 
   test("keeps managed-agent work on Fargate: the only Lambda is the Linear step", () => {

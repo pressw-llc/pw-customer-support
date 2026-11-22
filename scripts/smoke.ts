@@ -16,6 +16,9 @@ function option(name: string, env?: string): string | undefined {
 const apiUrl = option("api-url", "SMOKE_API_URL");
 const projectKey = option("project-key", "SMOKE_PROJECT_KEY");
 const apiKey = option("linear-key", "SMOKE_LINEAR_API_KEY");
+const teamId = option("linear-team", "SMOKE_LINEAR_TEAM_ID");
+const timeoutSeconds =
+  Number(option("timeout-seconds", "SMOKE_TIMEOUT_SECONDS")) || undefined;
 const linearUrl = option("linear-url", "SMOKE_LINEAR_URL") ?? LINEAR_URL;
 const keep = process.argv.includes("--keep");
 
@@ -23,6 +26,7 @@ const missing = [
   ["--api-url or SMOKE_API_URL", apiUrl],
   ["--project-key or SMOKE_PROJECT_KEY", projectKey],
   ["--linear-key or SMOKE_LINEAR_API_KEY", apiKey],
+  ["--linear-team or SMOKE_LINEAR_TEAM_ID", teamId],
 ]
   .filter(([, value]) => !value)
   .map(([name]) => name);
@@ -35,7 +39,12 @@ try {
   const result = await runSmoke({
     apiUrl: apiUrl as string,
     projectKey: projectKey as string,
-    readback: linearReadback({ url: linearUrl, apiKey: apiKey as string }),
+    readback: linearReadback({
+      url: linearUrl,
+      apiKey: apiKey as string,
+      teamId: teamId as string,
+    }),
+    timeoutMs: timeoutSeconds ? timeoutSeconds * 1000 : undefined,
   });
   console.log(
     `[smoke] PASS request ${result.requestId ?? "?"} became ${result.ticket.identifier} ${result.ticket.url}`,

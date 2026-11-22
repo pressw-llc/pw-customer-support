@@ -25,6 +25,7 @@ export interface MainOptions {
 
 export async function main(options: MainOptions = {}): Promise<void> {
   await runExtractionSelfTest();
+  console.log("[worker] extraction self-test passed");
   const triage = createWorkerRuntime();
   setWorkerRuntime(triage);
   const channels = options.channels ?? createAdapterRuntime();

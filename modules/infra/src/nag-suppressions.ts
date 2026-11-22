@@ -56,6 +56,13 @@ export function applySuppressions(stacks: Stacks): void {
   const { foundation, app, oidc } = stacks;
 
   suppress(foundation, "AttachmentsBucket", [RULES.s1]);
+  suppress(foundation, "AnthropicKey", [
+    {
+      id: "AwsSolutions-SMG4",
+      reason:
+        "A third-party API key cannot rotate on a schedule; the owner replaces it by hand.",
+    },
+  ]);
   suppress(foundation, "MigrationTask", [RULES.ecs2, RULES.iam5Managed]);
   suppress(foundation, "SecretsAccess", [
     {

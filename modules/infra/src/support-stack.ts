@@ -13,6 +13,7 @@ import * as ecs from "aws-cdk-lib/aws-ecs";
 import type * as iam from "aws-cdk-lib/aws-iam";
 import * as logs from "aws-cdk-lib/aws-logs";
 import * as s3 from "aws-cdk-lib/aws-s3";
+import * as secretsmanager from "aws-cdk-lib/aws-secretsmanager";
 import type { Construct } from "constructs";
 import { AWS_REGION, type StageConfig } from "./config";
 import { DB_NAME, SupportDatabase } from "./database";
@@ -23,6 +24,7 @@ import { RegionalStack } from "./stack-base";
 
 export { AWS_REGION };
 export const SECRETS_PREFIX = RESOURCE_NAMES.secretsPrefix;
+export const ANTHROPIC_SECRET_NAME = "pw-support-anthropic/api-key";
 
 export const REPO_ROOT = join(
   dirname(fileURLToPath(import.meta.url)),
@@ -56,6 +58,7 @@ export class SupportStack extends RegionalStack {
   readonly attachmentsBucket: s3.Bucket;
   readonly queues: SupportQueues;
   readonly secretsAccess: SecretsAccess;
+  readonly anthropicSecret: secretsmanager.Secret;
   readonly cluster: ecs.Cluster;
   readonly apiImage: ecr_assets.DockerImageAsset;
   readonly migrationTask: ecs.FargateTaskDefinition;
@@ -83,6 +86,12 @@ export class SupportStack extends RegionalStack {
 
     this.queues = new SupportQueues(this, "Queues", {
       alarmEmail: props.config.alarmEmail,
+    });
+
+    this.anthropicSecret = new secretsmanager.Secret(this, "AnthropicKey", {
+      secretName: ANTHROPIC_SECRET_NAME,
+      description:
+        "Anthropic API key for the triage worker. Set it with put-secret-value after the first deploy.",
     });
 
     this.secretsAccess = new SecretsAccess(this, "SecretsAccess", {

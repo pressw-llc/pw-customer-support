@@ -22,6 +22,7 @@ jobs:
       SUPPORT_STAGE_CONFIG: ${{ vars.SUPPORT_STAGE_CONFIG }}
       SMOKE_PROJECT_KEY: ${{ secrets.SMOKE_PROJECT_KEY }}
       SMOKE_LINEAR_API_KEY: ${{ secrets.SMOKE_LINEAR_API_KEY }}
+      SMOKE_LINEAR_TEAM_ID: ${{ vars.SMOKE_LINEAR_TEAM_ID }}
     steps:
       - uses: actions/checkout@v4
         with:

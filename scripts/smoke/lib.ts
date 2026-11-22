@@ -71,8 +71,11 @@ export async function submitSmokeRequest(options: {
       "submit",
     );
   }
-  const body = (await response.json().catch(() => ({}))) as { id?: string };
-  return body.id;
+  const body = (await response.json().catch(() => ({}))) as {
+    requestId?: string;
+    id?: string;
+  };
+  return body.requestId ?? body.id;
 }
 
 export async function runSmoke(options: SmokeOptions): Promise<SmokeResult> {
@@ -100,8 +103,8 @@ export async function runSmoke(options: SmokeOptions): Promise<SmokeResult> {
   );
 }
 
-const SEARCH = `query SmokeSearch($term: String!) {
-  issues(filter: { description: { contains: $term } }, first: 1) {
+const SEARCH = `query SmokeSearch($teamId: ID!, $marker: String!) {
+  issues(filter: { team: { id: { eq: $teamId } }, description: { contains: $marker } }, first: 1) {
     nodes { id identifier url }
   }
 }`;
@@ -129,12 +132,14 @@ async function graphql(
 export function linearReadback(options: {
   url: string;
   apiKey: string;
+  teamId: string;
   fetcher?: typeof fetch;
 }): Readback {
   const fetcher = options.fetcher ?? fetch;
   return async (token) => {
     const result = await graphql(fetcher, options.url, options.apiKey, SEARCH, {
-      term: token,
+      teamId: options.teamId,
+      marker: token,
     });
     const nodes = (result.data?.issues as { nodes?: Ticket[] } | undefined)
       ?.nodes;

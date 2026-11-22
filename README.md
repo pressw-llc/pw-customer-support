@@ -23,84 +23,94 @@ The stack runs Postgres on `127.0.0.1:5447`, LocalStack on `127.0.0.1:4577`, and
 
 `.env.example` is the committed template. Put real values in `.env.local`, which is gitignored. Manage both files with `bun run env` and the `env-files` skill. Do not edit them by hand. `bun run env set` writes a blank to `.env.example` for a key whose name contains `KEY`, `SECRET`, `TOKEN`, `PASSWORD`, `PRIVATE`, or `CREDENTIAL`, and for any value read from `--stdin`. Pass `--not-secret` to publish a dummy value, as with the LocalStack credentials.
 
-| Variable                                     | Default                                             | Purpose                                                                              |
-| -------------------------------------------- | --------------------------------------------------- | ------------------------------------------------------------------------------------ |
-| `SUPPORT_POSTGRES_PORT`                      | `5447`                                              | Host port for Postgres                                                               |
-| `SUPPORT_LOCALSTACK_PORT`                    | `4577`                                              | Host port for LocalStack                                                             |
-| `DATABASE_URL`                               | derived from `SUPPORT_POSTGRES_PORT`                | Optional override of the Postgres URL                                                |
-| `AWS_REGION`                                 | `us-east-1`                                         | AWS region for the SDK clients                                                       |
-| `AWS_ENDPOINT_URL`                           | derived from `SUPPORT_LOCALSTACK_PORT`              | Optional override of the AWS endpoint                                                |
-| `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY` | `test`                                              | Local credentials for LocalStack                                                     |
-| `ATTACHMENTS_BUCKET`                         | `pw-support-attachments`                            | S3 bucket for attachments                                                            |
-| `TRIAGE_WAKE_QUEUE`                          | `pw-support-triage-wake`                            | SQS queue that wakes triage                                                          |
-| `TRIAGE_WAKE_DLQ`                            | `pw-support-triage-wake-dlq`                        | Dead-letter queue for the wake queue                                                 |
-| `API_PORT`                                   | `8787`                                              | Port for the Hono API server                                                         |
-| `ANTHROPIC_API_KEY`                          | blank, secret                                       | Anthropic API key                                                                    |
-| `TYPESAFE_API_KEY`                           | blank, secret                                       | TypeSafe key for the Jev filter                                                      |
-| `LINEAR_API_KEY`                             | blank, secret                                       | Linear API key                                                                       |
-| `LINEAR_WEBHOOK_SECRET`                      | blank, secret                                       | Linear webhook signing secret                                                        |
-| `COGNITO_ISSUER`                             | blank, mock issuer locally                          | Token issuer URL. Production fails closed                                            |
-| `COGNITO_AUDIENCE`                           | blank, `pw-support-admin` locally                   | Comma list of accepted client ids                                                    |
-| `SUPPORT_OIDC_PORT`                          | `4599`                                              | Host port for the mock OIDC issuer                                                   |
-| `ADMIN_DEV_PORT`                             | `5183`                                              | Port for the admin Vite dev server                                                   |
-| `ADMIN_ORIGINS`                              | blank, local admin origins                          | Origins that admin CORS allows                                                       |
-| `ADMIN_ALLOWED_EMAIL_DOMAINS`                | blank, off                                          | Comma list of allowed staff email domains                                            |
-| `ADMIN_REQUIRED_GROUP`                       | blank, off                                          | Cognito group a staff token must carry                                               |
-| `ADMIN_MAX_BODY_BYTES`                       | `16384`                                             | Body cap for admin requests                                                          |
-| `ADMIN_RATE_LIMIT_PER_WINDOW`                | `60`                                                | Admin mutations per window per staff member                                          |
-| `AUTH_FETCH_TIMEOUT_MS`                      | `5000`                                              | Timeout for issuer discovery and JWKS fetches                                        |
-| `SECRETS_SCOPE`                              | `global`                                            | Scope segment in the Secrets Manager name                                            |
-| `VITE_API_URL`                               | blank, local API                                    | Admin app API base URL                                                               |
-| `VITE_OIDC_AUTHORITY`                        | blank, mock issuer                                  | Admin app OIDC issuer URL                                                            |
-| `VITE_OIDC_CLIENT_ID`                        | blank, `pw-support-admin`                           | Admin app OIDC client id                                                             |
-| `VITE_OIDC_SCOPE`                            | blank, `openid profile email`                       | Admin app OIDC scopes                                                                |
-| `VITE_OIDC_LOGOUT_URL`                       | blank                                               | Admin app IdP logout URL template, used when discovery has no `end_session_endpoint` |
-| `VALIDATE_API_PORT`                          | free port at run time                               | API port for `validate:phase-4`. The policy API uses the next port                   |
-| `E2E_ADMIN_PORT`                             | free port at run time                               | Admin app port for the e2e suite. Other `E2E_*_PORT` variables work the same way     |
-| `NODE_ENV`                                   | unset                                               | `production` turns off the LocalStack defaults                                       |
-| `RATE_LIMIT_WINDOW_SECONDS`                  | `60`                                                | Rate limit window length                                                             |
-| `RATE_LIMIT_PER_KEY`                         | `600`                                               | Requests per window for one project key                                              |
-| `RATE_LIMIT_PER_USER`                        | `120`                                               | Requests per window for one hashed ID                                                |
-| `MAX_REQUEST_BYTES`                          | 251 MiB                                             | Request body cap before a 413                                                        |
-| `SEED_CLIENT_SLUG`                           | `acme`                                              | `seed:dev` client slug                                                               |
-| `SEED_PROJECT_SLUG`                          | `portal`                                            | `seed:dev` project slug                                                              |
-| `SEED_PROJECT_KEY`                           | random, blank in the template                       | `seed:dev` key for a new project                                                     |
-| `TRIAGE_INITIAL_DELAY_SECONDS`               | `60`                                                | Cloud delay for a new job on an idle channel                                         |
-| `TRIAGE_LEASE_SECONDS`                       | `120`                                               | Claim lease length                                                                   |
-| `TRIAGE_MAX_ATTEMPTS`                        | `3`                                                 | Cloud attempts before human triage                                                   |
-| `TRIAGE_INTAKE_GRACE_SECONDS`                | `300`                                               | Wait for attachment storage before a claim                                           |
-| `TRIAGE_SWEEP_INTERVAL_SECONDS`              | `30`                                                | Worker sweep and dispatch interval                                                   |
-| `TRIAGE_AGENT_MODEL`                         | `claude-sonnet-5-5`                                 | Model for the synced triage agent                                                    |
-| `TRIAGE_AGENT_ID`                            | blank, lock file                                    | Agent id, overrides the lock file                                                    |
-| `TRIAGE_AGENT_TIMEOUT_SECONDS`               | `240`                                               | Agent session timeout                                                                |
-| `TRIAGE_WORKER_ID`                           | random                                              | Claimant name for the cloud worker                                                   |
-| `TRIAGE_MAX_CHARS_PER_FILE`                  | `20000`                                             | Extracted text cap per file                                                          |
-| `TRIAGE_MAX_CHARS_TOTAL`                     | `60000`                                             | Extracted text cap per request                                                       |
-| `TRIAGE_MAX_IMAGES`                          | `6`                                                 | Images sent to the agent                                                             |
-| `JEV_INJECTION_THRESHOLD`                    | `0.5`                                               | Score at or above which Jev flags a request                                          |
-| `JEV_TIMEOUT_MS`                             | `15000`                                             | Jev request timeout                                                                  |
-| `JEV_CHUNK_CHARS`                            | `4000`                                              | Characters per Jev judgment                                                          |
-| `JEV_JUDGE_IMAGES`                           | `1`                                                 | Judge images with Jev. Off sends no image                                            |
-| `LINEAR_API_URL`                             | blank, Linear API                                   | Linear GraphQL URL. Ignored in production                                            |
-| `LINEAR_TEST_TEAM_ID`                        | blank                                               | Team for the self-skipping live Linear test                                          |
-| `LINEAR_STUB_PORT`                           | `4590`                                              | Port for `bun run dev:linear-stub`                                                   |
-| `SEED_LINEAR_TEAM_ID`                        | blank                                               | Team id for `bun run seed:settings`                                                  |
-| `VALIDATE_TIME_FACTOR`                       | `1`                                                 | Scale for the delays in `validate:phase-2`                                           |
-| `MCP_AUDIENCE`                               | blank, `COGNITO_AUDIENCE` plus the local MCP client | Comma list of client ids the MCP route accepts                                       |
-| `MCP_REQUIRED_GROUP`                         | blank, off                                          | Cognito group an `/mcp` token must carry. Never applies to `/admin`                  |
-| `MCP_RATE_LIMIT_PER_WINDOW`                  | `120`                                               | MCP tool calls per window per engineer. Pings and `tools/list` do not count          |
-| `MCP_MAX_BODY_BYTES`                         | `262144`                                            | Body cap for MCP requests                                                            |
-| `PW_SUPPORT_API_URL`                         | `http://127.0.0.1:8787`                             | Laptop plugin API base URL                                                           |
-| `PW_SUPPORT_ISSUER`                          | blank, mock issuer                                  | Laptop plugin token issuer URL                                                       |
-| `PW_SUPPORT_CLIENT_ID`                       | `pw-support-mcp`                                    | Laptop plugin OAuth client id                                                        |
-| `PW_SUPPORT_CONFIG_DIR`                      | blank, `~/.config/pw-support`                       | Token file and watcher state directory                                               |
-| `PW_SUPPORT_CLAUDE_BIN`                      | `claude`                                            | Claude Code executable the watcher starts                                            |
-| `PW_SUPPORT_POLL_SECONDS`                    | `10`                                                | Watcher poll interval                                                                |
-| `PW_SUPPORT_RUN_TIMEOUT_SECONDS`             | `90`                                                | Hard timeout for one subagent run                                                    |
-| `SUPPORT_API_URL`                            | `http://localhost:8787`                             | Widget build-time default API URL                                                    |
-| `VITE_SUPPORT_PROJECT_KEY`                   | blank                                               | Example app project key                                                              |
-| `VITE_SUPPORT_USER_EMAIL`                    | blank                                               | Example app signed-in email                                                          |
-| `VITE_SUPPORT_API_URL`                       | blank, widget default                               | Example app API URL                                                                  |
+| Variable                                     | Default                                             | Purpose                                                                                       |
+| -------------------------------------------- | --------------------------------------------------- | --------------------------------------------------------------------------------------------- |
+| `SUPPORT_POSTGRES_PORT`                      | `5447`                                              | Host port for Postgres                                                                        |
+| `SUPPORT_LOCALSTACK_PORT`                    | `4577`                                              | Host port for LocalStack                                                                      |
+| `DATABASE_URL`                               | derived from `SUPPORT_POSTGRES_PORT`                | Optional override of the Postgres URL                                                         |
+| `AWS_REGION`                                 | `us-east-1`                                         | AWS region for the SDK clients                                                                |
+| `AWS_ENDPOINT_URL`                           | derived from `SUPPORT_LOCALSTACK_PORT`              | Optional override of the AWS endpoint                                                         |
+| `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY` | `test`                                              | Local credentials for LocalStack                                                              |
+| `ATTACHMENTS_BUCKET`                         | `pw-support-attachments`                            | S3 bucket for attachments                                                                     |
+| `TRIAGE_WAKE_QUEUE`                          | `pw-support-triage-wake`                            | SQS queue that wakes triage                                                                   |
+| `TRIAGE_WAKE_DLQ`                            | `pw-support-triage-wake-dlq`                        | Dead-letter queue for the wake queue                                                          |
+| `API_PORT`                                   | `8787`                                              | Port for the Hono API server                                                                  |
+| `ANTHROPIC_API_KEY`                          | blank, secret                                       | Anthropic API key                                                                             |
+| `TYPESAFE_API_KEY`                           | blank, secret                                       | TypeSafe key for the Jev filter                                                               |
+| `LINEAR_API_KEY`                             | blank, secret                                       | Linear API key                                                                                |
+| `LINEAR_WEBHOOK_SECRET`                      | blank, secret                                       | Linear webhook signing secret                                                                 |
+| `COGNITO_ISSUER`                             | blank, mock issuer locally                          | Token issuer URL. Production fails closed                                                     |
+| `COGNITO_AUDIENCE`                           | blank, `pw-support-admin` locally                   | Comma list of accepted client ids                                                             |
+| `SUPPORT_OIDC_PORT`                          | `4599`                                              | Host port for the mock OIDC issuer                                                            |
+| `ADMIN_DEV_PORT`                             | `5183`                                              | Port for the admin Vite dev server                                                            |
+| `ADMIN_ORIGINS`                              | blank, local admin origins                          | Origins that admin CORS allows                                                                |
+| `ADMIN_ALLOWED_EMAIL_DOMAINS`                | blank, off                                          | Comma list of allowed staff email domains                                                     |
+| `ADMIN_REQUIRED_GROUP`                       | blank, off                                          | Cognito group a staff token must carry                                                        |
+| `ADMIN_MAX_BODY_BYTES`                       | `16384`                                             | Body cap for admin requests                                                                   |
+| `ADMIN_RATE_LIMIT_PER_WINDOW`                | `60`                                                | Admin mutations per window per staff member                                                   |
+| `AUTH_FETCH_TIMEOUT_MS`                      | `5000`                                              | Timeout for issuer discovery and JWKS fetches                                                 |
+| `SECRETS_SCOPE`                              | `global`                                            | Scope segment in the Secrets Manager name                                                     |
+| `VITE_API_URL`                               | blank, local API                                    | Admin app API base URL                                                                        |
+| `VITE_OIDC_AUTHORITY`                        | blank, mock issuer                                  | Admin app OIDC issuer URL                                                                     |
+| `VITE_OIDC_CLIENT_ID`                        | blank, `pw-support-admin`                           | Admin app OIDC client id                                                                      |
+| `VITE_OIDC_SCOPE`                            | blank, `openid profile email`                       | Admin app OIDC scopes                                                                         |
+| `VITE_OIDC_LOGOUT_URL`                       | blank                                               | Admin app IdP logout URL template, used when discovery has no `end_session_endpoint`          |
+| `VALIDATE_API_PORT`                          | free port at run time                               | API port for `validate:phase-4`. The policy API uses the next port                            |
+| `E2E_ADMIN_PORT`                             | free port at run time                               | Admin app port for the e2e suite. Other `E2E_*_PORT` variables work the same way              |
+| `NODE_ENV`                                   | unset                                               | `production` turns off the LocalStack defaults                                                |
+| `RATE_LIMIT_WINDOW_SECONDS`                  | `60`                                                | Rate limit window length                                                                      |
+| `RATE_LIMIT_PER_KEY`                         | `600`                                               | Requests per window for one project key                                                       |
+| `RATE_LIMIT_PER_USER`                        | `120`                                               | Requests per window for one hashed ID                                                         |
+| `MAX_REQUEST_BYTES`                          | 251 MiB                                             | Request body cap before a 413                                                                 |
+| `SEED_CLIENT_SLUG`                           | `acme`                                              | `seed:dev` client slug                                                                        |
+| `SEED_PROJECT_SLUG`                          | `portal`                                            | `seed:dev` project slug                                                                       |
+| `SEED_PROJECT_KEY`                           | random, blank in the template                       | `seed:dev` key for a new project                                                              |
+| `TRIAGE_INITIAL_DELAY_SECONDS`               | `60`                                                | Cloud delay for a new job on an idle channel                                                  |
+| `TRIAGE_LEASE_SECONDS`                       | `120`                                               | Claim lease length                                                                            |
+| `TRIAGE_MAX_ATTEMPTS`                        | `3`                                                 | Cloud attempts before human triage                                                            |
+| `TRIAGE_INTAKE_GRACE_SECONDS`                | `300`                                               | Wait for attachment storage before a claim                                                    |
+| `TRIAGE_SWEEP_INTERVAL_SECONDS`              | `30`                                                | Worker sweep and dispatch interval                                                            |
+| `TRIAGE_AGENT_MODEL`                         | `claude-sonnet-5-5`                                 | Model for the synced triage agent                                                             |
+| `TRIAGE_AGENT_ID`                            | blank, lock file                                    | Agent id, overrides the lock file                                                             |
+| `TRIAGE_AGENT_TIMEOUT_SECONDS`               | `240`                                               | Agent session timeout                                                                         |
+| `TRIAGE_WORKER_ID`                           | random                                              | Claimant name for the cloud worker                                                            |
+| `TRIAGE_MAX_CHARS_PER_FILE`                  | `20000`                                             | Extracted text cap per file                                                                   |
+| `TRIAGE_MAX_CHARS_TOTAL`                     | `60000`                                             | Extracted text cap per request                                                                |
+| `TRIAGE_MAX_IMAGES`                          | `6`                                                 | Images sent to the agent                                                                      |
+| `JEV_INJECTION_THRESHOLD`                    | `0.5`                                               | Score at or above which Jev flags a request                                                   |
+| `JEV_TIMEOUT_MS`                             | `15000`                                             | Jev request timeout                                                                           |
+| `JEV_CHUNK_CHARS`                            | `4000`                                              | Characters per Jev judgment                                                                   |
+| `JEV_JUDGE_IMAGES`                           | `1`                                                 | Judge images with Jev. Off sends no image                                                     |
+| `LINEAR_API_URL`                             | blank, Linear API                                   | Linear GraphQL URL. Ignored in production                                                     |
+| `LINEAR_TEST_TEAM_ID`                        | blank                                               | Team for the self-skipping live Linear test                                                   |
+| `LINEAR_STUB_PORT`                           | `4590`                                              | Port for `bun run dev:linear-stub`                                                            |
+| `SEED_LINEAR_TEAM_ID`                        | blank                                               | Team id for `bun run seed:settings`                                                           |
+| `VALIDATE_TIME_FACTOR`                       | `1`                                                 | Scale for the delays in `validate:phase-2`                                                    |
+| `MCP_AUDIENCE`                               | blank, `COGNITO_AUDIENCE` plus the local MCP client | Comma list of client ids the MCP route accepts                                                |
+| `MCP_REQUIRED_GROUP`                         | blank, off                                          | Cognito group an `/mcp` token must carry. Never applies to `/admin`                           |
+| `MCP_RATE_LIMIT_PER_WINDOW`                  | `120`                                               | MCP tool calls per window per engineer. Pings and `tools/list` do not count                   |
+| `MCP_MAX_BODY_BYTES`                         | `262144`                                            | Body cap for MCP requests                                                                     |
+| `PW_SUPPORT_API_URL`                         | `http://127.0.0.1:8787`                             | Laptop plugin API base URL                                                                    |
+| `PW_SUPPORT_ISSUER`                          | blank, mock issuer                                  | Laptop plugin token issuer URL                                                                |
+| `PW_SUPPORT_CLIENT_ID`                       | `pw-support-mcp`                                    | Laptop plugin OAuth client id                                                                 |
+| `PW_SUPPORT_CONFIG_DIR`                      | blank, `~/.config/pw-support`                       | Token file and watcher state directory                                                        |
+| `PW_SUPPORT_CLAUDE_BIN`                      | `claude`                                            | Claude Code executable the watcher starts                                                     |
+| `PW_SUPPORT_POLL_SECONDS`                    | `10`                                                | Watcher poll interval                                                                         |
+| `PW_SUPPORT_RUN_TIMEOUT_SECONDS`             | `90`                                                | Hard timeout for one subagent run                                                             |
+| `SUPPORT_API_URL`                            | `http://localhost:8787`                             | Widget build-time default API URL                                                             |
+| `NPM_TOKEN`                                  | blank, secret                                       | Publish token for npmjs, read by `bun run release --publish`                                  |
+| `GH_PACKAGES_TOKEN`                          | blank, secret                                       | Publish token for GitHub Packages. `GITHUB_TOKEN` also works                                  |
+| `SUPPORT_STAGE_CONFIG`                       | blank                                               | JSON stage config for `bun run deploy`. The alternative is `modules/infra/stage.<stage>.json` |
+| `SMOKE_PROJECT_KEY`                          | blank, secret                                       | Project key the deploy smoke test submits with                                                |
+| `SMOKE_LINEAR_API_KEY`                       | blank, secret                                       | Linear key that reads the smoke team                                                          |
+| `SMOKE_LINEAR_TEAM_ID`                       | blank                                               | Linear team id of the smoke project                                                           |
+| `SMOKE_API_URL`                              | blank                                               | API URL for `bun run smoke`. The deploy script passes the deployed URL                        |
+| `DB_HOST`, `DB_PORT`, `DB_NAME`              | blank, `5432`, `support`                            | Postgres parts used when `DATABASE_URL` is blank. ECS sets them from the secret               |
+| `DB_USER`, `DB_PASSWORD`                     | blank, secret                                       | Postgres credentials for the same case. The URL then requires TLS                             |
+| `DB_SECRET_ARN`                              | blank                                               | Secrets Manager ARN of the database credentials. The Lambda step reads it at start            |
+| `VITE_SUPPORT_PROJECT_KEY`                   | blank                                               | Example app project key                                                                       |
+| `VITE_SUPPORT_USER_EMAIL`                    | blank                                               | Example app signed-in email                                                                   |
+| `VITE_SUPPORT_API_URL`                       | blank, widget default                               | Example app API URL                                                                           |
 
 ## Run the widget locally
 
@@ -156,6 +166,13 @@ Script-tag use loads `dist/support-widget.global.js` and calls `window.PressWSup
 | `bun run dev:worker`            | Migrate, set up the stack, and run the triage worker and the dispatcher   |
 | `bun run dev:linear-stub`       | Start the local Linear GraphQL stub                                       |
 | `bun run agent:sync`            | Publish the triage agent and write its lock file                          |
+| `bun run demo`                  | Start the local demo and print its walkthrough. `demo stop` tears it down |
+| `bun run release`               | Build and verify the widget package, then print the publish plan          |
+| `bun run deploy`                | Validate config, build, synth, and deploy the stacks for a stage          |
+| `bun run smoke`                 | Submit one request to an API and read back the Linear ticket              |
+| `bun run build:plugin`          | Bundle the laptop plugin and run `claude plugin validate` on it           |
+| `bun run validate:release`      | Rehearse the release on two local registries                              |
+| `bun run validate:deploy`       | Rehearse the deploy on LocalStack and run the production image            |
 | `bun run seed:settings <team>`  | Route the seed project to a Linear team                                   |
 | `bun run validate:pipelines`    | Run `bunx pw-pipeline validate`                                           |
 | `bun run validate:phase-2`      | Run the live Phase 2 validation against Jev and Managed Agents            |
@@ -266,7 +283,9 @@ The Linear key comes from a `SecretsProvider`. The runtime uses `createManagedSe
 
 ### T15: Lambda steps locally
 
-The Lambda step runs locally through an SQS poller that invokes the same `lambdaHandlerFor` handler, with the dispatcher feeding LocalStack SQS. A test in `pipelines/pipelines.test.ts` proves the path from request to ticket. LocalStack Lambda is not used, because it needs the Docker socket and the `lambda` service in Compose.
+The Lambda step runs locally through an SQS poller that invokes the same `lambdaHandlerFor` handler, with the dispatcher feeding LocalStack SQS. A test in `pipelines/pipelines.test.ts` proves the path from request to ticket. The default Compose LocalStack has no Docker socket, so the check does not use LocalStack Lambda.
+
+`bun run validate:deploy` settles the Lambda path. It starts its own LocalStack with the Docker socket, deploys the step as a zip function with an SQS event source mapping that reports batch item failures, and sends a request through the API, the worker, and the adapter queue to the Linear stub. The result is recorded in T15 of the PRD. LocalStack 3 lacks the `nodejs22.x` runtime, so the rehearsal runs the same bundle on `nodejs20.x`. The deployed image uses the `nodejs22` Lambda base.
 
 ### Validation
 
@@ -384,7 +403,7 @@ bun run dev:api
 bun run dev:admin
 ```
 
-In AWS, the issuer is the `pw-telemetry-platform` Cognito pool, `https://cognito-idp.<region>.amazonaws.com/<poolId>`. The pool lives in another account, so the API needs only its public JWKS. The admin app needs a new app client on that pool with the CloudFront URL plus `/auth/callback` as its callback URL. Set `COGNITO_ISSUER`, `COGNITO_AUDIENCE` (the app client id), and `ADMIN_ORIGINS` on the API. Put `VITE_API_URL`, `VITE_OIDC_AUTHORITY`, and `VITE_OIDC_CLIENT_ID` in a `config.json` file next to `index.html`, or set them at build time. The CDK stack exposes the same values through the `cognitoIssuer` and `cognitoAudience` context keys, and no real id lives in this repository. The app keeps tokens in session storage and renews silently.
+In AWS, the issuer is the `pw-telemetry-platform` Cognito pool, `https://cognito-idp.<region>.amazonaws.com/<poolId>`. The pool lives in another account, so the API needs only its public JWKS. The admin app needs a new app client on that pool with the CloudFront URL plus `/auth/callback` as its callback URL. Set `COGNITO_ISSUER`, `COGNITO_AUDIENCE` (the app client id), and `ADMIN_ORIGINS` on the API. The CDK app deploys the built admin app with a `config.json` file next to `index.html` that holds `VITE_API_URL`, `VITE_OIDC_AUTHORITY`, `VITE_OIDC_CLIENT_ID`, and the optional logout URL. The stage config supplies the values, and no real id lives in this repository. See `docs/runbook.md`. The app keeps tokens in session storage and renews silently.
 
 The API answers `401` for a missing, invalid, expired, wrong-issuer, or wrong-audience token, with a `WWW-Authenticate` header. It answers `403` with `{"error":"forbidden"}` for a valid token that fails `ADMIN_ALLOWED_EMAIL_DOMAINS` or `ADMIN_REQUIRED_GROUP`. The app starts at most one fresh login after a `401` or a renewal failure. A second `401` right after sign-in shows "Sign-in could not be verified" with a retry button. A `403` shows "Not authorized for this desk" with the signed-in email and a sign-out button. A callback error or an unknown callback state shows "Sign-in failed".
 
@@ -536,6 +555,17 @@ modules/plugin/bin/pw-support login
 
 `pw-support login` runs the authorization code flow with PKCE against the issuer discovered from `PW_SUPPORT_ISSUER`. It opens the browser, listens on `127.0.0.1:53682`, and checks `state`. Register `http://127.0.0.1:53682/callback` as a callback URL on the app client. Tokens go to `tokens.json` in the config directory with mode 0600, and the directory has mode 0700. The command refreshes an expired access token with the refresh token. `pw-support token` prints a fresh access token. `pw-support logout` revokes the watcher credential, stops the watcher, and deletes both files. Nothing logs a token. The `--client-credentials` login exists for tests and validation against the mock issuer and takes its secret from injected options, not from the environment.
 
+For a laptop without a checkout, build the bundled plugin.
+
+```bash
+bun run build:plugin
+claude --plugin-dir modules/plugin/dist/plugin
+```
+
+`bun run build:plugin` writes `modules/plugin/dist/plugin` with `.claude-plugin/plugin.json`, `.mcp.json`, the commands, the skill, a `bin/pw-support` launcher, and one self-contained `lib/cli.js`. The bundle holds the CLI, the watcher, and the stdio submit server, so it needs no workspace on disk. It then runs `claude plugin validate` on the directory and prints the result. The validator reports directory listing hints about a privacy policy URL, which do not change the result.
+
+To distribute the plugin through a marketplace repository, copy `modules/plugin/dist/plugin` into the marketplace as `plugins/support` and add an entry with `"source": "./plugins/support"` to its `marketplace.json`. The marketplace owner commits and publishes it. Nothing in this repository publishes the plugin.
+
 The plugin declares the MCP server in `.mcp.json` as an HTTP server whose `headersHelper` runs `bin/pw-support headers`. The helper prints `{"Authorization":"Bearer <token>"}`. Claude Code runs it at connect time, so a refreshed token needs no restart. The route does not publish protected resource metadata. Claude Code skips OAuth discovery when a header source exists, and Cognito offers no dynamic client registration, so the helper is the supported path.
 
 Slash commands: `/support:subscriptions`, `/support:subscribe <prefix>`, `/support:unsubscribe <prefix>`, `/support:status [request id or channel prefix]`, and `/support:watch start|stop|status`. The `laptop-triage` skill describes the workflow.
@@ -603,6 +633,48 @@ A hard timeout kills the process. The watcher then stops renewing and lets the l
 
 `bun run validate:phase-5 --evidence-dir <dir>` needs `TYPESAFE_API_KEY` and a logged-in `claude`. It starts the API, the worker with a 600 second cloud delay, and the Linear stub, then prints PASS or FAIL for A12, A13, A20, A28, and the injection case. It also checks B1, no customer text on the interactive surface, and B2, the split between `/mcp` and `/mcp/laptop`. It makes two real `claude -p` runs: one for A20 over the plugin MCP config and one for the A28 subagent. A28 asserts that `TYPESAFE_API_KEY` is in the watcher's own environment and absent from the child environment key list, and that no tool other than the submit tool appears at init or later in the stream. The script scrubs the evidence of tokens, secrets, local paths, usernames, and any email address that does not end in `.test`. It writes the watcher log, the watcher process listing, and a redacted digest of each run to the evidence directory. The cloud path ends as human triage there, because no Anthropic key is set.
 
+## Release
+
+`bun run release` builds `@pressw-llc/support-react`, packs one tarball, and verifies it. The checks cover the exports map, the ESM, type, and global bundle files, the absence of workspace dependencies, the `files` whitelist, the README and license, and a size report. The default mode is a dry run. It prints the publish plan for both registries and sends nothing.
+
+```bash
+bun run release                                   # dry run
+SUPPORT_API_URL=https://<api host> NPM_TOKEN=... GH_PACKAGES_TOKEN=... bun run release --publish
+```
+
+`--publish` needs both tokens before it sends anything. It publishes the same tarball to `https://registry.npmjs.org` and then to `https://npm.pkg.github.com`. A version that a registry already holds counts as success, so a rerun is safe. If the second registry fails, the script prints the retry command, for example `bun run release --publish --only github --allow-existing`. A real publish refuses a localhost or non-https `SUPPORT_API_URL`, because the build bakes it in as the widget default.
+
+The script reads the version from `modules/widget/package.json` and refuses to publish when the tag `support-react-v<version>` exists, unless `--allow-existing`. After a publish it appends an entry to `modules/widget/CHANGELOG.md` and prints the `git tag` and `git push` commands. It never tags. `--npm-registry`, `--gh-registry`, `--only npm|github`, and `--no-changelog` support rehearsals.
+
+`bun run validate:release` rehearses the whole flow. It starts two Verdaccio containers on free ports, publishes with throwaway tokens, installs the package into two fresh apps from each registry, builds each app with the one-import, two-prop usage, and proves the second publish is idempotent. It also runs the dry run against the real registry URLs with no token. It needs Docker image pulls, so it is not part of `bun run check`. A test in the check keeps every other package `private: true`.
+
+## Deploy
+
+The stack lives in `modules/infra` and deploys to a dedicated AWS account in `us-east-1` as three stacks per stage.
+
+| Stack                 | Holds                                                                                                                                                                                              |
+| --------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `PwSupport`           | VPC with public, app, and isolated data subnets, Aurora Serverless v2 Postgres, the attachments bucket, the queues with DLQs and alarms, the secrets policies, the ECS cluster, the migration task |
+| `PwSupportApp`        | The API on Fargate behind an ALB, the triage worker on Fargate, the `linear-outbound` Lambda with its SQS event source, the admin site on CloudFront with a runtime config                         |
+| `PwSupportGithubOidc` | The GitHub Actions deploy role for this repository                                                                                                                                                 |
+
+`Dockerfile` builds four targets from one install: `api`, `worker`, `migrate`, and `lambda`. The image runs as a non-root user with production dependencies only. The API and the worker run `runExtractionSelfTest` at start and exit when the extraction Worker cannot extract a built-in fixture. The worker task sets a 4 GiB memory limit for extraction. Every environment sets `NODE_ENV=production`. `MCP_REQUIRED_GROUP` is required, and `LINEAR_API_URL` cannot be set in production.
+
+Stage values come from CDK context, `modules/infra/stage.<stage>.json`, or the `SUPPORT_STAGE_CONFIG` JSON variable. Copy `modules/infra/stage.example.json` to `stage.production.json`. The file is gitignored. `bun run synth` uses placeholders, so it needs no account and no credentials.
+
+```bash
+bun run deploy --dry-run                 # config, build, images, synth, no AWS call
+GITHUB_TOKEN=... bun run deploy --stage production   # the real deploy
+```
+
+`bun run deploy` is the one deploy entry. It validates the config, builds the admin app and the images, runs `cdk synth` and `cdk diff`, deploys the foundation stack, runs the migration task, deploys the app stack, and runs `scripts/smoke.ts`. The smoke test submits one request with the smoke project key and reads back the Linear ticket. Without AWS credentials the script runs as a dry run. The deploy fails fast with a list of every missing value. `bun run deploy --stage production --oidc` deploys only the GitHub OIDC stack, once, with admin credentials. `.github/workflows/deploy.yml` runs only on a manual dispatch and calls `bun run deploy --stage production` after checkout and setup. It never runs on a pull request.
+
+`bun run validate:deploy` rehearses the deploy with no AWS account. It runs the dry run with placeholders and with a missing production value. It deploys the S3, SQS, and Secrets Manager resources of the synthesized stack into a dedicated LocalStack, deploys the `linear-outbound` step into LocalStack Lambda, and sends a request through the API, the worker, the deployed queues, and the Lambda to the Linear stub. It builds the production image and runs the API and worker containers against the Compose stack. The check runs `cdk-nag` AwsSolutions over the stacks in `modules/infra/src/nag.test.ts`. `docs/runbook.md` lists the owner prerequisites and the operations.
+
+## Demo
+
+`bun run demo` starts the local stack, migrates, seeds a demo project with a Linear team, and starts the API, the worker, a Linear stub with a ticket viewer page, the admin app, and the example host app on free ports. It prints the URLs, the login, and a numbered walkthrough. `bun run demo comment <ticket> "<text>"` posts a staff comment through the stub. `bun run demo stop` tears everything down. Without a Jev key the demo says which steps degrade. See [docs/demo.md](docs/demo.md).
+
 ## Modules
 
 | Module              | Purpose                                   |
@@ -615,7 +687,7 @@ A hard timeout kills the process. The watcher then stops renewing and lets the l
 | `modules/triage`    | Claim worker, Jev filter, triage agent    |
 | `modules/channels`  | Adapter contract, dispatcher, Linear      |
 | `modules/plugin`    | Claude Code plugin for laptop triage      |
-| `modules/infra`     | AWS CDK stack                             |
+| `modules/infra`     | AWS CDK stacks and stage config           |
 | `apps/server`       | Process entry that wires api and triage   |
 
 `apps/server` starts the API with the triage laptop backend. `bun run dev:api` runs it, and `modules/api` has no dependency on `modules/triage`. `bun run lint` fails on a workspace dependency cycle. `examples/host-app` is a fresh Vite React app that embeds the widget. `e2e` holds the Playwright suite. `pipelines` holds the `support-triage` and `linear-outbound` pipelines. `tests` holds cross-module criterion tests.
@@ -628,4 +700,4 @@ A module imports another module only through `@pw-support/contracts` or the othe
 
 ## CI
 
-`.github/workflows/ci.yml` runs `bun run check`. Set the `PACKAGES_READ_TOKEN` secret when the default token cannot read the `@pressw-llc` packages.
+`.github/workflows/ci.yml` runs `bun run check`. Set the `PACKAGES_READ_TOKEN` secret when the default token cannot read the `@pressw-llc` packages. `.github/workflows/deploy.yml` runs `bun run deploy --stage production` on a manual dispatch with OIDC credentials. The `check` command runs the skills audit, the package privacy guard, the release and deploy logic tests, the cdk-nag test, and `cdk synth`. It needs no AWS credentials and publishes nothing.

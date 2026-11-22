@@ -1,0 +1,207 @@
+# Runbook
+
+This runbook covers the first deploy, routine operations, and recovery for PressW Customer Support V1. The stack runs in a dedicated AWS account in `us-east-1`.
+
+An agent never runs the owner actions below. The AWS account and the npmjs organization do not exist yet.
+
+## First deploy
+
+Do the steps in order. Each step names what it unblocks.
+
+### 1. AWS account, CDK bootstrap, and the OIDC role
+
+- [ ] Create the dedicated AWS account and note its 12 digit id.
+- [ ] Sign in to the account with admin credentials.
+- [ ] Bootstrap CDK once.
+
+```bash
+bunx cdk bootstrap aws://<account id>/us-east-1
+```
+
+- [ ] Request an ACM certificate in `us-east-1` for the API host name, for example `support-api.<your domain>`. Validate it. Note the certificate ARN.
+- [ ] Copy `modules/infra/stage.example.json` to `modules/infra/stage.production.json`. Fill `account` and `certificateArn` now. Leave the Cognito, agent, and group values for steps 2 to 4. The file is gitignored.
+- [ ] Deploy the GitHub OIDC stack once with the admin credentials.
+
+```bash
+GITHUB_TOKEN=<read:packages token> bun run deploy --stage production --oidc
+```
+
+- [ ] Copy the `DeployRoleArn` output. Add it to the GitHub repository as the variable `AWS_DEPLOY_ROLE_ARN`.
+- [ ] Create the GitHub environment `production`. Restrict its deployment branches to `main` and add a required reviewer.
+- [ ] Add the repository variable `SUPPORT_STAGE_CONFIG` with the JSON of the stage file, and the secret `PACKAGES_READ_TOKEN` if the default token cannot read `@pressw-llc` packages.
+
+The role trusts `repo:pressw-llc/pw-customer-support` on `main` or in the `production` environment. It holds only the CDK bootstrap roles, `cloudformation:DescribeStacks`, and the migration task permissions.
+
+### 2. Cognito app clients on the telemetry pool
+
+The pool lives in the `pw-telemetry-platform` account. Create two app clients on it.
+
+| Client | Used by | Flow | Callback URLs | Sign-out URLs |
+| --- | --- | --- | --- | --- |
+| Admin | Admin site | Authorization code with PKCE, no secret | `<admin origin>/auth/callback` | `<admin origin>/signed-out` |
+| MCP | Laptop plugin | Authorization code with PKCE, no secret | `http://127.0.0.1:53682/callback` | none |
+
+- [ ] The admin origin is the CloudFront URL that step 6 prints as `AdminUrl`. Create the admin client with the temporary callback `https://localhost/auth/callback`. Replace it with the exact URLs after step 6.
+- [ ] Allow the scopes `openid`, `profile`, and `email` on both clients.
+- [ ] Note the pool issuer `https://cognito-idp.us-east-1.amazonaws.com/<poolId>` and the two client ids.
+- [ ] Create a Cognito group for support staff, for example `support-staff`. Add the engineers. The API requires this group on `/mcp`.
+- [ ] Note the hosted UI domain. Set `adminLogoutUrl` to `https://<hosted UI domain>/logout?client_id={client_id}&logout_uri={logout_uri}`.
+- [ ] Put `cognitoIssuer`, `adminClientId`, `mcpClientId`, `mcpRequiredGroup`, and `adminLogoutUrl` in the stage file.
+
+### 3. Anthropic agent and Jev
+
+- [ ] Run `ANTHROPIC_API_KEY=<key> bun run agent:sync`. It prints the agent id. Put it in the stage file as `triageAgentId`.
+- [ ] Keep the Anthropic and Jev keys ready for step 7. They never go in the stage file. The Jev key goes through the admin site. The Anthropic key goes straight into Secrets Manager.
+
+### 4. Linear
+
+- [ ] Create or choose the support team and a sandbox team for the smoke test.
+- [ ] Create a Linear API key that can create issues and comments on those teams.
+- [ ] Note both team ids.
+- [ ] Create the webhook after step 6, because it needs the API URL. It posts to `<API URL>/webhooks/linear`, covers Comment events, and is scoped to the support teams. Save its signing secret for step 7.
+
+### 5. npmjs organization and tokens
+
+- [ ] Create the `pressw-llc` organization on npmjs.
+- [ ] Create a publish token for it. Export it as `NPM_TOKEN` when you release.
+- [ ] Create a GitHub token with `write:packages` for `GH_PACKAGES_TOKEN`.
+
+### 6. First deploy
+
+The first deploy skips the smoke test, because the keys do not exist yet.
+
+```bash
+GITHUB_TOKEN=<read:packages token> bun run deploy --stage production --skip-smoke
+```
+
+- [ ] Copy the outputs `ApiUrl`, `AdminUrl`, `AdminCallbackUrl`, `AdminSignedOutUrl`, and `ApiLoadBalancerDns`.
+- [ ] Point the API host name at `ApiLoadBalancerDns` with a CNAME.
+- [ ] Replace the temporary admin callback with `AdminCallbackUrl` and `AdminSignedOutUrl` on the admin client.
+- [ ] Create the Linear webhook from step 4.
+
+The worker and the API start before the keys exist. The worker logs that the Jev and agent checks failed and sends every job to human triage until step 7 ends.
+
+### 7. Secrets, project, and smoke
+
+- [ ] Sign in to the admin site. Open Settings, then Integrations. Save the Linear key, the Linear webhook secret, and the Jev key. The values go to Secrets Manager under `pw-support/<scope>/<name>`. Postgres keeps only the reference.
+- [ ] Store the Anthropic key in the secret the stack created. The worker reads it as `ANTHROPIC_API_KEY` at start.
+
+```bash
+aws secretsmanager put-secret-value --secret-id pw-support-anthropic/api-key --secret-string <key>
+aws ecs update-service --cluster <ClusterName> --service <worker service> --force-new-deployment
+```
+
+- [ ] Create the project `smoke` for the sandbox team. Mint a key. Set the GitHub secret `SMOKE_PROJECT_KEY`, the secret `SMOKE_LINEAR_API_KEY`, and the variable `SMOKE_LINEAR_TEAM_ID`.
+- [ ] Run the smoke test.
+
+```bash
+SMOKE_API_URL=<ApiUrl> SMOKE_PROJECT_KEY=<key> SMOKE_LINEAR_API_KEY=<key> SMOKE_LINEAR_TEAM_ID=<team id> bun run smoke
+```
+
+The smoke test submits one request and reads back the Linear ticket. It archives the ticket. A pass proves A22 for the local deploy script.
+
+- [ ] Run the GitHub workflow `Deploy` once from `main`. A pass proves A22 for Actions.
+- [ ] Publish the widget. See "Publish the widget".
+
+## Routine operations
+
+### Routine deploy
+
+Run the `Deploy` workflow from `main` after CI passes. The workflow runs `bun run deploy --stage production`. The script builds, diffs, deploys the foundation stack, runs the migration task, deploys the app stack, and runs the smoke test. A failed migration stops the deploy before the services roll. A failed service rollout rolls back through the ECS circuit breaker.
+
+### Rollback
+
+- Run the `Deploy` workflow from the previous good commit on `main`. The script rolls the services back to that commit's image.
+- A migration is forward only. Write a new migration that undoes the change. Do not edit an applied migration.
+- If a bad task keeps restarting, set the service desired count to 0 in the ECS console, fix, and deploy.
+
+### Publish the widget
+
+```bash
+bun run release                       # dry run, prints the plan
+SUPPORT_API_URL=https://<API host> NPM_TOKEN=<token> GH_PACKAGES_TOKEN=<token> bun run release --publish
+git tag support-react-v<version> && git push origin support-react-v<version>
+```
+
+Bump `version` in `modules/widget/package.json` first. See the README Release section.
+
+### Key rotation
+
+- Anthropic key: run `put-secret-value` on `pw-support-anthropic/api-key`, then force a new deployment of the worker service.
+- Linear, webhook, and Jev keys: save the new value in the admin Integrations page. The API sees it at once. Other processes see it within 30 seconds. Revoke the old key in Linear or TypeSafe afterward.
+- Database password: Secrets Manager rotates it every 30 days with the hosted rotation. Running tasks reconnect on the next restart. Force a restart with `aws ecs update-service --force-new-deployment` for the API and worker services.
+- Project keys: mint a new key, give it to the client, then revoke the old key.
+- Watcher credentials: `pw-support logout` revokes the credential of one laptop.
+
+### Add a client project and mint a key
+
+- [ ] Open the admin site, Settings, Projects. Create the project with the client and project slugs. Choose the Linear team.
+- [ ] Mint a key. The full key appears once. Send it to the client developer.
+- [ ] Optionally set the severe-request CC list. V1 stores it and sends nothing.
+- [ ] Give the client `@pressw-llc/support-react` and the two props, `projectKey` and `userEmail`.
+
+### Revoke a key
+
+Open Settings, Projects, the project, then Revoke on the key. Requests with that key return 401 at once.
+
+### Install the laptop plugin and log in
+
+```bash
+bun run build:plugin
+claude --plugin-dir modules/plugin/dist/plugin
+export PW_SUPPORT_API_URL=https://<API host>
+export PW_SUPPORT_ISSUER=https://cognito-idp.us-east-1.amazonaws.com/<poolId>
+export PW_SUPPORT_CLIENT_ID=<MCP client id>
+modules/plugin/dist/plugin/bin/pw-support login
+```
+
+Then run `/support:subscribe <client>` and `/support:watch start` in a session. The engineer must be in the required Cognito group.
+
+## Recovery
+
+### DLQ triage
+
+An alarm on a DLQ means a message failed five times.
+
+- [ ] Open the queue `pw-support-triage-wake-dlq` or `pw-support-adapter-linear-dlq` in SQS. Poll for messages and read one body.
+- [ ] Find the matching job or event by id in the admin request detail.
+- [ ] Fix the cause. Common causes are an invalid Linear key, a Linear outage, or a deleted team.
+- [ ] Start a redrive from the DLQ to its source queue in the SQS console. The handlers are idempotent.
+- [ ] If the message is stale, purge it. The sweeper recovers any open job.
+
+### Stuck job or held reply
+
+- A job that stays open is recovered by the worker sweeper every 30 seconds. Check that the worker service has a running task.
+- A job claimed by a laptop that went away returns to the cloud when its lease lapses, within 120 seconds.
+- A job that failed three cloud attempts completes as human triage. The ticket carries the human triage label.
+- A held reply waits for `@confirm` from its author in the Linear thread. A hold expires after its lifetime and the next dispatcher tick marks it expired. The admin request detail shows held and flagged replies.
+- A comment that never reached the widget needs a Linear webhook check. Open Linear webhooks and read the delivery log. A 401 means the signing secret differs from the saved one.
+
+## Alarms
+
+| Alarm | Meaning | First action |
+| --- | --- | --- |
+| `TriageWakeDlqMessages` | A wake message failed five times | DLQ triage |
+| `LinearAdapterDlqMessages` | A Linear delivery failed five times | DLQ triage, check the Linear key |
+| `TriageWakeOldestMessage` | A wake message waits over 15 minutes | Check the worker service and its logs |
+| `LinearAdapterOldestMessage` | An adapter message waits over 10 minutes | Check the Lambda errors and Linear status |
+| `ApiUnhealthyHosts` | No healthy API task | Check the ECS service events and `/health` |
+| `ApiServerErrors` | Ten or more 5xx responses in five minutes | Read the API log group |
+| `LinearOutboundErrors` | The Lambda step raised errors | Read the Lambda log group |
+| `WorkerNotRunning` | The worker has no running task | Check the ECS service events and the self-test log line |
+
+Set `alarmEmail` in the stage file to subscribe an address to the alarm topic. Confirm the subscription email.
+
+## V1 limits
+
+These are accepted in the PRD or recorded as open.
+
+- Anyone who holds a project key and a customer's email can read that customer's threads. V1 serves trusted internal clients.
+- The project key is visible in client frontend code. It identifies a project and is not a secret.
+- The watcher credential raises the bar against an interactive session being steered to `/mcp/laptop`. It is not a second factor. The operating system is the remaining boundary.
+- Watcher credentials do not expire. Logout revokes one.
+- A managed plugin policy can change what the headless `claude -p` context loads. The runner verifies the init event and kills the child on a foreign tool, but it cannot prove the managed settings of every laptop.
+- T14 is not verified. A Claude artifact that loads the widget from a public CDN and calls a public API needs the published bundle and a public API.
+- The reply loop has the Linear channel only. Slack, email, and Claude Code channels, the CC list sends, and V2 analytics are outside V1.
+- Aurora Serverless v2 keeps one writer and one reader. A regional outage needs a restore from backup.
+- The first request on an idle channel waits up to 60 seconds before the cloud claims it.

@@ -24,6 +24,7 @@ import {
 } from "@pw-support/triage";
 
 await runExtractionSelfTest();
+console.log("[api] extraction self-test passed");
 const config = loadConfig();
 for (const warning of productionWarnings(config)) {
   console.warn(`[config] ${warning}`);

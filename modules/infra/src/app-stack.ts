@@ -206,7 +206,12 @@ export class SupportAppStack extends RegionalStack {
         TRIAGE_AGENT_ID: config.triageAgentId,
         BUN_JSC_forceRAMSize: String(WORKER_HEAP_BYTES),
       },
-      secrets: databaseSecrets(foundation.database),
+      secrets: {
+        ...databaseSecrets(foundation.database),
+        ANTHROPIC_API_KEY: ecs.Secret.fromSecretsManager(
+          foundation.anthropicSecret,
+        ),
+      },
       logging: ecs.LogDrivers.awsLogs({
         streamPrefix: "worker",
         logGroup: logGroup("WorkerLogs"),
