@@ -34,6 +34,15 @@ interface Local {
 const steps = new Steps();
 const manifestFile = join(root, ".release", `manifest-${version}.json`);
 let firstIntegrity = "";
+const trackedSha = () =>
+  ["modules/widget/CHANGELOG.md", "modules/widget/package.json"]
+    .map((file) =>
+      createHash("sha256")
+        .update(readFileSync(join(root, file)))
+        .digest("hex"),
+    )
+    .join(":");
+const trackedBefore = trackedSha();
 const work = mkdtempSync(join(tmpdir(), "pw-release-rehearsal-"));
 const registries: Local[] = (["npm", "github"] as const).map((id) => {
   const port = freePort();
@@ -128,7 +137,6 @@ function releaseArgs(extra: string[] = []): string[] {
     "run",
     "release",
     "--publish",
-    "--no-changelog",
     "--npm-registry",
     registries[0]?.url as string,
     "--gh-registry",
@@ -393,13 +401,22 @@ try {
         ),
         result.out.slice(-800),
       );
+      assert(
+        trackedSha() === trackedBefore,
+        "the release rewrote a tracked file in the package directory",
+      );
+      const status = Bun.spawnSync(
+        ["git", "status", "--porcelain", "modules/widget"],
+        { cwd: root },
+      ).stdout.toString();
+      assert(status.trim() === "", `the widget tree changed: ${status}`);
     },
   );
 
   await steps.run(
     "publish plan against the real registry URLs, no tokens",
     async () => {
-      const result = await exec(["bun", "run", "release", "--no-changelog"], {
+      const result = await exec(["bun", "run", "release"], {
         cwd: root,
         env: {
           ...process.env,

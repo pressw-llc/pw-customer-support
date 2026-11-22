@@ -48,7 +48,7 @@ export interface Check {
 export interface Options {
   publish: boolean;
   allowExisting: boolean;
-  changelog: boolean;
+  writeChangelog: boolean;
   only: Registry["id"] | undefined;
   npmRegistry: string;
   ghRegistry: string;
@@ -75,7 +75,7 @@ export function parseArgs(argv: string[]): Options {
   return {
     publish: argv.includes("--publish"),
     allowExisting: argv.includes("--allow-existing"),
-    changelog: !argv.includes("--no-changelog"),
+    writeChangelog: argv.includes("--write-changelog"),
     only,
     npmRegistry: value("--npm-registry") ?? REGISTRIES[0].url,
     ghRegistry: value("--gh-registry") ?? REGISTRIES[1].url,
@@ -318,6 +318,25 @@ export function changelogEntry(
 ): string {
   const lines = subjects.length ? subjects : ["Release build."];
   return `## ${version} - ${date}\n\n${lines.map((line) => `- ${line}`).join("\n")}\n`;
+}
+
+export function changelogHeaderFor(version: string, date: string): string {
+  return `## ${version} - ${date}`;
+}
+
+export function changelogProblem(
+  version: string,
+  text: string | undefined,
+  date = new Date().toISOString().slice(0, 10),
+): string | undefined {
+  const present = (text ?? "")
+    .split("\n")
+    .some(
+      (line) => line === `## ${version}` || line.startsWith(`## ${version} - `),
+    );
+  return present
+    ? undefined
+    : `modules/widget/CHANGELOG.md has no entry for ${version}; add the header "${changelogHeaderFor(version, date)}" with its notes, or run bun run release --write-changelog, then commit it`;
 }
 
 export function appendChangelog(existing: string, entry: string): string {

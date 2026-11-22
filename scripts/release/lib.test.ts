@@ -12,6 +12,7 @@ import {
   apiUrlProblem,
   appendChangelog,
   changelogEntry,
+  changelogProblem,
   collectExportTargets,
   computeIntegrity,
   decideRelease,
@@ -63,7 +64,7 @@ describe("parseArgs", () => {
   test("defaults to a dry run on the real registries", () => {
     const options = parseArgs([]);
     expect(options.publish).toBe(false);
-    expect(options.changelog).toBe(true);
+    expect(options.writeChangelog).toBe(false);
     expect(options.npmRegistry).toBe("https://registry.npmjs.org");
     expect(options.ghRegistry).toBe("https://npm.pkg.github.com");
   });
@@ -72,7 +73,7 @@ describe("parseArgs", () => {
     const options = parseArgs([
       "--publish",
       "--allow-existing",
-      "--no-changelog",
+      "--write-changelog",
       "--only",
       "github",
       "--npm-registry",
@@ -85,7 +86,7 @@ describe("parseArgs", () => {
     expect(options).toMatchObject({
       publish: true,
       allowExisting: true,
-      changelog: false,
+      writeChangelog: true,
       only: "github",
       apiUrl: "https://api.example.test",
     });
@@ -264,6 +265,17 @@ describe("helpers", () => {
     ).toBe(true);
     expect(isAlreadyPublished("E409 Conflict")).toBe(true);
     expect(isAlreadyPublished("connection refused")).toBe(false);
+  });
+
+  test("a release needs a committed changelog entry for its version", () => {
+    const text = "# Changelog\n\n## 0.1.0 - 2026-01-01\n\n- first\n";
+    expect(changelogProblem("0.1.0", text)).toBeUndefined();
+    expect(changelogProblem("0.1.0", "## 0.1.0\n")).toBeUndefined();
+    const missing = changelogProblem("0.2.0", text, "2026-02-02");
+    expect(missing).toContain('"## 0.2.0 - 2026-02-02"');
+    expect(missing).toContain("--write-changelog");
+    expect(changelogProblem("0.1.0", undefined)).toContain("no entry");
+    expect(changelogProblem("0.1", "## 0.1.0 - x\n")).toContain("no entry");
   });
 
   test("appends the changelog once per version", () => {

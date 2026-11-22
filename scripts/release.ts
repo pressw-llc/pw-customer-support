@@ -6,6 +6,7 @@ import {
   apiUrlProblem,
   appendChangelog,
   changelogEntry,
+  changelogProblem,
   computeIntegrity,
   decideRelease,
   fetchVersionInfo,
@@ -57,13 +58,57 @@ const version = (
   }
 ).version;
 const tag = tagName(version);
+const lastTag = git([
+  "tag",
+  "--list",
+  "support-react-v*",
+  "--sort=-v:refname",
+]).split("\n")[0];
+const subjects = git([
+  "log",
+  "--pretty=%s",
+  ...(lastTag ? [`${lastTag}..HEAD`] : []),
+  "--",
+  "modules/widget",
+])
+  .split("\n")
+  .filter(Boolean)
+  .slice(0, 20);
+const entry = changelogEntry(
+  version,
+  new Date().toISOString().slice(0, 10),
+  subjects,
+);
+const changelogPath = join(widgetDir, "CHANGELOG.md");
+
+if (options.writeChangelog) {
+  const existing = existsSync(changelogPath)
+    ? readFileSync(changelogPath, "utf8")
+    : "";
+  writeFileSync(changelogPath, appendChangelog(existing, entry));
+  console.log(
+    `[release] wrote the ${version} changelog entry; edit and commit modules/widget/CHANGELOG.md, nothing was published`,
+  );
+  process.exit(0);
+}
+
+const changelogMissing = changelogProblem(
+  version,
+  existsSync(changelogPath) ? readFileSync(changelogPath, "utf8") : undefined,
+);
+
 const mode = options.publish ? "publish" : "dry-run";
 console.log(
   `[release] mode ${mode}${retry ? ", retry from the saved tarball" : ""}`,
 );
 
+if (changelogMissing && !options.publish) {
+  console.log(`[release] FAIL ${changelogMissing}`);
+}
+
 if (options.publish) {
   const problems: string[] = [];
+  if (changelogMissing && !retry) problems.push(changelogMissing);
   if (!retry) {
     const apiProblem = apiUrlProblem(apiUrl, realTarget);
     if (apiProblem) problems.push(apiProblem);
@@ -126,29 +171,6 @@ const local = computeIntegrity(packed.tarball);
 console.log(`[release] tarball ${packed.tarball}`);
 console.log(`[release] integrity ${local.integrity}`);
 
-const lastTag = git([
-  "tag",
-  "--list",
-  "support-react-v*",
-  "--sort=-v:refname",
-]).split("\n")[0];
-const subjects = git([
-  "log",
-  "--pretty=%s",
-  ...(lastTag ? [`${lastTag}..HEAD`] : []),
-  "--",
-  "modules/widget",
-])
-  .split("\n")
-  .filter(Boolean)
-  .slice(0, 20);
-const entry = changelogEntry(
-  version,
-  new Date().toISOString().slice(0, 10),
-  subjects,
-);
-const changelogPath = join(widgetDir, "CHANGELOG.md");
-
 if (!options.publish) {
   console.log("[release] publish plan");
   for (const registry of selected) {
@@ -160,10 +182,12 @@ if (!options.publish) {
       console.log(`[release]   ${line}`);
     }
   }
-  console.log("[release] changelog entry that --publish appends");
-  console.log(entry);
-  console.log("[release] DRY RUN complete; nothing was sent");
-  process.exit(0);
+  console.log(
+    changelogMissing
+      ? "[release] DRY RUN found a problem; nothing was sent"
+      : "[release] DRY RUN complete; nothing was sent",
+  );
+  process.exit(changelogMissing ? 1 : 0);
 }
 
 const { tokens } = resolveTokens(everyRegistry, process.env);
@@ -238,14 +262,5 @@ for (const registry of selected) {
   console.log(`[release] PASS ${registry.label} published`);
 }
 
-if (options.changelog && !retry) {
-  const existing = existsSync(changelogPath)
-    ? readFileSync(changelogPath, "utf8")
-    : "";
-  writeFileSync(changelogPath, appendChangelog(existing, entry));
-  console.log(
-    "[release] changelog updated; commit modules/widget/CHANGELOG.md",
-  );
-}
 console.log(`[release] next: git tag ${tag}`);
 console.log(`[release] then:  git push origin ${tag}`);
