@@ -1,5 +1,5 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
-import { createApp, createS3Storage, loadConfig } from "@pw-support/api";
+import { createApp, createS3Storage } from "@pw-support/api";
 import {
   buildHoldWarning,
   classifyStaffComment,
@@ -35,6 +35,7 @@ import {
   createPhase3Harness,
   markedScore,
   type Phase3Harness,
+  stackApiConfig,
   textScorer,
   WEBHOOK_SECRET,
 } from "./phase-3-support";
@@ -869,7 +870,7 @@ describe("webhook security", () => {
   });
 
   test("an API with no webhook intake answers 503", async () => {
-    const config = loadConfig({});
+    const config = stackApiConfig();
     const bare = createApp({
       db: p.h.db,
       storage: createS3Storage(config),
@@ -919,5 +920,20 @@ describe("staff display and wording helpers", () => {
     expect(thread.messages.at(-1)?.authorName).toBe("<b>Eve</b> Mallory");
     expect(markedScore("[s=3]")).toBe(3);
     expect(markedScore("none")).toBe(4);
+  });
+});
+
+describe("the phase 3 harness uses the configured stack", () => {
+  test("attachments go to the LocalStack port the environment names", async () => {
+    const saved = process.env.SUPPORT_LOCALSTACK_PORT;
+    process.env.SUPPORT_LOCALSTACK_PORT = "4911";
+    try {
+      const configured = await createPhase3Harness();
+      await configured.close();
+      expect(configured.apiConfig.s3.endpoint).toBe("http://127.0.0.1:4911");
+    } finally {
+      if (saved === undefined) delete process.env.SUPPORT_LOCALSTACK_PORT;
+      else process.env.SUPPORT_LOCALSTACK_PORT = saved;
+    }
   });
 });

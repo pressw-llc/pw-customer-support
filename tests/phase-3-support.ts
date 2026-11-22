@@ -58,6 +58,14 @@ export function textScorer(
   };
 }
 
+export function stackApiConfig() {
+  return loadConfig({
+    SUPPORT_LOCALSTACK_PORT: process.env.SUPPORT_LOCALSTACK_PORT,
+    SUPPORT_OIDC_PORT: process.env.SUPPORT_OIDC_PORT,
+    AWS_ENDPOINT_URL: process.env.AWS_ENDPOINT_URL,
+  });
+}
+
 export const markedScore = (text: string): number | Error => {
   const hit = /\[s=([0-9.]+|ERR)\]/.exec(text);
   if (!hit) return 4;
@@ -94,7 +102,7 @@ export async function createPhase3Harness(
     wording,
     now: h.clock.now,
   });
-  const apiConfig = loadConfig({});
+  const apiConfig = stackApiConfig();
   const intake = createLinearWebhookIntake({ db: h.db, secrets });
   const app = createApp({
     db: h.db,
@@ -243,6 +251,7 @@ export async function createPhase3Harness(
     linear,
     adapter,
     app,
+    apiConfig,
     server,
     webhookUrl,
     scenario,
