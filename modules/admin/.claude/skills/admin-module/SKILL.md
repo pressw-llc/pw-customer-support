@@ -26,7 +26,8 @@ description: Work in the admin module: the staff admin UI. Use when you build re
 
 - Call admin API routes with the ID token from the session. Never use `localStorage` for tokens.
 - Start the login once. `AuthProvider` guards the effect with a `WeakSet`, because a second code exchange makes the issuer return a different user.
-- A 401 starts a fresh login through `onUnauthorized`.
+- A 401 starts at most one fresh login until an API call succeeds, tracked in session storage. A second 401 shows "Sign-in could not be verified". A 403 shows "Not authorized for this desk" and never redirects.
+- Sign out removes local state first, then redirects to the discovery `end_session_endpoint`, or to `VITE_OIDC_LOGOUT_URL` when discovery has none. With neither, the signed-out screen warns that the identity provider session may remain.
 - Never show or store an integration secret. The settings fields are write-only. The API returns `configured` and update metadata.
 - Render every thread body, summary, author name, and event payload as a React text node. Never use `dangerouslySetInnerHTML` or a markdown renderer. `e2e/admin.spec.ts` checks that markup in a message stays literal text.
 - Show the reply loop from `detail.replies` (status, score, reason, expiry, warning) and the list flags from `flaggedReplies` and `heldReplies`. Both come from `support.replies`.

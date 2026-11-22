@@ -34,6 +34,8 @@ export function createApiClient(options: {
   baseUrl: string;
   token: () => string | null;
   onUnauthorized: () => void;
+  onForbidden: () => void;
+  onVerified: () => void;
 }): ApiClient {
   async function send(
     method: string,
@@ -54,6 +56,8 @@ export function createApiClient(options: {
       body: body === undefined ? undefined : JSON.stringify(body),
     });
     if (response.status === 401) options.onUnauthorized();
+    if (response.status === 403) options.onForbidden();
+    if (response.ok) options.onVerified();
     if (!response.ok) {
       const detail = (await response.json().catch(() => null)) as {
         error?: string;

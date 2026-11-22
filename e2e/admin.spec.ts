@@ -33,16 +33,47 @@ async function ticketFor(requestId: string) {
   return waitForIssue(`Support request ID: ${requestId}`);
 }
 
-async function signIn(page: Page): Promise<void> {
-  await page.goto(ADMIN.url);
-  await page.getByPlaceholder("Enter any user/subject").fill("ada-admin");
+async function submitLoginForm(
+  page: Page,
+  email = "ada@pressw.test",
+): Promise<void> {
+  await page.getByPlaceholder("Enter any user/subject").fill(email);
   await page
     .locator("textarea[name=claims]")
-    .fill(JSON.stringify({ email: "ada@pressw.test", name: "Ada Admin" }));
+    .fill(JSON.stringify({ email, name: "Ada Admin" }));
   await page.getByRole("button", { name: "Sign-in" }).click();
+}
+
+async function signIn(page: Page): Promise<void> {
+  await page.goto(ADMIN.url);
+  await submitLoginForm(page);
   await expect(
     page.getByRole("heading", { name: "Requests", level: 1 }),
   ).toBeVisible();
+}
+
+async function runtimeConfig(
+  page: Page,
+  values: Record<string, string>,
+): Promise<void> {
+  await page.route("**/config.json", (route) =>
+    route.fulfill({ json: values }),
+  );
+}
+
+function countAuthorizeRequests(page: Page): () => number {
+  let count = 0;
+  page.on("request", (request) => {
+    const url = request.url();
+    if (
+      request.method() === "GET" &&
+      url.startsWith(ADMIN.issuer) &&
+      new URL(url).pathname.endsWith("/authorize")
+    ) {
+      count += 1;
+    }
+  });
+  return () => count;
 }
 
 test("A19: an admin route returns 401 without a token and with a forged token", async () => {
@@ -317,4 +348,181 @@ test("thread bodies, author names, and event payloads render as inert text", asy
     undefined,
   );
   await shot(page, "admin-xss-inert");
+});
+
+test("a signed-in user outside the allowed domain sees a not-authorized page and no login loop", async ({
+  page,
+}) => {
+  await runtimeConfig(page, { VITE_API_URL: ADMIN.policyApiUrl });
+  const authorizations = countAuthorizeRequests(page);
+  await page.goto(ADMIN.url);
+  await submitLoginForm(page, "eve@other.test");
+  await expect(
+    page.getByRole("heading", { name: "Not authorized for this desk" }),
+  ).toBeVisible();
+  await expect(page.getByText("eve@other.test")).toBeVisible();
+  await page.waitForTimeout(1500);
+  expect(authorizations()).toBe(1);
+  expect(new URL(page.url()).origin).toBe(ADMIN.url);
+  await shot(page, "admin-not-authorized");
+
+  await page.getByRole("button", { name: "Sign out" }).click();
+  await expect(
+    page.getByRole("heading", { name: "You are signed out" }),
+  ).toBeVisible();
+});
+
+test("an allowed domain still signs in against the policy API", async ({
+  page,
+}) => {
+  await runtimeConfig(page, { VITE_API_URL: ADMIN.policyApiUrl });
+  await page.goto(ADMIN.url);
+  await submitLoginForm(page, `ada@${ADMIN.allowedDomain}`);
+  await expect(
+    page.getByRole("heading", { name: "Requests", level: 1 }),
+  ).toBeVisible();
+});
+
+test("a persistent 401 triggers one re-login and then a terminal page", async ({
+  page,
+}) => {
+  await runtimeConfig(page, { VITE_API_URL: ADMIN.audienceApiUrl });
+  const authorizations = countAuthorizeRequests(page);
+  await page.goto(ADMIN.url);
+  await submitLoginForm(page);
+  await submitLoginForm(page);
+  await expect(
+    page.getByRole("heading", { name: "Sign-in could not be verified" }),
+  ).toBeVisible();
+  await page.waitForTimeout(1500);
+  expect(authorizations()).toBe(2);
+  expect(new URL(page.url()).origin).toBe(ADMIN.url);
+  await shot(page, "admin-unverified");
+  await expect(page.getByRole("button", { name: "Try again" })).toBeVisible();
+});
+
+test("a callback error from the issuer ends on a visible page without another login", async ({
+  page,
+}) => {
+  const authorizations = countAuthorizeRequests(page);
+  await page.goto(
+    `${ADMIN.url}/auth/callback?error=access_denied&error_description=denied&state=missing`,
+  );
+  await expect(
+    page.getByRole("heading", { name: "Sign-in failed" }),
+  ).toBeVisible();
+  await page.waitForTimeout(1000);
+  expect(authorizations()).toBe(0);
+});
+
+test("a callback with an unknown state ends on a visible page without another login", async ({
+  page,
+}) => {
+  const authorizations = countAuthorizeRequests(page);
+  await page.goto(`${ADMIN.url}/auth/callback?code=abc&state=expired`);
+  await expect(
+    page.getByRole("heading", { name: "Sign-in failed" }),
+  ).toBeVisible();
+  await page.waitForTimeout(1000);
+  expect(authorizations()).toBe(0);
+});
+
+async function withoutEndSession(page: Page): Promise<void> {
+  await page.route(
+    `${ADMIN.issuer}/.well-known/openid-configuration`,
+    async (route) => {
+      const response = await route.fetch();
+      const body = (await response.json()) as Record<string, unknown>;
+      delete body.end_session_endpoint;
+      await route.fulfill({ response, json: body });
+    },
+  );
+}
+
+async function storedOidcKeys(page: Page): Promise<string[]> {
+  return page.evaluate(() =>
+    Object.keys(sessionStorage).filter((key) => key.startsWith("oidc.")),
+  );
+}
+
+test("sign out sends the browser to the issuer end-session endpoint and requires a new login", async ({
+  page,
+}) => {
+  await signIn(page);
+  const endSession = page.waitForRequest(
+    (request) => new URL(request.url()).pathname === "/support/endsession",
+  );
+  await page.getByRole("button", { name: "Sign out" }).first().click();
+  const url = new URL((await endSession).url());
+  expect(url.origin).toBe(new URL(ADMIN.issuer).origin);
+  expect(url.searchParams.get("post_logout_redirect_uri")).toBe(
+    `${ADMIN.url}/signed-out`,
+  );
+  expect(url.searchParams.get("id_token_hint")).toMatch(/^eyJ/);
+  await expect(
+    page.getByRole("heading", { name: "You are signed out" }),
+  ).toBeVisible();
+  await expect(page.getByText("may still be active")).toHaveCount(0);
+  expect(await storedOidcKeys(page)).toEqual([]);
+
+  await page.goto(ADMIN.url);
+  await expect(page.getByText("Mock OAuth2 Server Sign-in")).toBeVisible();
+  await expect(
+    page.getByRole("heading", { name: "Requests", level: 1 }),
+  ).toHaveCount(0);
+});
+
+test("sign out uses the configured Cognito logout URL when discovery has no end-session endpoint", async ({
+  page,
+}) => {
+  const hostedUi = `${new URL(ADMIN.issuer).origin}/support/logout`;
+  await withoutEndSession(page);
+  await runtimeConfig(page, {
+    VITE_API_URL: ADMIN.apiUrl,
+    VITE_OIDC_LOGOUT_URL: `${hostedUi}?client_id={client_id}&logout_uri={logout_uri}`,
+  });
+  await page.route(`${hostedUi}**`, (route) =>
+    route.fulfill({
+      status: 302,
+      headers: { Location: `${ADMIN.url}/signed-out` },
+    }),
+  );
+  await page.goto(ADMIN.url);
+  await submitLoginForm(page);
+  await expect(
+    page.getByRole("heading", { name: "Requests", level: 1 }),
+  ).toBeVisible();
+  const logout = page.waitForRequest((request) =>
+    request.url().startsWith(hostedUi),
+  );
+  await page.getByRole("button", { name: "Sign out" }).first().click();
+  const url = new URL((await logout).url());
+  expect(url.pathname).toBe("/support/logout");
+  expect(url.searchParams.get("client_id")).toBe(ADMIN.clientId);
+  expect(url.searchParams.get("logout_uri")).toBe(`${ADMIN.url}/signed-out`);
+  await expect(
+    page.getByRole("heading", { name: "You are signed out" }),
+  ).toBeVisible();
+  await expect(page.getByText("may still be active")).toHaveCount(0);
+  expect(await storedOidcKeys(page)).toEqual([]);
+});
+
+test("sign out without any logout endpoint warns that the issuer session may remain and never auto-signs in", async ({
+  page,
+}) => {
+  await withoutEndSession(page);
+  await signIn(page);
+  const authorizations = countAuthorizeRequests(page);
+  await page.getByRole("button", { name: "Sign out" }).first().click();
+  await expect(
+    page.getByRole("heading", { name: "You are signed out" }),
+  ).toBeVisible();
+  await expect(page.getByText("may still be active")).toBeVisible();
+  await expect(page.getByText(/Close this browser/)).toBeVisible();
+  expect(await storedOidcKeys(page)).toEqual([]);
+  await page.reload();
+  await expect(page.getByText("may still be active")).toBeVisible();
+  await page.waitForTimeout(1000);
+  expect(authorizations()).toBe(0);
+  await shot(page, "admin-signed-out-idp-warning");
 });

@@ -201,6 +201,48 @@ describe("token validator", () => {
     expect((await group.instance.verify(await idp.token())).ok).toBe(false);
   });
 
+  test("separates a permitted-identity failure (403) from an invalid token (401)", async () => {
+    const policy = validator({
+      allowedEmailDomains: ["pressw.test"],
+      requiredGroup: "staff",
+    });
+    const kindOf = async (token: string) => {
+      const result = await policy.instance.verify(token);
+      return result.ok ? "ok" : result.kind;
+    };
+    const member = { "cognito:groups": ["staff"] };
+    expect(await kindOf(await idp.token({ claims: member }))).toBe("ok");
+    const outsider = { email: "x@other.test", ...member };
+    expect(await kindOf(await idp.token({ claims: outsider }))).toBe(
+      "forbidden",
+    );
+    expect(
+      await kindOf(await idp.token({ omit: ["email"], claims: member })),
+    ).toBe("forbidden");
+    expect(await kindOf(await idp.token())).toBe("forbidden");
+    expect(await kindOf(await idp.token({ issuer: "https://evil.test" }))).toBe(
+      "unauthenticated",
+    );
+    expect(await kindOf(await idp.token({ claims: { aud: "other" } }))).toBe(
+      "unauthenticated",
+    );
+    expect(await kindOf(await idp.token({ expiresIn: -60 }))).toBe(
+      "unauthenticated",
+    );
+    expect(await kindOf(idp.unsignedToken())).toBe("unauthenticated");
+    expect(await kindOf("garbage")).toBe("unauthenticated");
+  });
+
+  test("an invalid token never reaches the policy checks", async () => {
+    const policy = validator({ allowedEmailDomains: ["pressw.test"] });
+    const result = await policy.instance.verify(
+      await idp.token({
+        claims: { aud: "other", email: "x@other.test" },
+      }),
+    );
+    expect(!result.ok && result.kind).toBe("unauthenticated");
+  });
+
   test("fails closed without an issuer or an audience", async () => {
     for (const overrides of [{ issuer: undefined }, { audiences: [] }]) {
       const { instance, rejections } = validator(overrides);

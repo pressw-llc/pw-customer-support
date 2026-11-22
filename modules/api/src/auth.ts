@@ -19,7 +19,9 @@ export interface AuthConfig {
 
 export type TokenResult =
   | { ok: true; identity: StaffIdentity; claims: JWTPayload }
-  | { ok: false; reason: string };
+  | { ok: false; reason: string; kind: RejectionKind };
+
+export type RejectionKind = "unauthenticated" | "forbidden";
 
 export interface TokenValidator {
   readonly configured: boolean;
@@ -117,9 +119,12 @@ export function createTokenValidator(
     return getKey;
   }
 
-  function reject(reason: string): TokenResult {
+  function reject(
+    reason: string,
+    kind: RejectionKind = "unauthenticated",
+  ): TokenResult {
     options.onReject?.(reason);
-    return { ok: false, reason };
+    return { ok: false, reason, kind };
   }
 
   return {
@@ -151,13 +156,13 @@ export function createTokenValidator(
       }
       const identity = identityOf(payload);
       if (!emailDomainAllowed(identity.email, config.allowedEmailDomains)) {
-        return reject("email_domain");
+        return reject("email_domain", "forbidden");
       }
       if (
         config.requiredGroup &&
         !asStrings(payload["cognito:groups"]).includes(config.requiredGroup)
       ) {
-        return reject("group");
+        return reject("group", "forbidden");
       }
       return { ok: true, identity, claims: payload };
     },
