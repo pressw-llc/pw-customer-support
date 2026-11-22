@@ -16,7 +16,7 @@ RUN apt-get update \
 # Source: https://truststore.pki.rds.amazonaws.com. A new bundle changes the checksum and fails the build until it is updated here.
 ADD --chmod=0644 --checksum=sha256:b1711d12bae51838581281e23b6cb97b1074016873b4dafc80ed14002462dd77 \
     https://truststore.pki.rds.amazonaws.com/us-east-1/us-east-1-bundle.pem /etc/ssl/rds/us-east-1-bundle.pem
-RUN chmod 0755 /etc/ssl/rds && chmod 0644 /etc/ssl/rds/us-east-1-bundle.pem
+RUN chmod 0755 /etc/ssl /etc/ssl/rds && chmod 0644 /etc/ssl/rds/us-east-1-bundle.pem
 WORKDIR /app
 ENV NODE_ENV=production
 COPY package.json bun.lock .npmrc ./
