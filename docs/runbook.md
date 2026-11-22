@@ -136,11 +136,28 @@ The smoke test submits one request and reads back the Linear ticket. It archives
 
 Run the `Deploy` workflow from `main` after CI passes. The workflow runs `bun run deploy --stage production`. The script builds, diffs, deploys the foundation stack, runs the migration task, deploys the app stack, and runs the smoke test. A failed migration stops the deploy before the services roll. A failed service rollout rolls back through the ECS circuit breaker.
 
+### Migration rule
+
+The deploy migrates before it rolls the services, so the old app runs against the new schema for a while, and a failed rollout leaves it there. Write every migration so the previous release still works on it. Add a column, table, or index first. Ship code that uses it. Remove the old column in a later release. Never rename or drop something the running release reads in the same release. Each migration file runs in one transaction, so a failed file leaves the schema at the previous step.
+
+### Failure states of a deploy
+
+| Where it fails | State left | Action |
+| --- | --- | --- |
+| Preflight | Nothing deployed | Fix the listed items and rerun |
+| Foundation stack | The previous stacks keep running | Read the CloudFormation events and rerun |
+| Migration task | Foundation updated, old app running, schema at the last good file | Fix the migration, rerun. The advisory lock keeps two runs apart |
+| App stack | New schema, old app, ECS rolled back by the circuit breaker | The old release must work on the new schema. Fix forward and rerun |
+| Smoke test | The new app is serving | Read the API logs, then roll back or fix forward |
+
+A rerun after any failure is safe. The steps are idempotent and CloudFormation rejects two updates of one stack at once. The workflow also holds the `deploy-production` concurrency group, so two workflow runs never overlap.
+
 ### Rollback
 
-- Run the `Deploy` workflow from the previous good commit on `main`. The script rolls the services back to that commit's image.
+- Check out the previous good commit on `main` and run the `Deploy` workflow. The script rebuilds that commit's image. Pass `--skip-migrate` to a local `bun run deploy --stage production --skip-migrate` so the schema stays at the newer version, which the migration rule keeps compatible.
 - A migration is forward only. Write a new migration that undoes the change. Do not edit an applied migration.
 - If a bad task keeps restarting, set the service desired count to 0 in the ECS console, fix, and deploy.
+- Staging buckets are deleted with the stack only when empty. Empty them before a teardown.
 
 ### Publish the widget
 
