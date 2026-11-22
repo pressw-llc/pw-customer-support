@@ -167,11 +167,10 @@ describe("foundation stack", () => {
     );
     expect(open.map(([id]) => id).join()).toContain("LBSecurityGroup");
     expect(open).toHaveLength(1);
-    const ports = (
-      open[0]?.[1].Properties.SecurityGroupIngress as {
-        FromPort: number;
-      }[]
-    ).map((rule) => rule.FromPort);
+    const rules = (open[0]?.[1].Properties.SecurityGroupIngress ?? []) as {
+      FromPort: number;
+    }[];
+    const ports = rules.map((rule) => rule.FromPort);
     expect(ports.sort((a, b) => a - b)).toEqual([80, 443]);
     for (const instance of Object.values(
       foundationT.findResources("AWS::RDS::DBInstance"),

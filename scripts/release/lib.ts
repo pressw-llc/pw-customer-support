@@ -465,9 +465,10 @@ export function normalizeMtimes(dir: string): void {
 
 export function inspectTarball(tarball: string, workDir: string): Packed {
   const fixed = join(workDir, "extract");
-  const extract = existsSync(fixed)
+  if (!existsSync(fixed)) mkdirSync(fixed);
+  const extract = existsSync(join(fixed, "package"))
     ? mkdtempSync(join(workDir, "extract-"))
-    : (mkdirSync(fixed), fixed);
+    : fixed;
   const untar = spawnSync("tar", ["-xzf", tarball, "-C", extract], {
     encoding: "utf8",
   });
