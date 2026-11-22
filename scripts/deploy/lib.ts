@@ -2,6 +2,7 @@ import { existsSync } from "node:fs";
 import {
   type CloudFormationClient,
   DescribeStacksCommand,
+  ListStacksCommand,
 } from "@aws-sdk/client-cloudformation";
 import {
   DescribeTasksCommand,
@@ -102,6 +103,78 @@ export function stepsFor(
 
 export function stackNames(stage: StageName) {
   return stackIds(stage);
+}
+
+const LIVE_STATUSES = [
+  "CREATE_IN_PROGRESS",
+  "CREATE_FAILED",
+  "CREATE_COMPLETE",
+  "ROLLBACK_IN_PROGRESS",
+  "ROLLBACK_FAILED",
+  "ROLLBACK_COMPLETE",
+  "DELETE_IN_PROGRESS",
+  "DELETE_FAILED",
+  "UPDATE_IN_PROGRESS",
+  "UPDATE_COMPLETE_CLEANUP_IN_PROGRESS",
+  "UPDATE_COMPLETE",
+  "UPDATE_FAILED",
+  "UPDATE_ROLLBACK_IN_PROGRESS",
+  "UPDATE_ROLLBACK_FAILED",
+  "UPDATE_ROLLBACK_COMPLETE_CLEANUP_IN_PROGRESS",
+  "UPDATE_ROLLBACK_COMPLETE",
+  "REVIEW_IN_PROGRESS",
+  "IMPORT_IN_PROGRESS",
+  "IMPORT_COMPLETE",
+  "IMPORT_ROLLBACK_IN_PROGRESS",
+  "IMPORT_ROLLBACK_FAILED",
+  "IMPORT_ROLLBACK_COMPLETE",
+] as const;
+
+export const STAGE_TAG = "pw-support:stage";
+
+export function stageOfStack(
+  name: string,
+  tags: { Key?: string; Value?: string }[] | undefined,
+): string {
+  const tagged = tags?.find((tag) => tag.Key === STAGE_TAG)?.Value;
+  if (tagged) return tagged;
+  return name.startsWith("PwSupportStaging") ? "staging" : "production";
+}
+
+export async function findStageConflicts(
+  client: Pick<CloudFormationClient, "send">,
+  stage: StageName,
+): Promise<string[]> {
+  const names: string[] = [];
+  let token: string | undefined;
+  do {
+    const page = await client.send(
+      new ListStacksCommand({
+        NextToken: token,
+        StackStatusFilter: [...LIVE_STATUSES],
+      }),
+    );
+    for (const summary of page.StackSummaries ?? []) {
+      if (summary.StackName?.startsWith("PwSupport")) {
+        names.push(summary.StackName);
+      }
+    }
+    token = page.NextToken;
+  } while (token);
+
+  const conflicts: string[] = [];
+  for (const name of names) {
+    const described = await client.send(
+      new DescribeStacksCommand({ StackName: name }),
+    );
+    const found = stageOfStack(name, described.Stacks?.[0]?.Tags);
+    if (found !== stage) {
+      conflicts.push(
+        `account: stack ${name} already belongs to stage ${found}; V1 supports one stage per AWS account, so ${stage} needs its own account`,
+      );
+    }
+  }
+  return conflicts;
 }
 
 export async function readStackOutputs(

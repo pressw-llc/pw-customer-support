@@ -10,36 +10,49 @@ Do the steps in order. Each step names what it unblocks.
 
 ### 1. AWS account, CDK bootstrap, and the OIDC role
 
+V1 supports exactly one stage per AWS account. The dedicated production account holds the `production` stage and nothing else. A second stage, such as staging, needs its own account, its own stage file with that account's id, and its own run of this section. The tooling refuses a second stage in an account that already holds another stage's stacks.
+
 - [ ] Create the dedicated AWS account and note its 12 digit id.
 - [ ] Sign in to the account with admin credentials.
 - [ ] Request an ACM certificate in `us-east-1` for the API host name, for example `support-api.<your domain>`. Validate it. Note the certificate ARN.
-- [ ] Copy `modules/infra/stage.example.json` to `modules/infra/stage.production.json`. Fill `account` and `certificateArn` now. Leave the Cognito, agent, and group values for steps 2 to 4. The file is gitignored.
-- [ ] Deploy the stage's OIDC stack with the admin credentials. It needs no bootstrap. It creates the GitHub deploy role, the account's GitHub OIDC provider (production only), and the stage's CloudFormation execution policies.
+- [ ] Copy `modules/infra/stage.example.json` to `modules/infra/stage.production.json`. Fill `account`, `certificateArn`, and `apiDomain` now. Leave the Cognito, agent, and group values for steps 2 to 4. The file is gitignored.
+
+<!-- stage-file: account, certificateArn, apiDomain -->
+
+- [ ] Deploy the stage's OIDC stack with the admin credentials. It needs no bootstrap and only the `account` value. It creates the GitHub deploy role, the account's GitHub OIDC provider, and the stage's CloudFormation execution policies.
+
+<!-- run: --oidc -->
 
 ```bash
-GITHUB_TOKEN=<read:packages token> bun run deploy --stage production --oidc
+bun run deploy --stage production --oidc
 ```
 
-- [ ] Bootstrap CDK for this stage with the same admin credentials. The command uses the stage's own qualifier (`pwsproduct`), its own toolkit stack (`CDKToolkit-pwsproduct`), and the execution policies from the previous step instead of `AdministratorAccess`.
+- [ ] Bootstrap CDK for this stage with the same admin credentials. It needs only the `account` value. The command uses the stage's own qualifier (`pwsproduct`), its own toolkit stack (`CDKToolkit-pwsproduct`), and the execution policies from the previous step instead of `AdministratorAccess`.
+
+<!-- run: --bootstrap -->
 
 ```bash
-GITHUB_TOKEN=<read:packages token> bun run deploy --stage production --bootstrap
+bun run deploy --stage production --bootstrap
 ```
 
 - [ ] Copy the `DeployRoleArn` output of the OIDC stack. Add it to the GitHub repository as the variable `AWS_DEPLOY_ROLE_ARN`.
 - [ ] Create the GitHub environment `production`. Restrict its deployment branches to `main` and add a required reviewer.
 - [ ] Add the repository variable `SUPPORT_STAGE_CONFIG` with the JSON of the stage file, and the secret `PACKAGES_READ_TOKEN` if the default token cannot read `@pressw-llc` packages.
 
-The role trusts only `repo:pressw-llc/pw-customer-support:environment:production`. It does not trust the `main` branch alone, because the environment adds the required reviewer and branch rule, and a branch-only subject would let any workflow on `main` deploy. It can assume only the four bootstrap roles of its own qualifier, read its own stacks and bootstrap version, run its own migration task, and pass its own task roles.
+The role exists only in this account and trusts only `repo:pressw-llc/pw-customer-support:environment:production`. It does not trust the `main` branch alone, because the environment adds the required reviewer and branch rule, and a branch-only subject would let any workflow on `main` deploy. It can assume only the four bootstrap roles of its own qualifier, read its own stacks and bootstrap version, run its own migration task, and pass its own task roles.
 
-#### Stage isolation
+#### One stage per account
 
-The strongest isolation is one AWS account per stage. The PRD names one dedicated production account, so production runs alone there. A staging stage in the same account relies on these controls:
+The tooling enforces the rule at four layers:
 
-- Each stage has its own CDK qualifier, toolkit stack, bootstrap roles, assets bucket, and image repository.
-- Each stage's GitHub role trusts only its own environment subject and can assume only its own qualifier's bootstrap roles. The deploy preflight refuses a stage deployed through another stage's role or without its own bootstrap.
-- Each stage's CloudFormation execution role holds only the stage execution policies, never `AdministratorAccess`. Statements are scoped by stage name prefix or by the `pw-support:stage` tag, which every taggable resource in all three stacks carries.
-- Only the production OIDC stack creates the account-wide GitHub OIDC provider. Deploy it first.
+- The stage files must name different accounts. `bun run synth` and every deploy mode fail when two stage files name the same account id.
+- Before `--oidc`, `--bootstrap`, or a deploy, the preflight lists the account's CloudFormation stacks. It stops when a `PwSupport` stack or a `pw-support:stage` tag belongs to a different stage.
+- Each stage's GitHub role exists only in that stage's account and trusts only that stage's environment subject.
+- Stage-specific qualifiers, physical names, and the `pw-support:stage` tag keep a mistaken same-account deploy from colliding before the preflight stops it. They are not a security boundary between stages.
+
+The CloudFormation execution role holds scoped policies as least-privilege hygiene inside the account. Statements are scoped by stage name prefix or by the `pw-support:stage` tag. A permissions boundary caps every role that the stacks create. The boundary admits only the services the stacks use, and the execution role cannot create a role without it, remove it, or change it. Tags that carry the stage key cannot change after creation.
+
+IAM cannot inspect the trust policy of a role that the execution role creates. The boundary caps what such a role can do, and it grants no IAM or STS actions. The execution role keeps no permission to rewrite the trust policy of an existing role.
 
 These statements cannot be scoped by name or tag, with the reason:
 
@@ -55,6 +68,7 @@ These statements cannot be scoped by name or tag, with the reason:
 | CloudWatch Logs delivery for flow logs and load balancer logs | The delivery actions have no resource-level permissions |
 | `secretsmanager:GetRandomPassword` | The action has no resource |
 | Lambda event source mappings | Limited by the function ARN condition because mapping ids are generated |
+| The trust policy of a role the execution role creates | IAM exposes no condition key for trust content, so the permissions boundary is the limit |
 
 The execution policy was checked by synth and by assertions. The first real bootstrap may show a missing action. Add it to `modules/infra/src/execution-policy.ts`, keep the scope, and redeploy the OIDC stack.
 
@@ -73,11 +87,15 @@ The pool lives in the `pw-telemetry-platform` account. Create two app clients on
 - [ ] Create two Cognito groups. `support-staff` holds the engineers who use the laptop plugin. The API requires it on `/mcp`. `support-admins` holds the PressW admins who sign in to the admin site. The API requires it on `/admin`, which can write integration secrets. Add people to the group they need. Keep `support-admins` small.
 - [ ] The admin site sends the ID token. The ID token carries `cognito:groups` and `email`, so the group check passes. The plugin sends the access token to `/mcp`, and the same group claim applies.
 - [ ] Note the hosted UI domain. Set `adminLogoutUrl` to `https://<hosted UI domain>/logout?client_id={client_id}&logout_uri={logout_uri}`.
+<!-- stage-file: cognitoIssuer, adminClientId, mcpClientId, mcpRequiredGroup, adminRequiredGroup, adminLogoutUrl -->
+
 - [ ] Put `cognitoIssuer`, `adminClientId`, `mcpClientId`, `mcpRequiredGroup`, `adminRequiredGroup`, and `adminLogoutUrl` in the stage file. Add `adminAllowedEmailDomains` to also limit admin sign-in by email domain.
 
 ### 3. Anthropic agent and Jev
 
 - [ ] Run `ANTHROPIC_API_KEY=<key> bun run agent:sync`. It prints the agent id. Put it in the stage file as `triageAgentId`.
+
+<!-- stage-file: triageAgentId -->
 - [ ] Keep the Anthropic and Jev keys ready for step 7. They never go in the stage file. The Jev key goes through the admin site. The Anthropic key goes straight into Secrets Manager.
 
 ### 4. Linear
@@ -97,8 +115,10 @@ The pool lives in the `pw-telemetry-platform` account. Create two app clients on
 
 The first deploy skips the smoke test, because the keys do not exist yet.
 
+<!-- run: --skip-smoke -->
+
 ```bash
-GITHUB_TOKEN=<read:packages token> bun run deploy --stage production --skip-smoke
+bun run deploy --stage production --skip-smoke
 ```
 
 - [ ] Copy the outputs `ApiUrl`, `AdminUrl`, `AdminCallbackUrl`, `AdminSignedOutUrl`, and `ApiLoadBalancerDns`.

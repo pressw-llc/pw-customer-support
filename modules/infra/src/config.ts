@@ -88,13 +88,74 @@ export function isStageName(value: string): value is StageName {
   return (STAGES as readonly string[]).includes(value);
 }
 
+export type ConfigScope = "oidc" | "bootstrap" | "deploy";
+
+export const REQUIRED_KEYS: Record<ConfigScope, readonly string[]> = {
+  oidc: ["account"],
+  bootstrap: ["account"],
+  deploy: [
+    "account",
+    "cognitoIssuer",
+    "adminClientId",
+    "mcpClientId",
+    "adminRequiredGroup",
+    "mcpRequiredGroup",
+    "certificateArn",
+    "apiDomain",
+    "triageAgentId",
+  ],
+};
+
 export interface ResolveInput {
+  scope?: ConfigScope;
   stage: StageName;
   values: RawValues;
   placeholders: boolean;
 }
 
+function resolveLightConfig(input: ResolveInput): StageConfig {
+  const given = text(input.values.account);
+  const problems: string[] = [];
+  let account = given;
+  if (!account) {
+    if (input.placeholders) account = PLACEHOLDERS.account;
+    else
+      problems.push("account is required: the 12 digit id of the AWS account");
+  } else if (!/^\d{12}$/.test(account)) {
+    problems.push("account must be 12 digits");
+  }
+  const certificateArn = text(input.values.certificateArn) || undefined;
+  if (
+    certificateArn &&
+    !/^arn:aws:acm:us-east-1:\d{12}:certificate\//.test(certificateArn)
+  ) {
+    problems.push("certificateArn must be an ACM certificate ARN in us-east-1");
+  }
+  if (problems.length > 0) throw new ConfigError(problems);
+  return {
+    stage: input.stage,
+    account: account as string,
+    region: AWS_REGION,
+    cognitoIssuer: PLACEHOLDERS.cognitoIssuer,
+    adminClientId: PLACEHOLDERS.adminClientId,
+    mcpClientId: PLACEHOLDERS.mcpClientId,
+    mcpRequiredGroup: PLACEHOLDERS.mcpRequiredGroup,
+    adminRequiredGroup: PLACEHOLDERS.adminRequiredGroup,
+    adminAllowedEmailDomains: [],
+    certificateArn,
+    apiDomain: undefined,
+    triageAgentId: "",
+    adminLogoutUrl: undefined,
+    extraAdminOrigins: [],
+    alarmEmail: undefined,
+    placeholders: !given && input.placeholders ? ["account"] : [],
+  };
+}
+
 export function resolveStageConfig(input: ResolveInput): StageConfig {
+  if (input.scope === "oidc" || input.scope === "bootstrap") {
+    return resolveLightConfig(input);
+  }
   const { stage, values } = input;
   const production = stage === "production";
   const problems: string[] = [];
@@ -237,4 +298,25 @@ export function stackIds(stage: StageName) {
     app: `PwSupport${suffix}App`,
     oidc: `PwSupport${suffix}GithubOidc`,
   };
+}
+
+export const PLACEHOLDER_ACCOUNT = PLACEHOLDERS.account;
+
+export interface StageAccount {
+  stage: string;
+  account: string | undefined;
+}
+
+export function accountConflicts(entries: StageAccount[]): string[] {
+  const byAccount = new Map<string, string[]>();
+  for (const { stage, account } of entries) {
+    if (!account || account === PLACEHOLDER_ACCOUNT) continue;
+    byAccount.set(account, [...(byAccount.get(account) ?? []), stage]);
+  }
+  return [...byAccount.entries()]
+    .filter(([, stages]) => stages.length > 1)
+    .map(
+      ([account, stages]) =>
+        `stages ${stages.join(" and ")} name the same account ${account}; V1 supports one stage per AWS account, so give each stage its own account`,
+    );
 }

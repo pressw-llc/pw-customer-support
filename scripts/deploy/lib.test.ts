@@ -3,6 +3,7 @@ import {
   allowPlaceholders,
   chooseMode,
   findOutput,
+  findStageConflicts,
   hasAwsCredentials,
   missingBuildToken,
   parseDeployArgs,
@@ -10,6 +11,7 @@ import {
   runMigrationTask,
   smokeEnvProblems,
   stackNames,
+  stageOfStack,
   stepsFor,
   usesRealConfig,
 } from "./lib";
@@ -274,5 +276,99 @@ describe("environment checks", () => {
         SMOKE_LINEAR_TEAM_ID: "t",
       }),
     ).toEqual([]);
+  });
+});
+
+describe("one stage per account in CloudFormation", () => {
+  function fakeCfn(stacks: { name: string; stage?: string }[], pages = 1) {
+    const sent: string[] = [];
+    const per = Math.ceil(stacks.length / pages) || 1;
+    return {
+      sent,
+      client: {
+        send: async (command: {
+          constructor: { name: string };
+          input: { NextToken?: string; StackName?: string };
+        }) => {
+          sent.push(command.constructor.name);
+          if (command.constructor.name === "ListStacksCommand") {
+            const start = Number(command.input.NextToken ?? 0);
+            const slice = stacks.slice(start, start + per);
+            return {
+              StackSummaries: slice.map((stack) => ({ StackName: stack.name })),
+              NextToken:
+                start + per < stacks.length ? String(start + per) : undefined,
+            };
+          }
+          const found = stacks.find((s) => s.name === command.input.StackName);
+          return {
+            Stacks: [
+              {
+                Tags: found?.stage
+                  ? [{ Key: "pw-support:stage", Value: found.stage }]
+                  : [],
+              },
+            ],
+          };
+        },
+      } as never,
+    };
+  }
+
+  test("an empty account has no conflict", async () => {
+    expect(await findStageConflicts(fakeCfn([]).client, "production")).toEqual(
+      [],
+    );
+  });
+
+  test("a stack of the same stage is not a conflict", async () => {
+    const { client } = fakeCfn([
+      { name: "PwSupport", stage: "production" },
+      { name: "PwSupportApp", stage: "production" },
+      { name: "CDKToolkit-pwsproduct" },
+    ]);
+    expect(await findStageConflicts(client, "production")).toEqual([]);
+  });
+
+  test("a stack of another stage refuses the stage, by tag or by name", async () => {
+    const tagged = await findStageConflicts(
+      fakeCfn([{ name: "PwSupport", stage: "staging" }]).client,
+      "production",
+    );
+    expect(tagged[0]).toContain("already belongs to stage staging");
+    expect(tagged[0]).toContain("one stage per AWS account");
+    const byName = await findStageConflicts(
+      fakeCfn([{ name: "PwSupportStagingApp" }]).client,
+      "production",
+    );
+    expect(byName[0]).toContain("stage staging");
+    const reverse = await findStageConflicts(
+      fakeCfn([{ name: "PwSupportApp" }]).client,
+      "staging",
+    );
+    expect(reverse[0]).toContain("stage production");
+  });
+
+  test("it pages through every stack and only reads", async () => {
+    const stacks = Array.from({ length: 5 }, (_, i) => ({
+      name: `PwSupportX${i}`,
+      stage: i === 4 ? "staging" : "production",
+    }));
+    const { client, sent } = fakeCfn(stacks, 3);
+    const conflicts = await findStageConflicts(client, "production");
+    expect(conflicts).toHaveLength(1);
+    expect(new Set(sent)).toEqual(
+      new Set(["ListStacksCommand", "DescribeStacksCommand"]),
+    );
+  });
+
+  test("stageOfStack prefers the tag over the name", () => {
+    expect(
+      stageOfStack("PwSupportStaging", [
+        { Key: "pw-support:stage", Value: "production" },
+      ]),
+    ).toBe("production");
+    expect(stageOfStack("PwSupportStaging", undefined)).toBe("staging");
+    expect(stageOfStack("PwSupport", undefined)).toBe("production");
   });
 });

@@ -2,9 +2,14 @@ import { existsSync, readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import {
+  accountConflicts,
+  ConfigError,
+  type ConfigScope,
   isStageName,
   type RawValues,
   resolveStageConfig,
+  STAGES,
+  type StageAccount,
   type StageConfig,
   type StageName,
   stageValuesFrom,
@@ -51,15 +56,39 @@ export function parseStage(value: unknown): StageName {
   return name;
 }
 
+export function otherStageAccounts(
+  current: StageName,
+  currentAccount: string | undefined,
+  dir: string = INFRA_DIR,
+): StageAccount[] {
+  const entries: StageAccount[] = [{ stage: current, account: currentAccount }];
+  for (const stage of STAGES) {
+    if (stage === current) continue;
+    const file = stageFile(stage, dir);
+    if (!existsSync(file)) continue;
+    const values = parseJsonObject(readFileSync(file, "utf8"), file);
+    entries.push({ stage, account: text(values.account) });
+  }
+  return entries;
+}
+
+function text(value: unknown): string | undefined {
+  return typeof value === "string" && value.trim() !== ""
+    ? value.trim()
+    : undefined;
+}
+
 export function loadStageConfig(options: {
   stage: StageName;
+  scope?: ConfigScope;
   placeholders: boolean;
   readContext?: (key: string) => unknown;
   env?: Record<string, string | undefined>;
   dir?: string;
 }): StageConfig {
-  return resolveStageConfig({
+  const config = resolveStageConfig({
     stage: options.stage,
+    scope: options.scope,
     placeholders: options.placeholders,
     values: loadStageValues(
       options.stage,
@@ -68,4 +97,9 @@ export function loadStageConfig(options: {
       options.dir,
     ),
   });
+  const conflicts = accountConflicts(
+    otherStageAccounts(options.stage, config.account, options.dir),
+  );
+  if (conflicts.length > 0) throw new ConfigError(conflicts);
+  return config;
 }

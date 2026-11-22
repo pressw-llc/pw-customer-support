@@ -25,6 +25,7 @@ function harness(
   } = {},
 ) {
   const calls: string[] = [];
+  const scopes: string[] = [];
   const identityCalls: string[] = [];
   const logs: string[] = [];
   const errors: string[] = [];
@@ -34,7 +35,11 @@ function harness(
     root: "/repo",
     infraDir: "/repo/modules/infra",
     stageFile: "/nope/stage.production.json",
-    loadConfig: () => config,
+    loadConfig: (_placeholders, scope) => {
+      scopes.push(scope);
+      return config;
+    },
+    stageConflicts: async () => [],
     isConfigError: (error): error is { problems: string[] } =>
       typeof error === "object" && error !== null && "problems" in error,
     run: async ({ title }) => {
@@ -66,7 +71,7 @@ function harness(
     error: (line) => errors.push(line),
     ...overrides,
   };
-  return { deps, calls, identityCalls, logs, errors };
+  return { deps, calls, identityCalls, logs, errors, scopes };
 }
 
 const MUTATING =
@@ -152,6 +157,59 @@ describe("preflight", () => {
     expect(calls).toEqual([]);
     expect(asked).toEqual(["pwsproduct"]);
     expect(errors.join("\n")).toContain("qualifier pwsproduct");
+  });
+
+  test("another stage's stack in the account refuses --oidc, --bootstrap, and a deploy before any call", async () => {
+    for (const argv of [[], ["--oidc"], ["--bootstrap"]]) {
+      const { deps, calls, errors } = harness(argv, {
+        env: { ...FULL_ENV },
+        stageConflicts: async () => [
+          "account: stack PwSupportStaging already belongs to stage staging; V1 supports one stage per AWS account, so production needs its own account",
+        ],
+      });
+      expect(await runDeploy(deps)).toBe(2);
+      expect(calls, argv.join(" ")).toEqual([]);
+      expect(errors.join("\n")).toContain("one stage per AWS account");
+    }
+  });
+
+  test("a listing failure cannot be skipped: the rule could not be checked", async () => {
+    const { deps, calls, errors } = harness([], {
+      stageConflicts: async () => {
+        throw new Error("cloudformation down");
+      },
+    });
+    expect(await runDeploy(deps)).toBe(2);
+    expect(calls).toEqual([]);
+    expect(errors.join("\n")).toContain("could not be listed");
+  });
+
+  test("a dry run does not list the account's stacks", async () => {
+    const { deps } = harness(["--dry-run"], {
+      env: { GITHUB_TOKEN: "t" },
+      stageConflicts: async () => {
+        throw new Error("must not be called");
+      },
+    });
+    expect(await runDeploy(deps)).toBe(0);
+  });
+
+  test("each mode loads the config with its own scope", async () => {
+    const seen: Record<string, string[]> = {};
+    for (const [name, argv] of [
+      ["oidc", ["--oidc"]],
+      ["bootstrap", ["--bootstrap"]],
+      ["deploy", []],
+    ] as const) {
+      const h = harness([...argv], { env: { ...FULL_ENV } });
+      await preflight(h.deps);
+      seen[name] = h.scopes;
+    }
+    expect(seen).toEqual({
+      oidc: ["oidc"],
+      bootstrap: ["bootstrap"],
+      deploy: ["deploy"],
+    });
   });
 
   test("a stage is refused through another stage's deploy role", async () => {

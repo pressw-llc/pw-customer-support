@@ -10,7 +10,12 @@ import {
   loadStageConfig,
   stageFile,
 } from "@pw-support/infra";
-import { parseDeployArgs, readStackOutputs, runMigrationTask } from "./lib";
+import {
+  findStageConflicts,
+  parseDeployArgs,
+  readStackOutputs,
+  runMigrationTask,
+} from "./lib";
 import { runDeploy } from "./run";
 
 const root = join(import.meta.dir, "..", "..");
@@ -31,8 +36,9 @@ const code = await runDeploy({
   root,
   infraDir: INFRA_DIR,
   stageFile: stageFile(args.stage),
-  loadConfig: (placeholders) =>
-    loadStageConfig({ stage: args.stage, placeholders }),
+  loadConfig: (placeholders, scope) =>
+    loadStageConfig({ stage: args.stage, placeholders, scope }),
+  stageConflicts: () => findStageConflicts(cfn, args.stage),
   isConfigError: (error): error is ConfigError => error instanceof ConfigError,
   run: async ({ command, cwd }) => {
     const proc = Bun.spawn(command, {

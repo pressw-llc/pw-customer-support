@@ -1,5 +1,5 @@
 import { resourceNames } from "@pw-support/contracts";
-import type { StageConfig } from "@pw-support/infra";
+import type { ConfigScope, StageConfig } from "@pw-support/infra";
 import {
   allowPlaceholders,
   chooseMode,
@@ -26,7 +26,8 @@ export interface DeployDeps {
   root: string;
   infraDir: string;
   stageFile: string;
-  loadConfig(placeholders: boolean): StageConfig;
+  loadConfig(placeholders: boolean, scope: ConfigScope): StageConfig;
+  stageConflicts(): Promise<string[]>;
   isConfigError(error: unknown): error is { problems: string[] };
   run(call: RunnerCall): Promise<number>;
   identity(): Promise<{ account?: string; arn?: string }>;
@@ -49,6 +50,10 @@ export interface Preflight {
   steps: string[];
 }
 
+export function scopeOf(args: DeployArgs): ConfigScope {
+  return args.oidc ? "oidc" : args.bootstrap ? "bootstrap" : "deploy";
+}
+
 export async function preflight(deps: DeployDeps): Promise<Preflight> {
   const { args, env } = deps;
   const mode = chooseMode(args, env);
@@ -61,7 +66,7 @@ export async function preflight(deps: DeployDeps): Promise<Preflight> {
 
   let config: StageConfig | undefined;
   try {
-    config = deps.loadConfig(placeholders);
+    config = deps.loadConfig(placeholders, scopeOf(args));
   } catch (error) {
     if (!deps.isConfigError(error)) throw error;
     problems.push(...error.problems.map((line) => `config: ${line}`));
@@ -92,6 +97,15 @@ export async function preflight(deps: DeployDeps): Promise<Preflight> {
     } else if (config && who.account !== config.account) {
       problems.push(
         `credentials: the identity belongs to account ${who.account}, the stage config names ${config.account}`,
+      );
+    }
+    if (who.account) {
+      problems.push(
+        ...(await deps
+          .stageConflicts()
+          .catch(() => [
+            "account: the stacks in the account could not be listed, so the one stage per account rule cannot be checked",
+          ])),
       );
     }
     const names = resourceNames(args.stage);
@@ -181,6 +195,8 @@ async function execute(deps: DeployDeps, cleanup: string[]): Promise<number> {
     `stage=${args.stage}`,
     "-c",
     `placeholders=${plan.placeholders}`,
+    "-c",
+    `scope=${scopeOf(args)}`,
     "--no-notices",
   ];
 

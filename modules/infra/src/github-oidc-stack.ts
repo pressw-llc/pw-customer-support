@@ -82,13 +82,10 @@ export class GithubOidcStack extends Stack {
     const account = this.account;
     const partition = this.partition;
 
-    const providerArn =
-      stage === "production"
-        ? new iam.CfnOIDCProvider(this, "Provider", {
-            url: `https://${OIDC_ISSUER}`,
-            clientIdList: ["sts.amazonaws.com"],
-          }).attrArn
-        : `arn:${partition}:iam::${account}:oidc-provider/${OIDC_ISSUER}`;
+    const providerArn = new iam.CfnOIDCProvider(this, "Provider", {
+      url: `https://${OIDC_ISSUER}`,
+      clientIdList: ["sts.amazonaws.com"],
+    }).attrArn;
 
     this.deployRole = new iam.Role(this, "DeployRole", {
       roleName: names.githubDeployRole,

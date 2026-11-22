@@ -5,6 +5,15 @@ import { type StageConfig, stackIds } from "./config";
 import { GithubOidcStack } from "./github-oidc-stack";
 import { SupportStack } from "./support-stack";
 
+export function createOidcStack(app: App, config: StageConfig) {
+  const names = resourceNames(config.stage);
+  const oidc = new GithubOidcStack(app, stackIds(config.stage).oidc, {
+    config,
+  });
+  Tags.of(oidc).add(names.stageTag, config.stage);
+  return oidc;
+}
+
 export function createSupportStacks(app: App, config: StageConfig) {
   const ids = stackIds(config.stage);
   const foundation = new SupportStack(app, ids.foundation, { config });
