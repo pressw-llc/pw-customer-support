@@ -18,3 +18,4 @@ modules/infra/stage.*.json
 !modules/infra/stage.example.json
 modules/infra/cdk.context.json
 .demo
+.release

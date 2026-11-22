@@ -32,6 +32,8 @@ interface Local {
 }
 
 const steps = new Steps();
+const manifestFile = join(root, ".release", `manifest-${version}.json`);
+let firstIntegrity = "";
 const work = mkdtempSync(join(tmpdir(), "pw-release-rehearsal-"));
 const registries: Local[] = (["npm", "github"] as const).map((id) => {
   const port = freePort();
@@ -45,7 +47,7 @@ const registries: Local[] = (["npm", "github"] as const).map((id) => {
   };
 });
 
-const config = `storage: /verdaccio/storage
+const configFor = (publish: string) => `storage: /verdaccio/storage
 auth:
   htpasswd:
     file: /verdaccio/storage/htpasswd
@@ -54,18 +56,18 @@ uplinks: {}
 packages:
   "@pressw-llc/*":
     access: $all
-    publish: $authenticated
-    unpublish: $authenticated
+    publish: ${publish}
+    unpublish: ${publish}
   "**":
     access: $all
     publish: $authenticated
 log: { type: stdout, format: pretty, level: warn }
 `;
 
-async function startRegistry(registry: Local) {
+async function startRegistry(registry: Local, publish = "$authenticated") {
   mkdirSync(join(registry.dir, "conf"), { recursive: true });
   mkdirSync(join(registry.dir, "storage"), { recursive: true });
-  writeFileSync(join(registry.dir, "conf", "config.yaml"), config);
+  writeFileSync(join(registry.dir, "conf", "config.yaml"), configFor(publish));
   await exec(["chmod", "-R", "777", registry.dir]);
   const started = await exec([
     "docker",
@@ -87,6 +89,7 @@ async function startRegistry(registry: Local) {
     async () => (await fetch(`${registry.url}/-/ping`)).ok,
     `${registry.container} ping`,
   );
+  if (registry.token) return;
   const response = await fetch(
     `${registry.url}/-/user/org.couchdb.user:rehearsal`,
     {
@@ -126,7 +129,6 @@ function releaseArgs(extra: string[] = []): string[] {
     "release",
     "--publish",
     "--no-changelog",
-    "--allow-existing",
     "--npm-registry",
     registries[0]?.url as string,
     "--gh-registry",
@@ -166,8 +168,22 @@ async function consumer(registry: Local, style: "bunfig" | "npmrc") {
     );
   }
   const install = await exec(
-    ["bun", "add", `${PACKAGE}@${version}`, "react@18", "react-dom@18"],
-    { cwd: dir, env: { ...process.env, GITHUB_TOKEN: undefined } },
+    [
+      "bun",
+      "add",
+      "--no-cache",
+      `${PACKAGE}@${version}`,
+      "react@18",
+      "react-dom@18",
+    ],
+    {
+      cwd: dir,
+      env: {
+        ...process.env,
+        GITHUB_TOKEN: undefined,
+        BUN_INSTALL_CACHE_DIR: join(dir, ".bun-cache"),
+      },
+    },
   );
   assert(install.code === 0, `bun add failed: ${install.out}`);
 
@@ -206,18 +222,31 @@ createRoot(document.body).render(
   }
   const sha = (path: string) =>
     createHash("sha256").update(readFileSync(path)).digest("hex");
+  const savedTarball = (
+    JSON.parse(readFileSync(manifestFile, "utf8")) as { tarball: string }
+  ).tarball;
+  const packedIndex = Bun.spawnSync([
+    "tar",
+    "-xzOf",
+    savedTarball,
+    "package/dist/index.js",
+  ]).stdout;
+  const packedSha = createHash("sha256").update(packedIndex).digest("hex");
+  const installedSha = sha(join(installed, "dist/index.js"));
   assert(
-    sha(join(installed, "dist/index.js")) ===
-      sha(join(root, "modules/widget/dist/index.js")),
-    "installed dist differs from the build",
+    installedSha === packedSha,
+    `installed dist ${installedSha} differs from the saved release tarball ${packedSha} (${savedTarball}, ${packedIndex.length} bytes)`,
   );
   return `${PACKAGE}@${pkg.version} installed from ${registry.url}`;
 }
 
+rmSync(join(root, ".release"), { recursive: true, force: true });
+
 try {
   await steps.run("start two Verdaccio registries", async () => {
-    await Promise.all(registries.map(startRegistry));
-    return registries.map((registry) => registry.url).join(" and ");
+    await startRegistry(registries[0] as Local);
+    await startRegistry(registries[1] as Local, "nobody");
+    return `${registries[0]?.url} and ${registries[1]?.url} (the second refuses publishing for now)`;
   });
 
   await steps.run("publish refuses to start without both tokens", async () => {
@@ -226,24 +255,109 @@ try {
       env: { ...releaseEnv(), GH_PACKAGES_TOKEN: undefined },
     });
     assert(result.code !== 0, "publish succeeded without a token");
-    assert(
-      /missing tokens before anything is sent/.test(result.out),
-      result.out,
-    );
+    assert(/nothing was sent/.test(result.out), result.out);
+    assert(/missing token GitHub Packages/.test(result.out), result.out);
     const meta = await fetch(
       `${registries[0]?.url}/${PACKAGE.replace("/", "%2f")}`,
     );
     assert(meta.status === 404, "a package reached the registry");
   });
 
-  await steps.run("release --publish pushes one tarball to both", async () => {
-    const result = await exec(releaseArgs(), { cwd: root, env: releaseEnv() });
-    assert(result.code === 0, result.out);
-    assert(/PASS npmjs published/.test(result.out), result.out);
-    assert(/PASS GitHub Packages published/.test(result.out), result.out);
-    assert(/next: git tag support-react-v/.test(result.out), result.out);
-    return "published to both";
-  });
+  await steps.run(
+    "a failing second registry leaves one registry published and prints the retry command",
+    async () => {
+      const result = await exec(releaseArgs(), {
+        cwd: root,
+        env: releaseEnv(),
+      });
+      assert(
+        result.code !== 0,
+        "publish succeeded against a refusing registry",
+      );
+      assert(/PASS npmjs published/.test(result.out), result.out);
+      assert(
+        /retry with the same tarball: bun run release --publish --only github/.test(
+          result.out,
+        ),
+        result.out,
+      );
+      const saved = JSON.parse(readFileSync(manifestFile, "utf8")) as {
+        integrity: string;
+        published: string[];
+      };
+      assert(saved.published.join() === "npm", `published ${saved.published}`);
+      firstIntegrity = saved.integrity;
+      const first = await metadata(registries[0] as Local);
+      assert(first.versions[version], "first registry lacks the version");
+      return `integrity ${saved.integrity.slice(0, 24)}...`;
+    },
+  );
+
+  await steps.run(
+    "a changed build with the same version is refused before anything is sent",
+    async () => {
+      const before = (await metadata(registries[0] as Local)).versions[version]
+        ?.dist.shasum;
+      const result = await exec(
+        releaseArgs().map((arg) =>
+          arg === "http://127.0.0.1:8787" ? "http://127.0.0.1:8799" : arg,
+        ),
+        { cwd: root, env: releaseEnv() },
+      );
+      assert(result.code !== 0, "a changed build was published");
+      assert(
+        /different content; bump the version/.test(result.out),
+        result.out.slice(-600),
+      );
+      assert(/nothing was sent/.test(result.out), result.out.slice(-600));
+      const after = (await metadata(registries[0] as Local)).versions[version]
+        ?.dist.shasum;
+      assert(before === after, "the first registry changed");
+      const second = await fetch(
+        `${registries[1]?.url}/${PACKAGE.replace("/", "%2f")}`,
+      );
+      assert(second.status === 404, "the second registry received a package");
+      const restored = await exec(
+        ["bun", "run", "--filter", PACKAGE, "build"],
+        {
+          cwd: root,
+          env: { ...process.env, SUPPORT_API_URL: "http://127.0.0.1:8787" },
+        },
+      );
+      assert(restored.code === 0, restored.out);
+    },
+  );
+
+  await steps.run(
+    "the retry publishes the identical tarball without rebuilding",
+    async () => {
+      await exec(["docker", "rm", "-f", registries[1]?.container as string]);
+      await startRegistry(registries[1] as Local, "$authenticated");
+      const result = await exec(releaseArgs(["--only", "github"]), {
+        cwd: root,
+        env: releaseEnv(),
+      });
+      assert(result.code === 0, result.out.slice(-800));
+      assert(/reusing .*support-react-.*\.tgz/.test(result.out), result.out);
+      assert(!/\[release\] build/.test(result.out), "the retry rebuilt");
+      assert(
+        /PASS npmjs already holds the identical tarball|PASS GitHub Packages published/.test(
+          result.out,
+        ),
+        result.out,
+      );
+      const [npm, gh] = await Promise.all(registries.map(metadata));
+      const a = npm?.versions[version]?.dist;
+      const b = gh?.versions[version]?.dist;
+      assert(a && b, "version missing");
+      assert(a.shasum === b.shasum, "tarball checksums differ");
+      assert(
+        a.integrity === firstIntegrity && b.integrity === firstIntegrity,
+        `integrity differs: ${a.integrity} ${b.integrity} ${firstIntegrity}`,
+      );
+      return `both hold ${firstIntegrity.slice(0, 24)}...`;
+    },
+  );
 
   await steps.run("both registries hold the same tarball", async () => {
     const [npm, gh] = await Promise.all(registries.map(metadata));
@@ -261,28 +375,23 @@ try {
     consumer(registries[1] as Local, "npmrc"),
   );
 
-  await steps.run("a second publish is idempotent", async () => {
-    const result = await exec(releaseArgs(), { cwd: root, env: releaseEnv() });
-    assert(result.code === 0, result.out);
-    assert(/PASS npmjs already-published/.test(result.out), result.out);
-    assert(
-      /PASS GitHub Packages already-published/.test(result.out),
-      result.out,
-    );
-  });
-
   await steps.run(
-    "a failing second registry prints the retry command",
+    "an unchanged tree rebuilds to the same tarball and a second publish is a no-op",
     async () => {
-      await exec(["docker", "stop", registries[1]?.container as string]);
-      const result = await exec(releaseArgs(["--only", "github"]), {
+      const result = await exec(releaseArgs(), {
         cwd: root,
         env: releaseEnv(),
       });
-      assert(result.code !== 0, "publish succeeded against a stopped registry");
+      assert(result.code === 0, result.out.slice(-800));
       assert(
-        /retry: bun run release --publish --only github/.test(result.out),
-        result.out,
+        /PASS npmjs already holds the identical tarball/.test(result.out),
+        result.out.slice(-800),
+      );
+      assert(
+        /PASS GitHub Packages already holds the identical tarball/.test(
+          result.out,
+        ),
+        result.out.slice(-800),
       );
     },
   );

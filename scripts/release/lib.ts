@@ -1,4 +1,5 @@
 import { spawnSync } from "node:child_process";
+import { createHash } from "node:crypto";
 import {
   cpSync,
   existsSync,
@@ -7,6 +8,7 @@ import {
   readdirSync,
   readFileSync,
   statSync,
+  utimesSync,
   writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
@@ -328,7 +330,7 @@ export function appendChangelog(existing: string, entry: string): string {
 }
 
 export function retryCommand(registry: Registry): string {
-  return `bun run release --publish --only ${registry.id} --allow-existing`;
+  return `bun run release --publish --only ${registry.id}`;
 }
 
 export function listFiles(dir: string): { path: string; size: number }[] {
@@ -369,6 +371,7 @@ export function packWidget(widgetDir: string): Packed {
     join(stage, "package.json"),
     `${JSON.stringify(stageManifest(pkg), null, 2)}\n`,
   );
+  normalizeMtimes(stage);
   const out = join(workDir, "out");
   mkdirSync(out);
   const packed = spawnSync(
@@ -383,8 +386,25 @@ export function packWidget(widgetDir: string): Packed {
     out,
     readdirSync(out).find((name) => name.endsWith(".tgz")) as string,
   );
-  const extract = join(workDir, "extract");
-  mkdirSync(extract);
+  return inspectTarball(tarball, workDir);
+}
+
+export const FIXED_MTIME = new Date("2020-01-01T00:00:00Z");
+
+export function normalizeMtimes(dir: string): void {
+  for (const entry of readdirSync(dir, { withFileTypes: true })) {
+    const full = join(dir, entry.name);
+    if (entry.isDirectory()) normalizeMtimes(full);
+    utimesSync(full, FIXED_MTIME, FIXED_MTIME);
+  }
+  utimesSync(dir, FIXED_MTIME, FIXED_MTIME);
+}
+
+export function inspectTarball(tarball: string, workDir: string): Packed {
+  const fixed = join(workDir, "extract");
+  const extract = existsSync(fixed)
+    ? mkdtempSync(join(workDir, "extract-"))
+    : (mkdirSync(fixed), fixed);
   const untar = spawnSync("tar", ["-xzf", tarball, "-C", extract], {
     encoding: "utf8",
   });
@@ -399,6 +419,178 @@ export function packWidget(widgetDir: string): Packed {
     ) as Manifest,
     workDir,
   };
+}
+
+export interface Integrity {
+  integrity: string;
+  shasum: string;
+}
+
+export function computeIntegrity(tarball: string): Integrity {
+  const bytes = readFileSync(tarball);
+  return {
+    integrity: `sha512-${createHash("sha512").update(bytes).digest("base64")}`,
+    shasum: createHash("sha1").update(bytes).digest("hex"),
+  };
+}
+
+export type VersionInfo =
+  | { state: "absent" }
+  | { state: "present"; integrity?: string; shasum?: string }
+  | { state: "error"; message: string };
+
+export async function fetchVersionInfo(input: {
+  registry: Registry;
+  token: string;
+  version: string;
+  fetcher?: typeof fetch;
+}): Promise<VersionInfo> {
+  const fetcher = input.fetcher ?? fetch;
+  const url = `${input.registry.url.replace(/\/$/, "")}/${PACKAGE_NAME.replace("/", "%2f")}`;
+  try {
+    const response = await fetcher(url, {
+      headers: input.token ? { authorization: `Bearer ${input.token}` } : {},
+    });
+    if (response.status === 404) return { state: "absent" };
+    if (response.status === 401 || response.status === 403) {
+      return {
+        state: "error",
+        message: `${input.registry.label} refused the token (${response.status})`,
+      };
+    }
+    if (!response.ok) {
+      return {
+        state: "error",
+        message: `${input.registry.label} answered ${response.status}`,
+      };
+    }
+    const body = (await response.json()) as {
+      versions?: Record<
+        string,
+        { dist?: { integrity?: string; shasum?: string } }
+      >;
+    };
+    const dist = body.versions?.[input.version]?.dist;
+    return dist
+      ? { state: "present", integrity: dist.integrity, shasum: dist.shasum }
+      : { state: "absent" };
+  } catch (error) {
+    return {
+      state: "error",
+      message: `${input.registry.label} is unreachable: ${error instanceof Error ? error.message : String(error)}`,
+    };
+  }
+}
+
+export function sameContent(local: Integrity, remote: VersionInfo): boolean {
+  if (remote.state !== "present") return false;
+  if (remote.integrity) return remote.integrity === local.integrity;
+  return remote.shasum === local.shasum;
+}
+
+export type RegistryAction = "publish" | "done";
+
+export type ReleaseDecision =
+  | { action: "go"; registries: Record<string, RegistryAction> }
+  | { action: "abort"; reasons: string[] };
+
+export function decideRelease(input: {
+  version: string;
+  local: Integrity;
+  infos: { registry: Registry; info: VersionInfo }[];
+  published?: Registry["id"][];
+}): ReleaseDecision {
+  const reasons: string[] = [];
+  const registries: Record<string, RegistryAction> = {};
+  for (const { registry, info } of input.infos) {
+    if (info.state === "error") {
+      reasons.push(info.message);
+    } else if (info.state === "present") {
+      if (sameContent(input.local, info)) registries[registry.id] = "done";
+      else {
+        reasons.push(
+          `${registry.label} already holds ${input.version} with different content; bump the version`,
+        );
+      }
+    } else {
+      if (input.published?.includes(registry.id)) {
+        reasons.push(
+          `${registry.label} no longer holds the tarball the release manifest recorded`,
+        );
+      }
+      registries[registry.id] = "publish";
+    }
+  }
+  return reasons.length > 0
+    ? { action: "abort", reasons }
+    : { action: "go", registries };
+}
+
+export interface ReleaseManifest {
+  version: string;
+  tarball: string;
+  integrity: string;
+  shasum: string;
+  published: Registry["id"][];
+}
+
+export const RELEASE_DIR = ".release";
+
+export function manifestPath(root: string, version: string): string {
+  return join(root, RELEASE_DIR, `manifest-${version}.json`);
+}
+
+export function saveRelease(input: {
+  root: string;
+  packed: Packed;
+  version: string;
+  integrity: Integrity;
+  published: Registry["id"][];
+}): ReleaseManifest {
+  const dir = join(input.root, RELEASE_DIR);
+  mkdirSync(dir, { recursive: true });
+  const tarball = join(dir, `support-react-${input.version}.tgz`);
+  cpSync(input.packed.tarball, tarball);
+  const manifest: ReleaseManifest = {
+    version: input.version,
+    tarball,
+    integrity: input.integrity.integrity,
+    shasum: input.integrity.shasum,
+    published: input.published,
+  };
+  writeFileSync(
+    manifestPath(input.root, input.version),
+    `${JSON.stringify(manifest, null, 2)}\n`,
+  );
+  return manifest;
+}
+
+export function loadRelease(
+  root: string,
+  version: string,
+): ReleaseManifest | undefined {
+  const path = manifestPath(root, version);
+  if (!existsSync(path)) return undefined;
+  const manifest = JSON.parse(readFileSync(path, "utf8")) as ReleaseManifest;
+  if (!existsSync(manifest.tarball)) return undefined;
+  const actual = computeIntegrity(manifest.tarball);
+  return actual.integrity === manifest.integrity ? manifest : undefined;
+}
+
+export function markPublished(
+  root: string,
+  manifest: ReleaseManifest,
+  id: Registry["id"],
+): ReleaseManifest {
+  const next = {
+    ...manifest,
+    published: [...new Set([...manifest.published, id])],
+  };
+  writeFileSync(
+    manifestPath(root, manifest.version),
+    `${JSON.stringify(next, null, 2)}\n`,
+  );
+  return next;
 }
 
 export type Runner = (

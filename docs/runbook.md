@@ -124,7 +124,7 @@ SUPPORT_API_URL=https://<API host> NPM_TOKEN=<token> GH_PACKAGES_TOKEN=<token> b
 git tag support-react-v<version> && git push origin support-react-v<version>
 ```
 
-Bump `version` in `modules/widget/package.json` first. See the README Release section.
+Bump `version` in `modules/widget/package.json` first. If the second registry fails after the first succeeds, run the printed retry command, for example `bun run release --publish --only github`. It republishes the saved tarball from `.release` and never rebuilds. A version that exists with different content stops the release before anything is sent. See the README Release section.
 
 ### Key rotation
 

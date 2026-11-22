@@ -13,20 +13,28 @@ import {
   appendChangelog,
   changelogEntry,
   collectExportTargets,
+  computeIntegrity,
+  decideRelease,
+  fetchVersionInfo,
   formatSize,
   isAlreadyPublished,
   isRealRegistry,
   listFiles,
+  loadRelease,
+  markPublished,
   npmrcFor,
   type Packed,
   packWidget,
   parseArgs,
   publishTarball,
   REGISTRIES,
+  type Registry,
   type Runner,
   registriesFor,
   resolveTokens,
   retryCommand,
+  sameContent,
+  saveRelease,
   sizeReport,
   stageManifest,
   tagName,
@@ -367,5 +375,190 @@ describe("the packed widget manifest", () => {
       react: ">=18",
       "react-dom": ">=18",
     });
+  });
+});
+
+describe("integrity, registry state, and the release decision", () => {
+  const dirs: string[] = [];
+  afterAll(() => {
+    for (const dir of dirs) rmSync(dir, { recursive: true, force: true });
+  });
+
+  function widget(content = "export {};\n"): string {
+    const dir = mkdtempSync(join(tmpdir(), "pw-widget-det-"));
+    dirs.push(dir);
+    mkdirSync(join(dir, "dist"));
+    for (const file of ["index.js", "index.d.ts", "support-widget.global.js"]) {
+      writeFileSync(join(dir, "dist", file), content);
+    }
+    writeFileSync(join(dir, "README.md"), "# fixture\n");
+    writeFileSync(join(dir, "LICENSE"), "fixture\n");
+    writeFileSync(join(dir, "package.json"), JSON.stringify(widgetManifest));
+    return dir;
+  }
+
+  const npm = REGISTRIES[0] as Registry;
+  const gh = REGISTRIES[1] as Registry;
+  const local = { integrity: "sha512-AAA", shasum: "aaa" };
+  const same = {
+    state: "present",
+    integrity: "sha512-AAA",
+    shasum: "aaa",
+  } as const;
+  const other = {
+    state: "present",
+    integrity: "sha512-BBB",
+    shasum: "bbb",
+  } as const;
+
+  test("an unchanged tree packs to the same integrity, a changed tree to another", async () => {
+    const first = packWidget(widget());
+    await Bun.sleep(1100);
+    const second = packWidget(widget());
+    const changed = packWidget(widget("export const changed = 1;\n"));
+    dirs.push(first.workDir, second.workDir, changed.workDir);
+    expect(computeIntegrity(second.tarball)).toEqual(
+      computeIntegrity(first.tarball),
+    );
+    expect(computeIntegrity(changed.tarball).integrity).not.toBe(
+      computeIntegrity(first.tarball).integrity,
+    );
+    expect(computeIntegrity(first.tarball).integrity).toMatch(/^sha512-/);
+  });
+
+  test("decision table: absent everywhere publishes to both", () => {
+    expect(
+      decideRelease({
+        version: "1.0.0",
+        local,
+        infos: [
+          { registry: npm, info: { state: "absent" } },
+          { registry: gh, info: { state: "absent" } },
+        ],
+      }),
+    ).toEqual({
+      action: "go",
+      registries: { npm: "publish", github: "publish" },
+    });
+  });
+
+  test("decision table: an identical tarball marks that registry done", () => {
+    expect(
+      decideRelease({
+        version: "1.0.0",
+        local,
+        infos: [
+          { registry: npm, info: same },
+          { registry: gh, info: { state: "absent" } },
+        ],
+      }),
+    ).toEqual({ action: "go", registries: { npm: "done", github: "publish" } });
+  });
+
+  test("decision table: a different tarball on either registry aborts before anything is sent", () => {
+    const absent = { state: "absent" } as const;
+    for (const infos of [
+      [
+        { registry: npm, info: other },
+        { registry: gh, info: absent },
+      ],
+      [
+        { registry: npm, info: absent },
+        { registry: gh, info: other },
+      ],
+    ]) {
+      const decision = decideRelease({ version: "1.0.0", local, infos });
+      expect(decision.action).toBe("abort");
+      expect((decision as { reasons: string[] }).reasons.join(" ")).toContain(
+        "different content; bump the version",
+      );
+    }
+  });
+
+  test("decision table: a registry error aborts, and a published registry that lost the tarball aborts a retry", () => {
+    const failed = decideRelease({
+      version: "1.0.0",
+      local,
+      infos: [
+        {
+          registry: npm,
+          info: { state: "error", message: "npmjs is unreachable" },
+        },
+        { registry: gh, info: { state: "absent" } },
+      ],
+    });
+    expect(failed).toEqual({
+      action: "abort",
+      reasons: ["npmjs is unreachable"],
+    });
+    const lost = decideRelease({
+      version: "1.0.0",
+      local,
+      published: ["npm"],
+      infos: [
+        { registry: npm, info: { state: "absent" } },
+        { registry: gh, info: { state: "absent" } },
+      ],
+    });
+    expect(lost.action).toBe("abort");
+  });
+
+  test("the comparison falls back to the shasum when a registry has no integrity", () => {
+    expect(sameContent(local, { state: "present", shasum: "aaa" })).toBe(true);
+    expect(sameContent(local, { state: "present", shasum: "zzz" })).toBe(false);
+    expect(sameContent(local, { state: "absent" })).toBe(false);
+  });
+
+  test("fetchVersionInfo maps registry answers to a state", async () => {
+    const answer = (status: number, body?: unknown): typeof fetch =>
+      (async () =>
+        new Response(body === undefined ? "" : JSON.stringify(body), {
+          status,
+        })) as never;
+    const info = (fetcher: typeof fetch, token = "t") =>
+      fetchVersionInfo({ registry: npm, token, version: "1.0.0", fetcher });
+    expect(await info(answer(404))).toEqual({ state: "absent" });
+    expect((await info(answer(401))).state).toBe("error");
+    expect((await info(answer(500))).state).toBe("error");
+    expect(
+      await info(
+        answer(200, {
+          versions: {
+            "1.0.0": { dist: { integrity: "sha512-AAA", shasum: "aaa" } },
+          },
+        }),
+      ),
+    ).toEqual({ state: "present", integrity: "sha512-AAA", shasum: "aaa" });
+    expect(await info(answer(200, { versions: {} }), "")).toEqual({
+      state: "absent",
+    });
+    const down = (async () => {
+      throw new Error("ECONNREFUSED");
+    }) as unknown as typeof fetch;
+    expect(((await info(down)) as { message: string }).message).toContain(
+      "unreachable",
+    );
+  });
+
+  test("the release manifest keeps the tarball, verifies it, and records published registries", () => {
+    const root = mkdtempSync(join(tmpdir(), "pw-release-root-"));
+    dirs.push(root);
+    const packed = packWidget(widget());
+    dirs.push(packed.workDir);
+    const integrity = computeIntegrity(packed.tarball);
+    const saved = saveRelease({
+      root,
+      packed,
+      version: "0.1.0",
+      integrity,
+      published: [],
+    });
+    expect(loadRelease(root, "0.1.0")?.integrity).toBe(integrity.integrity);
+    const marked = markPublished(root, saved, "npm");
+    expect(marked.published).toEqual(["npm"]);
+    expect(loadRelease(root, "0.1.0")?.published).toEqual(["npm"]);
+    expect(loadRelease(root, "9.9.9")).toBeUndefined();
+    writeFileSync(saved.tarball, "tampered");
+    expect(loadRelease(root, "0.1.0")).toBeUndefined();
   });
 });

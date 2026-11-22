@@ -1,18 +1,30 @@
 import { spawnSync } from "node:child_process";
-import { existsSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
   apiUrlProblem,
   appendChangelog,
   changelogEntry,
+  computeIntegrity,
+  decideRelease,
+  fetchVersionInfo,
+  inspectTarball,
   isRealRegistry,
+  loadRelease,
+  markPublished,
   PACKAGE_NAME,
+  type Packed,
   packWidget,
   parseArgs,
   publishTarball,
+  type Registry,
+  type ReleaseManifest,
   registriesFor,
   resolveTokens,
   retryCommand,
+  sameContent,
+  saveRelease,
   sizeReport,
   tagName,
   verifyManifest,
@@ -21,9 +33,13 @@ import {
 const root = join(import.meta.dir, "..");
 const widgetDir = join(root, "modules", "widget");
 const options = parseArgs(process.argv.slice(2));
-const registries = registriesFor(options);
+const selected = registriesFor(options);
+const everyRegistry = registriesFor({ ...options, only: undefined });
 const apiUrl = options.apiUrl ?? process.env.SUPPORT_API_URL;
-const realTarget = registries.some((registry) => isRealRegistry(registry.url));
+const realTarget = everyRegistry.some((registry) =>
+  isRealRegistry(registry.url),
+);
+const retry = options.only !== undefined;
 
 function git(args: string[]): string {
   const result = spawnSync("git", args, { cwd: root, encoding: "utf8" });
@@ -35,41 +51,66 @@ function fail(message: string): never {
   process.exit(1);
 }
 
-const mode = options.publish ? "publish" : "dry-run";
-console.log(`[release] mode ${mode}`);
-
-if (options.publish) {
-  const problem = apiUrlProblem(apiUrl, realTarget);
-  if (problem) fail(problem);
-  const { missing } = resolveTokens(registries, process.env);
-  if (missing.length > 0) {
-    fail(`missing tokens before anything is sent: ${missing.join("; ")}`);
-  }
-}
-
 const version = (
   JSON.parse(readFileSync(join(widgetDir, "package.json"), "utf8")) as {
     version: string;
   }
 ).version;
 const tag = tagName(version);
-const tagExists = git(["tag", "--list", tag]) !== "";
-if (tagExists && options.publish && !options.allowExisting) {
-  fail(`tag ${tag} exists; bump the version or pass --allow-existing`);
-}
+const mode = options.publish ? "publish" : "dry-run";
 console.log(
-  `[release] version ${version}, tag ${tag} ${tagExists ? "exists" : "is free"}`,
+  `[release] mode ${mode}${retry ? ", retry from the saved tarball" : ""}`,
 );
 
-console.log("[release] build");
-const build = spawnSync("bun", ["run", "--filter", PACKAGE_NAME, "build"], {
-  cwd: root,
-  stdio: "inherit",
-  env: { ...process.env, ...(apiUrl ? { SUPPORT_API_URL: apiUrl } : {}) },
-});
-if (build.status !== 0) fail("widget build failed");
+if (options.publish) {
+  const problems: string[] = [];
+  if (!retry) {
+    const apiProblem = apiUrlProblem(apiUrl, realTarget);
+    if (apiProblem) problems.push(apiProblem);
+  }
+  const { missing } = resolveTokens(selected, process.env);
+  problems.push(...missing.map((line) => `missing token ${line}`));
+  const tagExists = git(["tag", "--list", tag]) !== "";
+  if (tagExists && !retry && !options.allowExisting) {
+    problems.push(
+      `tag ${tag} exists; bump the version or pass --allow-existing`,
+    );
+  }
+  if (problems.length > 0) {
+    console.error(
+      "[release] FAIL preflight found missing items, nothing was sent:",
+    );
+    for (const problem of problems) console.error(`  - ${problem}`);
+    process.exit(1);
+  }
+}
+console.log(`[release] version ${version}, tag ${tag}`);
 
-const packed = packWidget(widgetDir);
+let packed: Packed;
+let manifest: ReleaseManifest | undefined;
+if (retry) {
+  manifest = loadRelease(root, version);
+  if (!manifest) {
+    fail(
+      `no verified release manifest for ${version} under .release; run the full release first`,
+    );
+  }
+  packed = inspectTarball(
+    manifest.tarball,
+    mkdtempSync(join(tmpdir(), "pw-release-retry-")),
+  );
+  console.log(`[release] reusing ${manifest.tarball} (${manifest.integrity})`);
+} else {
+  console.log("[release] build");
+  const build = spawnSync("bun", ["run", "--filter", PACKAGE_NAME, "build"], {
+    cwd: root,
+    stdio: "inherit",
+    env: { ...process.env, ...(apiUrl ? { SUPPORT_API_URL: apiUrl } : {}) },
+  });
+  if (build.status !== 0) fail("widget build failed");
+  packed = packWidget(widgetDir);
+}
+
 const checks = verifyManifest(packed.manifest, packed.entries);
 for (const check of checks) {
   console.log(
@@ -81,7 +122,9 @@ for (const line of sizeReport(packed.tarballBytes, packed.entries)) {
 }
 if (checks.some((check) => !check.ok)) fail("package verification failed");
 if (packed.manifest.version !== version) fail("tarball version mismatch");
+const local = computeIntegrity(packed.tarball);
 console.log(`[release] tarball ${packed.tarball}`);
+console.log(`[release] integrity ${local.integrity}`);
 
 const lastTag = git([
   "tag",
@@ -108,13 +151,8 @@ const changelogPath = join(widgetDir, "CHANGELOG.md");
 
 if (!options.publish) {
   console.log("[release] publish plan");
-  for (const registry of registries) {
-    const plan = publishTarball({
-      packed,
-      registry,
-      token: "",
-      dryRun: true,
-    });
+  for (const registry of selected) {
+    const plan = publishTarball({ packed, registry, token: "", dryRun: true });
     console.log(
       `[release] ${registry.label} ${registry.url} ${PACKAGE_NAME}@${version} access public`,
     );
@@ -128,27 +166,79 @@ if (!options.publish) {
   process.exit(0);
 }
 
-const { tokens } = resolveTokens(registries, process.env);
+const { tokens } = resolveTokens(everyRegistry, process.env);
+const infos = await Promise.all(
+  everyRegistry.map(async (registry) => ({
+    registry,
+    info: await fetchVersionInfo({
+      registry,
+      token: tokens.get(registry.id) ?? "",
+      version,
+    }),
+  })),
+);
+const decision = decideRelease({
+  version,
+  local,
+  infos,
+  published: manifest?.published,
+});
+if (decision.action === "abort") {
+  console.error("[release] FAIL registry check, nothing was sent:");
+  for (const reason of decision.reasons) console.error(`  - ${reason}`);
+  process.exit(1);
+}
+
+const done = (Object.entries(decision.registries) as [Registry["id"], string][])
+  .filter(([, action]) => action === "done")
+  .map(([id]) => id);
+manifest = manifest
+  ? manifest
+  : saveRelease({ root, packed, version, integrity: local, published: done });
+for (const id of done) manifest = markPublished(root, manifest, id);
+console.log(
+  `[release] manifest ${join(".release", `manifest-${version}.json`)}`,
+);
+
 const results: string[] = [];
-for (const registry of registries) {
+for (const registry of selected) {
+  if (decision.registries[registry.id] === "done") {
+    results.push(`${registry.label} already holds the identical tarball`);
+    console.log(
+      `[release] PASS ${registry.label} already holds the identical tarball`,
+    );
+    continue;
+  }
   const result = publishTarball({
     packed,
     registry,
     token: tokens.get(registry.id) as string,
   });
-  if (result.outcome === "failed") {
+  let ok = result.outcome === "published";
+  if (result.outcome === "already-published") {
+    const now = await fetchVersionInfo({
+      registry,
+      token: tokens.get(registry.id) as string,
+      version,
+    });
+    ok = sameContent(local, now);
+  }
+  if (!ok) {
     console.error(result.output);
     console.error(
       `[release] FAIL publish to ${registry.label}. Published so far: ${results.join(", ") || "none"}.`,
     );
-    console.error(`[release] retry: ${retryCommand(registry)}`);
+    console.error(
+      `[release] retry with the same tarball: ${retryCommand(registry)}`,
+    );
     process.exit(1);
   }
-  results.push(`${registry.label} ${result.outcome}`);
-  console.log(`[release] PASS ${registry.label} ${result.outcome}`);
+  manifest = markPublished(root, manifest as ReleaseManifest, registry.id);
+  results.push(`${registry.label} published`);
+  console.log(`[release] PASS ${registry.label} published`);
 }
 
-if (options.changelog) {
+if (options.changelog && !retry) {
   const existing = existsSync(changelogPath)
     ? readFileSync(changelogPath, "utf8")
     : "";
