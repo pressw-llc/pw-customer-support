@@ -1525,9 +1525,10 @@ describe("stage tag conditions", () => {
           s.sid === "DistributionTagOnCreate",
       );
       expect(creating).toHaveLength(1);
-      expect(
-        (creating[0]?.conditions as { Null: Record<string, string> }).Null[tag],
-      ).toBe("true");
+      const nullCondition = (creating[0]?.conditions ?? {}) as {
+        Null?: Record<string, string>;
+      };
+      expect(nullCondition.Null?.[tag]).toBe("true");
       const creates = statements.find(
         (s) => s.sid === "DistributionsCreateTagged",
       );
@@ -1535,10 +1536,10 @@ describe("stage tag conditions", () => {
       const existing = statements.find(
         (s) => s.sid === "DistributionTagExisting",
       );
-      expect(
-        (existing?.conditions as { StringEquals: Record<string, string> })
-          .StringEquals[tag],
-      ).toBe(stage);
+      const equals = (existing?.conditions ?? {}) as {
+        StringEquals?: Record<string, string>;
+      };
+      expect(equals.StringEquals?.[tag]).toBe(stage);
       const change = statements.find(
         (s) => s.sid === "DistributionsChangeTagged",
       );
