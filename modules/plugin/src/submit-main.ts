@@ -1,29 +1,24 @@
-import { writeFileSync } from "node:fs";
+import { readFileSync, writeFileSync } from "node:fs";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
-import { createSubmitServer, SUBMIT_ENV } from "./submit-server";
-import { createSupportApi } from "./support-api";
+import { createSubmitServer, submitConfigSchema } from "./submit-server";
+import { createSubmitApi } from "./support-api";
 
-export async function runSubmitServerFromEnv(
-  env: Record<string, string | undefined> = process.env,
-): Promise<void> {
-  const read = (name: string): string => {
-    const value = env[name];
-    if (!value) throw new Error(`${name} is required`);
-    return value;
-  };
-  const jobId = read(SUBMIT_ENV.jobId);
-  const claimToken = read(SUBMIT_ENV.claimToken);
-  const accessToken = read(SUBMIT_ENV.accessToken);
-  const outcomeFile = read(SUBMIT_ENV.outcomeFile);
-  const api = createSupportApi({
-    apiUrl: read(SUBMIT_ENV.apiUrl),
-    getToken: async () => accessToken,
-    clientName: "pw-support-submit",
+export function readSubmitConfig(path: string) {
+  return submitConfigSchema.parse(JSON.parse(readFileSync(path, "utf8")));
+}
+
+export async function runSubmitServerFromFile(path: string): Promise<void> {
+  const config = readSubmitConfig(path);
+  const api = createSubmitApi({
+    apiUrl: config.apiUrl,
+    submitToken: config.submitToken,
   });
   const server = createSubmitServer({
-    forward: (result) => api.submit(jobId, claimToken, result),
+    forward: (result) => api.submit(config.jobId, config.claimToken, result),
     onOutcome: (outcome) =>
-      writeFileSync(outcomeFile, JSON.stringify(outcome), { mode: 0o600 }),
+      writeFileSync(config.outcomeFile, JSON.stringify(outcome), {
+        mode: 0o600,
+      }),
   });
   await server.connect(new StdioServerTransport());
 }

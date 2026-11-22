@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
@@ -8,7 +8,6 @@ import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import type { JobSubmitResult } from "@pw-support/contracts";
 import {
   createSubmitServer,
-  SUBMIT_ENV,
   SUBMIT_SERVER_NAME,
   SUBMIT_TOOL_FULL_NAME,
   type SubmitOutcome,
@@ -87,8 +86,61 @@ describe("submit server", () => {
     const broken = await connect(async () => {
       throw new Error("network");
     });
-    await broken.client.callTool({ name: "submit_result", arguments: {} });
+    const failed = await broken.client.callTool({
+      name: "submit_result",
+      arguments: {},
+    });
     expect(broken.outcomes).toEqual([{ accepted: false, reason: "transport" }]);
+    expect(text(failed)).toContain("Call the tool once more");
+  });
+
+  test("a transport failure leaves one retry and a delivered result then locks the tool", async () => {
+    let attempt = 0;
+    const { client, outcomes, forwarded } = await connect(async () => {
+      attempt += 1;
+      if (attempt === 1) throw new Error("network");
+      return { accepted: true, outcome: "agent" };
+    });
+    await client.callTool({ name: "submit_result", arguments: { title: "x" } });
+    const retry = await client.callTool({
+      name: "submit_result",
+      arguments: { title: "x" },
+    });
+    expect(text(retry)).toBe("Result accepted. Stop now.");
+    expect(outcomes).toEqual([
+      { accepted: false, reason: "transport" },
+      { accepted: true },
+    ]);
+    const third = await client.callTool({
+      name: "submit_result",
+      arguments: { title: "x" },
+    });
+    expect((third as { isError?: boolean }).isError).toBe(true);
+    expect(forwarded).toHaveLength(2);
+  });
+
+  test("publishes an honest permissive schema with no union wrapper", async () => {
+    const { client } = await connect(async () => ({
+      accepted: true,
+      outcome: "agent",
+    }));
+    const tool = (await client.listTools()).tools[0];
+    const properties = tool?.inputSchema.properties as Record<
+      string,
+      Record<string, unknown>
+    >;
+    for (const name of [
+      "title",
+      "summary",
+      "category",
+      "priority",
+      "labels",
+      "needs_human",
+    ]) {
+      expect(properties[name]?.anyOf).toBeUndefined();
+      expect(properties[name]?.description).toBeString();
+    }
+    expect(tool?.description).toContain("validates every key");
   });
 });
 
@@ -99,21 +151,25 @@ describe("submit server process", () => {
       rmSync(dir, { recursive: true, force: true });
   });
 
-  test("starts over stdio from its environment and requires every variable", async () => {
+  test("starts over stdio from its config file and requires a valid one", async () => {
     const dir = mkdtempSync(join(tmpdir(), "pw-support-submit-"));
     dirs.push(dir);
     const outcomeFile = join(dir, "outcome.json");
+    const configFile = join(dir, "submit.json");
+    writeFileSync(
+      configFile,
+      JSON.stringify({
+        jobId: "11111111-1111-4111-8111-111111111111",
+        claimToken: "22222222-2222-4222-8222-222222222222",
+        submitToken: "S".repeat(43),
+        apiUrl: "http://127.0.0.1:1",
+        outcomeFile,
+      }),
+    );
     const transport = new StdioClientTransport({
       command: process.execPath,
-      args: [join(import.meta.dir, "cli.ts"), "submit-server"],
-      env: {
-        PATH: process.env.PATH ?? "",
-        [SUBMIT_ENV.jobId]: "11111111-1111-4111-8111-111111111111",
-        [SUBMIT_ENV.claimToken]: "22222222-2222-4222-8222-222222222222",
-        [SUBMIT_ENV.accessToken]: "token",
-        [SUBMIT_ENV.outcomeFile]: outcomeFile,
-        [SUBMIT_ENV.apiUrl]: "http://127.0.0.1:1",
-      },
+      args: [join(import.meta.dir, "cli.ts"), "submit-server", configFile],
+      env: { PATH: process.env.PATH ?? "" },
     });
     const client = new Client({ name: "test", version: "1.0.0" });
     await client.connect(transport);
@@ -127,14 +183,21 @@ describe("submit server process", () => {
     });
     await client.close();
 
-    const missing = Bun.spawn(
-      [process.execPath, join(import.meta.dir, "cli.ts"), "submit-server"],
-      {
-        env: { PATH: process.env.PATH ?? "" },
-        stdout: "ignore",
-        stderr: "ignore",
-      },
-    );
-    expect(await missing.exited).toBe(1);
+    for (const args of [[], [join(dir, "missing.json")]]) {
+      const missing = Bun.spawn(
+        [
+          process.execPath,
+          join(import.meta.dir, "cli.ts"),
+          "submit-server",
+          ...args,
+        ],
+        {
+          env: { PATH: process.env.PATH ?? "" },
+          stdout: "ignore",
+          stderr: "ignore",
+        },
+      );
+      expect(await missing.exited).toBe(1);
+    }
   });
 });
