@@ -26,7 +26,10 @@ export interface CliIo {
   overrides?: Partial<PluginConfig>;
 }
 
-export const CLI_PATH = join(dirname(fileURLToPath(import.meta.url)), "cli.ts");
+const HERE = fileURLToPath(import.meta.url);
+export const CLI_PATH = HERE.endsWith(".ts")
+  ? join(dirname(HERE), "cli.ts")
+  : HERE;
 
 const USAGE = [
   "usage: pw-support <command>",
