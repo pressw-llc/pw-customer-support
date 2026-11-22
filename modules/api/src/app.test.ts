@@ -151,7 +151,10 @@ describe("POST /v1/requests", () => {
       );
     }
     expect(await listKeys(`${who.projectId}/${requestId}/`)).toHaveLength(2);
-    expect(await eventsFor(requestId)).toEqual(["request.created"]);
+    expect(await eventsFor(requestId)).toEqual([
+      "request.created",
+      "triage.job.opened",
+    ]);
     const [message] = await db
       .select()
       .from(messages)
@@ -187,6 +190,7 @@ describe("POST /v1/requests", () => {
     expect(stored?.bodyFlagged).toBe(true);
     expect(await eventsFor(body?.requestId ?? "")).toEqual([
       "request.created",
+      "triage.job.opened",
       "message.flagged",
     ]);
   });
@@ -219,6 +223,7 @@ describe("POST /v1/requests", () => {
       expect(stored?.bodyFlagged).toBe(true);
       expect(await eventsFor(body?.requestId ?? "")).toEqual([
         "request.created",
+        "triage.job.opened",
         "message.flagged",
       ]);
       const [flagged] = await db
@@ -588,6 +593,7 @@ describe("POST /v1/requests/:id/messages", () => {
     ]);
     expect(await eventsFor(requestId)).toEqual([
       "request.created",
+      "triage.job.opened",
       "message.created",
       "message.flagged",
       "attachment.rejected",
@@ -623,6 +629,7 @@ describe("POST /v1/requests/:id/messages", () => {
     expect(rows[1]?.bodyFlagged).toBe(true);
     expect(await eventsFor(requestId)).toEqual([
       "request.created",
+      "triage.job.opened",
       "message.created",
       "message.flagged",
     ]);

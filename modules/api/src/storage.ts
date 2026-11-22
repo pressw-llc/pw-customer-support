@@ -19,6 +19,14 @@ export interface ObjectStorage {
   get(key: string): Promise<StoredObject>;
 }
 
+export async function readObjectBytes(
+  storage: ObjectStorage,
+  key: string,
+): Promise<Uint8Array> {
+  const object = await storage.get(key);
+  return new Uint8Array(await new Response(object.stream).arrayBuffer());
+}
+
 export function createS3Storage(config: ApiConfig): ObjectStorage {
   const client = new S3Client({
     region: config.s3.region,

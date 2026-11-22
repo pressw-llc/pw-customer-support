@@ -4,6 +4,8 @@ import type {
   IntakeResult,
   RequestList,
   Thread,
+  TriageTiming,
+  WakeSender,
 } from "@pw-support/contracts";
 import {
   type AttachmentRow,
@@ -12,6 +14,7 @@ import {
   getCustomerThread,
   listCustomerRequests,
   type MessageRow,
+  markIntakeComplete,
   markThreadRead,
   persistInboundMessage,
   persistInboundRequest,
@@ -37,6 +40,9 @@ export interface IntakeDeps {
   db: SupportDb;
   storage: ObjectStorage;
   checks?: Checks;
+  wake?: WakeSender;
+  timing?: TriageTiming;
+  now?: () => Date;
 }
 
 export class ProcessingError extends Error {
@@ -145,6 +151,15 @@ export function createIntakeService(deps: IntakeDeps) {
     return { result: { filename, status: "stored" }, stored };
   }
 
+  async function wakeCloud(jobId: string, delaySeconds: number) {
+    if (!deps.wake) return;
+    try {
+      await deps.wake.send(jobId, delaySeconds);
+    } catch (error) {
+      console.error("triage wake failed; the sweeper recovers the job", error);
+    }
+  }
+
   async function processInbound(
     scope: CustomerScope,
     request: RequestRow,
@@ -185,17 +200,22 @@ export function createIntakeService(deps: IntakeDeps) {
       input: InboundInput,
     ): Promise<IntakeResult> {
       const capped = capInboundText(input.text);
-      const { request, message } = await persistInboundRequest(db, {
-        scope,
-        body: capped.text,
-      });
-      return processInbound(
+      const { request, message, job, delaySeconds } =
+        await persistInboundRequest(
+          db,
+          { scope, body: capped.text },
+          { timing: deps.timing, now: deps.now },
+        );
+      const result = await processInbound(
         scope,
         request,
         message,
         input.files,
         capped.truncated,
       );
+      await markIntakeComplete(db, request.id, deps.now);
+      await wakeCloud(job.id, delaySeconds);
+      return result;
     },
 
     async addMessage(

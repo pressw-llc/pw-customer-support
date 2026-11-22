@@ -19,6 +19,15 @@ description: Work in the db module: Postgres schema, hand-written migrations, th
 - `appendEvent` takes a transaction-scoped advisory lock before the insert, and wraps a bare db handle in a transaction. Event appends serialize, so `seq` follows commit order and is a safe cursor for readers that poll `seq > cursor`.
 - Keep a transaction that appends an event short. The lock holds until commit.
 - Keep the drizzle schema in `src/schema.ts` in step with the SQL.
+- Open the triage job in the request transaction. `persistInboundRequest` writes the request, the first message, `request.created`, the `triage_jobs` row, and `triage.job.opened` together.
+- Decide a job claim with one `UPDATE ... RETURNING` in `claimTriageJob`. A `FOR UPDATE` CTE re-checks the eligibility predicate after a lock wait, so parallel claims yield one winner.
+- Change a channel delay with one statement. Halve with a conditional `UPDATE` guarded by the job open time. Reset with one upsert.
+- Release a job in one transaction with its `triage.job.released` event.
+- `support.ticket_deliveries` tracks ticket redelivery attempts. `claimTicketRedeliveries` selects and marks due events under an advisory lock.
+- Pass `now` and `timing` to every job function. Tests control the clock without sleeping.
+- Complete a job through `submitTriageResult` or `submitHumanTriage`. Both validate against the contracts schema. An invalid result reopens the job for the cloud.
+- A job is claimable only after `markIntakeComplete` or the intake grace period. This stops a worker from reading attachments the API has not stored yet.
+- `support.judgments` keeps every raw Jev judgment for V2. `support.tickets` holds one row per request. `support.event_cursors` holds one cursor per adapter.
 - Test against the Compose Postgres. Do not mock the database.
 
 ## Commands

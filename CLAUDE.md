@@ -27,6 +27,11 @@ bun run seed:dev                    # demo project acme/portal, prints its key
 bun run dev:api                     # API on API_PORT, default 8787
 bun run dev:example                 # Vite host app with the widget
 bun run synth                       # cdk synth, no AWS credentials needed
+bun run dev:worker                  # triage worker, sweeper, dispatcher, adapter poller
+bun run dev:linear-stub             # local Linear GraphQL stub
+bun run agent:sync                  # publish the triage agent, writes a gitignored lock file
+bun run seed:settings <teamId>      # set linear_team_id on the seed project
+bun run validate:phase-2            # live Jev and Managed Agents validation, add --partial without an Anthropic key
 bun run env set NAME[=VALUE]        # manage .env.example and .env.local
 ```
 
@@ -42,12 +47,15 @@ A Bun workspace with nine modules under `modules/*`. Packages are `@pw-support/<
 - `db` also exports the query functions the API uses: `persistInboundRequest`, `persistInboundMessage`, `listCustomerRequests`, `getCustomerThread`, `getCustomerAttachment`, `markThreadRead`, `findProjectByKey`, `ensureProject`, and `hitRateLimit`. Every customer query takes a project and customer scope.
 - `api` serves a Hono app on Bun. Routes in `app.ts` call `intake-service.ts`. `file-type.ts` and `message-checks.ts` hold the pure static checks. `middleware.ts` holds identity and rate limiting. `storage.ts` wraps S3.
 - `widget` builds `@pressw-llc/support-react`: a Shadow DOM React widget plus a global browser bundle. It bundles `@pw-support/contracts` for the hash helper and keeps its own types.
-- `triage` is a shell. Phase 2 adds `@pressw-llc/pipeline` and `@pressw-llc/managed-agents` at exact versions.
+- `triage` runs the cloud side of a triage job: text extraction (linear scanners, run in a terminable Worker), the Jev injection filter, the agent session with its remote-definition guard, the worker (`handleWake`, `sweepOnce`), and the config. The claim protocol SQL lives in `db` (`triage-jobs.ts`). `claimJob`, `submitResult` (sends a wake when an invalid result reopens the job), and `renewLease` are exported for the laptop plugin. It pins `@pressw-llc/pipeline`, `@pressw-llc/managed-agents`, and `@anthropic-ai/sdk` at exact versions. `agents/support-triage` holds the agent definition. `corpus` holds the injection payloads.
+- `db` also owns `triage_jobs`, `channel_delays`, `judgments`, `event_cursors`, `tickets`, and `ticket_deliveries`. `persistInboundRequest` opens the job in the request transaction.
 - `infra` defines the CDK stack in `us-east-1`.
-- `admin`, `channels`, and `plugin` are shells until their phases land.
+- `channels` holds the dispatcher with its ticket redelivery, the Linear client, ticket builder, and adapter. The adapter contract lives in `contracts`. The Linear stub and fixtures live behind `@pw-support/channels/testing`, and the triage harness and file fixtures behind `@pw-support/triage/testing`.
+- `admin` and `plugin` are shells until their phases land.
+- `pipelines/` at the root holds the `support-triage` Fargate pipeline and the `linear-outbound` Lambda pipeline. `bun run validate:pipelines` checks them and runs in the `lint` stage of `bun run check`. `tests/` holds cross-module criterion tests.
 - `examples/host-app` is a stock Vite React app that embeds the widget. `e2e` runs Playwright against it and the API.
 
-A module imports another module only through `@pw-support/contracts` or another module's bare package name. `scripts/lint-boundaries.ts` enforces this inside `bun run lint`.
+A module imports another module only through `@pw-support/contracts`, another module's bare package name, or a subpath that module declares in its `exports`. `scripts/lint-boundaries.ts` enforces this inside `bun run lint` and rejects `/src/` deep imports.
 
 `events` is an append-only table. A trigger rejects UPDATE, DELETE, and TRUNCATE. Append events through `appendEvent`.
 

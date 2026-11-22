@@ -1,4 +1,5 @@
 export * from "./attachments";
+export * from "./channel-adapter";
 export * from "./channel-key";
 export * from "./events";
 export * from "./identity";
@@ -7,4 +8,5 @@ export * from "./message";
 export * from "./module-info";
 export * from "./resources";
 export * from "./stack-config";
+export * from "./triage-job";
 export * from "./triage-result";

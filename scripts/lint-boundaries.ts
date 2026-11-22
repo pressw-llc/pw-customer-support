@@ -23,17 +23,38 @@ function sourceFiles(dir: string): string[] {
   });
 }
 
-function workspaceModules(root: string): Map<string, string> {
+interface WorkspaceModule {
+  dir: string;
+  allowed: Set<string>;
+}
+
+function declaredSpecifiers(name: string, exportsField: unknown): Set<string> {
+  const allowed = new Set([name]);
+  if (typeof exportsField !== "object" || exportsField === null) {
+    return allowed;
+  }
+  for (const key of Object.keys(exportsField)) {
+    if (!key.startsWith("./") || key.startsWith("./src")) continue;
+    allowed.add(`${name}/${key.slice(2)}`);
+  }
+  return allowed;
+}
+
+function workspaceModules(root: string): Map<string, WorkspaceModule> {
   const modulesDir = join(root, "modules");
-  const byPackage = new Map<string, string>();
+  const byPackage = new Map<string, WorkspaceModule>();
   if (!existsSync(modulesDir)) return byPackage;
   for (const entry of readdirSync(modulesDir, { withFileTypes: true })) {
     const manifest = join(modulesDir, entry.name, "package.json");
     if (!entry.isDirectory() || !existsSync(manifest)) continue;
-    const { name } = JSON.parse(readFileSync(manifest, "utf8")) as {
+    const parsed = JSON.parse(readFileSync(manifest, "utf8")) as {
       name: string;
+      exports?: unknown;
     };
-    byPackage.set(name, resolve(modulesDir, entry.name));
+    byPackage.set(parsed.name, {
+      dir: resolve(modulesDir, entry.name),
+      allowed: declaredSpecifiers(parsed.name, parsed.exports),
+    });
   }
   return byPackage;
 }
@@ -52,7 +73,7 @@ function moduleDirOf(path: string, moduleDirs: string[]): string | undefined {
 export function findViolations(root: string): Violation[] {
   const absoluteRoot = resolve(root);
   const packages = workspaceModules(absoluteRoot);
-  const moduleDirs = [...packages.values()];
+  const moduleDirs = [...packages.values()].map((entry) => entry.dir);
   const violations: Violation[] = [];
 
   for (const file of sourceFiles(absoluteRoot)) {
@@ -74,9 +95,15 @@ export function findViolations(root: string): Violation[] {
       }
 
       const name = packageNameOf(specifier);
-      const packageDir = packages.get(name);
-      if (packageDir && specifier !== name && packageDir !== ownModule) {
-        report("deep import into another module; use its package entrypoint");
+      const target = packages.get(name);
+      if (
+        target &&
+        !target.allowed.has(specifier) &&
+        target.dir !== ownModule
+      ) {
+        report(
+          "deep import into another module; use its package entrypoint or a declared exports subpath",
+        );
       }
     }
   }

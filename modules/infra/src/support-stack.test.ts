@@ -1,4 +1,9 @@
 import { describe, expect, test } from "bun:test";
+import {
+  LINEAR_ADAPTER_VISIBILITY_TIMEOUT_SECONDS,
+  TRIAGE_DEFAULTS,
+  TRIAGE_WAKE_VISIBILITY_TIMEOUT_SECONDS,
+} from "@pw-support/contracts";
 import { App } from "aws-cdk-lib";
 import { Match, Template } from "aws-cdk-lib/assertions";
 import { AWS_REGION, SECRETS_PREFIX, SupportStack } from "./index";
@@ -43,8 +48,18 @@ describe("SupportStack", () => {
     });
   });
 
+  test("creates the Linear adapter queue with a dead-letter queue", () => {
+    template.hasResourceProperties("AWS::SQS::Queue", {
+      QueueName: "pw-support-adapter-linear",
+      RedrivePolicy: { maxReceiveCount: 5 },
+    });
+    template.hasResourceProperties("AWS::SQS::Queue", {
+      QueueName: "pw-support-adapter-linear-dlq",
+    });
+  });
+
   test("creates the wake queue with a dead-letter queue", () => {
-    template.resourceCountIs("AWS::SQS::Queue", 2);
+    template.resourceCountIs("AWS::SQS::Queue", 4);
     template.hasResourceProperties("AWS::SQS::Queue", {
       QueueName: "pw-support-triage-wake",
       RedrivePolicy: { maxReceiveCount: 5 },
@@ -52,6 +67,20 @@ describe("SupportStack", () => {
     template.hasResourceProperties("AWS::SQS::Queue", {
       QueueName: "pw-support-triage-wake-dlq",
     });
+  });
+
+  test("sets an explicit visibility timeout on the wake and adapter queues", () => {
+    template.hasResourceProperties("AWS::SQS::Queue", {
+      QueueName: "pw-support-triage-wake",
+      VisibilityTimeout: TRIAGE_WAKE_VISIBILITY_TIMEOUT_SECONDS,
+    });
+    template.hasResourceProperties("AWS::SQS::Queue", {
+      QueueName: "pw-support-adapter-linear",
+      VisibilityTimeout: LINEAR_ADAPTER_VISIBILITY_TIMEOUT_SECONDS,
+    });
+    expect(TRIAGE_WAKE_VISIBILITY_TIMEOUT_SECONDS).toBeGreaterThan(
+      TRIAGE_DEFAULTS.leaseSeconds,
+    );
   });
 
   test("exposes the secrets prefix convention", () => {

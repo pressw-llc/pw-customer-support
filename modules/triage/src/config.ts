@@ -1,0 +1,76 @@
+import {
+  loadTimingConfig,
+  RESOURCE_NAMES,
+  type TriageTiming,
+} from "@pw-support/contracts";
+
+export interface TriageConfig {
+  timing: TriageTiming;
+  jev: {
+    threshold: number;
+    timeoutMs: number;
+    chunkChars: number;
+    judgeImages: boolean;
+  };
+  extract: {
+    maxCharsPerFile: number;
+    maxCharsTotal: number;
+    maxImages: number;
+    maxImageBytes: number;
+    timeoutMs: number;
+    maxPdfPages: number;
+  };
+  agent: {
+    model: string;
+    id: string | undefined;
+    timeoutMs: number;
+  };
+  wakeQueue: string;
+  sweepIntervalMs: number;
+}
+
+export const DEFAULT_AGENT_MODEL = "claude-sonnet-5-5";
+
+type EnvLike = Record<string, string | undefined>;
+
+function number(value: string | undefined, fallback: number): number {
+  if (value === undefined || value === "") return fallback;
+  const parsed = Number(value);
+  return Number.isFinite(parsed) && parsed >= 0 ? parsed : fallback;
+}
+
+function flag(value: string | undefined, fallback: boolean): boolean {
+  if (value === undefined || value === "") return fallback;
+  return value === "1" || value.toLowerCase() === "true";
+}
+
+function text(value: string | undefined): string | undefined {
+  return value === undefined || value === "" ? undefined : value;
+}
+
+export function loadTriageConfig(env: EnvLike = process.env): TriageConfig {
+  return {
+    timing: loadTimingConfig(env),
+    jev: {
+      threshold: number(env.JEV_INJECTION_THRESHOLD, 0.5),
+      timeoutMs: number(env.JEV_TIMEOUT_MS, 15_000),
+      chunkChars: Math.max(500, number(env.JEV_CHUNK_CHARS, 4_000)),
+      judgeImages: flag(env.JEV_JUDGE_IMAGES, true),
+    },
+    extract: {
+      maxCharsPerFile: number(env.TRIAGE_MAX_CHARS_PER_FILE, 20_000),
+      maxCharsTotal: number(env.TRIAGE_MAX_CHARS_TOTAL, 60_000),
+      maxImages: number(env.TRIAGE_MAX_IMAGES, 6),
+      maxImageBytes: 5 * 1024 * 1024,
+      timeoutMs: 20_000,
+      maxPdfPages: 40,
+    },
+    agent: {
+      model: text(env.TRIAGE_AGENT_MODEL) ?? DEFAULT_AGENT_MODEL,
+      id: text(env.TRIAGE_AGENT_ID),
+      timeoutMs: number(env.TRIAGE_AGENT_TIMEOUT_SECONDS, 240) * 1000,
+    },
+    wakeQueue: text(env.TRIAGE_WAKE_QUEUE) ?? RESOURCE_NAMES.triageWakeQueue,
+    sweepIntervalMs: number(env.TRIAGE_SWEEP_INTERVAL_SECONDS, 30) * 1000,
+  };
+}

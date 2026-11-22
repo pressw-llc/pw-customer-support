@@ -119,8 +119,12 @@ describe("inbound persistence", () => {
     const stored = await db
       .select()
       .from(events)
-      .where(eq(events.requestId, request.id));
-    expect(stored.map((event) => event.type)).toEqual(["request.created"]);
+      .where(eq(events.requestId, request.id))
+      .orderBy(events.seq);
+    expect(stored.map((event) => event.type)).toEqual([
+      "request.created",
+      "triage.job.opened",
+    ]);
     expect(stored[0]?.payload).toMatchObject({ messageId: message.id });
   });
 
@@ -141,9 +145,17 @@ describe("inbound persistence", () => {
     });
     expect(foreign).toBeNull();
     const types = (
-      await db.select().from(events).where(eq(events.requestId, request.id))
+      await db
+        .select()
+        .from(events)
+        .where(eq(events.requestId, request.id))
+        .orderBy(events.seq)
     ).map((event) => event.type);
-    expect(types).toEqual(["request.created", "message.created"]);
+    expect(types).toEqual([
+      "request.created",
+      "triage.job.opened",
+      "message.created",
+    ]);
   });
 
   test("recordMessageChecks stores the sanitized body and flags with an event", async () => {

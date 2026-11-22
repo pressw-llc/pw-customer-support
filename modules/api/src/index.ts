@@ -1,3 +1,13 @@
 export { type AppDeps, createApp } from "./app";
 export { type ApiConfig, loadConfig } from "./config";
-export { createS3Storage, type ObjectStorage } from "./storage";
+export {
+  createS3Storage,
+  type ObjectStorage,
+  readObjectBytes,
+} from "./storage";
+export {
+  clampDelay,
+  createSqsClient,
+  createSqsWakeSender,
+  resolveQueueUrl,
+} from "./wake";

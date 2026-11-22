@@ -9,7 +9,13 @@ const skipInstall = process.argv.includes("--skip-install");
 
 const stages: Stage[] = [
   { name: "install", commands: [["bun", "install", "--frozen-lockfile"]] },
-  { name: "lint", commands: [["bun", "run", "lint"]] },
+  {
+    name: "lint",
+    commands: [
+      ["bun", "run", "lint"],
+      ["bun", "run", "validate:pipelines"],
+    ],
+  },
   { name: "build", commands: [["bun", "run", "build"]] },
   { name: "typecheck", commands: [["bun", "run", "typecheck"]] },
   {

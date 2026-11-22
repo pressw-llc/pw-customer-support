@@ -1,1 +1,1 @@
-{"name":"@pw-support/db"}
+{"name": "@pw-support/db", "exports": {".": "./src/index.ts", "./testing": "./src/testing.ts"}}

@@ -1,0 +1,10 @@
+bun test v1.3.14 (0d9b296a)
+
+modules/triage/src/corpus.test.ts:
+[corpus] threshold 0.5: flag rate 30/30 (100.0%), false positives 0/30 (0.0%), lowest injection score 0.72, highest benign score 0.08
+
+ 2 pass
+ 100 filtered out
+ 0 fail
+ 6 expect() calls
+Ran 2 tests across 6 files. [1403.00ms]

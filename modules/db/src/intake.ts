@@ -14,6 +14,7 @@ import {
   messages,
   requests,
 } from "./schema";
+import { type JobOptions, openTriageJob, type TriageJob } from "./triage-jobs";
 
 export type Customer = typeof customers.$inferSelect;
 export type RequestRow = typeof requests.$inferSelect;
@@ -56,7 +57,13 @@ export interface InboundRequest {
 export async function persistInboundRequest(
   db: SupportDb,
   input: InboundRequest,
-): Promise<{ request: RequestRow; message: MessageRow }> {
+  jobOptions: JobOptions = {},
+): Promise<{
+  request: RequestRow;
+  message: MessageRow;
+  job: TriageJob;
+  delaySeconds: number;
+}> {
   const { project, customer } = input.scope;
   const channelKey = formatChannelKey({
     client: project.clientSlug,
@@ -86,7 +93,8 @@ export async function persistInboundRequest(
       requestId: created.id,
       payload: { messageId: first.id, originChannel: "widget" },
     });
-    return { request: created, message: first };
+    const { job, delaySeconds } = await openTriageJob(tx, created, jobOptions);
+    return { request: created, message: first, job, delaySeconds };
   });
 }
 
