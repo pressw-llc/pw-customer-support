@@ -12,7 +12,7 @@ description: Work in the db module: Postgres schema, hand-written migrations, th
 
 ## Rules
 
-- Write migrations by hand in `migrations/NNNN_name.sql`. Make each one idempotent.
+- Write migrations by hand in `migrations/` as NNNN_name.sql. Make each one idempotent.
 - Pipeline migrations live in `migrations/pipeline/` and run first. Do not add a client literal to them.
 - Use UUID primary keys. Keep every table in the `support` schema.
 - Append events only through `appendEvent`. A trigger rejects UPDATE, DELETE, and TRUNCATE on `support.events`.
@@ -37,7 +37,7 @@ description: Work in the db module: Postgres schema, hand-written migrations, th
 - `inbound_comments.source_updated_at` is the `updatedAt` of the stored body. An update applies only when strictly newer. An update while `refetch_required` is true records its change row and returns `refetch_required`. An update with no `updatedAt` sets `refetch_required` on a known comment and records nothing for an unknown one. `applyFetchedComment` keeps `refetch_required` while a newer change row remains, and cancels a held reply when the fetched body or author differs from the stored row, and only stores a newer `updatedAt`. `listHeldInThread` lists the live holds a confirm must check. `support.tickets.linear_issue_id` is unique. `expireHeldReplies` and `purgeStaleRecords` run from the adapter redelivery tick.
 - Keep a customer visible reply as a message with audience `external`. Internal staff comments use audience `internal` and never pass the customer queries.
 - `admin.ts` holds the admin reads and writes. `ACK_STAFF_PREDICATE` defines the first staff action: author `staff` and origin `linear` or audience `external`, the values `storeInternalComment` and the reply release write. The request flags read `support.replies`: `flagged` is a flagged reply and `held` is an unexpired hold. `getAdminRequestDetail` returns the reply rows. Every settings write appends an `admin.*` event with the actor in the same transaction.
-- `support.integrations` holds a Secrets Manager reference per scope and kind. A check constraint requires the reference to start with `pw-support/`. Never store a secret value.
+- `support.integrations` holds a Secrets Manager reference per scope and kind. A check constraint requires the reference to start with the secrets prefix. Never store a secret value.
 - `support.projects.severe_cc_emails` holds the CC list for a project.
 - `laptop-credentials.ts` owns `support.watcher_credentials` and the job submit credential hash. Store only a SHA-256 hash. A claim and a reopen clear `submit_token_hash`. A renew needs `lease_expires_at > now`.
 - `subscriptions.ts` owns `support.subscriptions`: one row per engineer subject and channel prefix. Match a prefix by whole segment with `channel_key = prefix OR left(channel_key, length(prefix) + 1) = prefix || ':'`. Never use `LIKE`. `listJobOffers` and `isJobOffered` share one predicate: open, intake done, no earlier laptop claim, and a matching subscription. `queryRequestSummaries` and `getRequestDetailForEngineer` return state only: ids, status, timestamps, counts, reply hold and flag states, and a ticket link without its title slug. Never return a body, a preview, a filename, or a title from them. Subscription changes append `mcp.subscription.*` events in the same transaction.

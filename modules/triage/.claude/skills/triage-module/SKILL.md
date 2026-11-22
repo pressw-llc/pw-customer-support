@@ -8,7 +8,7 @@ description: Work in the triage module: job claim protocol, Jev filter, sandboxe
 
 ## Ownership
 
-`modules/triage` owns the cloud side of a triage job. The claim protocol SQL lives in `@pw-support/db` (`triage-jobs.ts`). This module exports it for the laptop plugin as `claimJob`, `submitResult`, and `renewLease`.
+`modules/triage` owns the cloud side of a triage job. The claim protocol SQL lives in `@pw-support/db` (`modules/db/src/triage-jobs.ts`). This module exports it for the laptop plugin as `claimJob`, `submitResult`, and `renewLease`.
 
 ## Layout
 
@@ -27,7 +27,7 @@ description: Work in the triage module: job claim protocol, Jev filter, sandboxe
 | `worker.ts`                                               | `handleWake`, `sweepOnce`, `startSweeper`, lease heartbeat                                                                                                              |
 | `runtime.ts`                                              | Builds the worker deps from the environment                                                                                                                             |
 | `testing/`                                                | Harness, fake Jev, fake agent, generated files. Import from `@pw-support/triage/testing`                                                                                |
-| `agents/support-triage/`                                  | `defineAgent` definition and `sync.ts`                                                                                                                                  |
+| `agents/support-triage/`                                  | `defineAgent` definition and `agents/support-triage/sync.ts`                                                                                                            |
 | `corpus/`                                                 | Injection and benign payloads for the live Jev test                                                                                                                     |
 
 ## Rules

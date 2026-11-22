@@ -40,8 +40,8 @@ These choices fill gaps the PRD leaves open. Each one follows a pattern already 
 | --- | --- | --- |
 | Linear API key and sandbox team | A local Linear stub that serves the GraphQL operations the adapter uses and signs webhooks | A8, A14, A16, A27 against real Linear |
 | Telemetry pool app client | Mock OIDC issuer container | A19 with a telemetry-pool user |
-| AWS account | LocalStack and `cdk synth` | A22 |
-| npmjs organization and token | `bun publish --dry-run` and a local registry | A23 |
+| AWS account | `cdk synth` with cdk-nag, a LocalStack deploy of the supported resources and the Lambda step, and the production image run locally (`bun run validate:deploy`) | A22 |
+| npmjs organization and token | Two local Verdaccio registries and a `bun publish --dry-run` plan against the real registry URLs (`bun run validate:release`) | A23 |
 
 Jev and Managed Agents run live. The shell holds both keys.
 
