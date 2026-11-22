@@ -197,10 +197,11 @@ export async function runCli(
         await watch(args, config, io);
         return 0;
       case "submit-server": {
-        const { runSubmitServerFromFile } = await import("./submit-main");
         const path = args[0];
-        if (!path)
+        if (!path) {
           throw new LoginError("usage: pw-support submit-server <config>");
+        }
+        const { runSubmitServerFromFile } = await import("./submit-main");
         await runSubmitServerFromFile(path);
         return undefined;
       }
