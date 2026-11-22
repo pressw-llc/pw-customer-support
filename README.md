@@ -86,8 +86,8 @@ The stack runs Postgres on `127.0.0.1:5447`, LocalStack on `127.0.0.1:4577`, and
 | `LINEAR_STUB_PORT`                           | `4590`                                              | Port for `bun run dev:linear-stub`                                                            |
 | `SEED_LINEAR_TEAM_ID`                        | blank                                               | Team id for `bun run seed:settings`                                                           |
 | `VALIDATE_TIME_FACTOR`                       | `1`                                                 | Scale for the delays in `validate:phase-2`                                                    |
-| `MCP_AUDIENCE`                               | blank, `COGNITO_AUDIENCE` plus the local MCP client | Comma list of client ids the MCP route accepts                                                |
-| `MCP_REQUIRED_GROUP`                         | blank, off                                          | Cognito group an `/mcp` token must carry. Never applies to `/admin`                           |
+| `MCP_AUDIENCE`                               | blank, `COGNITO_AUDIENCE` plus the local MCP client | Comma list of client ids the MCP routes accept. Required in production, no fallback           |
+| `MCP_REQUIRED_GROUP`                         | blank, off                                          | Cognito group an `/mcp` token must carry. Required in production. Never applies to `/admin`   |
 | `MCP_RATE_LIMIT_PER_WINDOW`                  | `120`                                               | MCP tool calls per window per engineer. Pings and `tools/list` do not count                   |
 | `MCP_MAX_BODY_BYTES`                         | `262144`                                            | Body cap for MCP requests                                                                     |
 | `PW_SUPPORT_API_URL`                         | `http://127.0.0.1:8787`                             | Laptop plugin API base URL                                                                    |
@@ -504,7 +504,7 @@ A laptop never receives unfiltered customer content. `prepareAgentInput` in `mod
 
 ### MCP routes
 
-Two endpoints serve Streamable HTTP in stateless mode with `@modelcontextprotocol/sdk` 1.32.2. Both need a bearer token that the shared validator accepts. `MCP_AUDIENCE` sets the accepted client ids and falls back to `COGNITO_AUDIENCE`. Cognito access tokens work through `client_id`. A missing or invalid token returns 401 with `WWW-Authenticate`. `GET` and `DELETE` return 405. Identity comes from the token and never from a tool argument.
+Two endpoints serve Streamable HTTP in stateless mode with `@modelcontextprotocol/sdk` 1.32.2. Both need a bearer token that the shared validator accepts. `MCP_AUDIENCE` sets the accepted client ids. Outside production it falls back to `COGNITO_AUDIENCE`. Cognito access tokens work through `client_id`. A missing or invalid token returns 401 with `WWW-Authenticate`. `GET` and `DELETE` return 405. Identity comes from the token and never from a tool argument.
 
 `/mcp` is the interactive surface. The plugin declares it in `.mcp.json`, and the engineer's own Claude Code session uses it. It serves six tools and no customer text.
 
@@ -534,7 +534,7 @@ Without the watcher header the endpoint answers 401. A header that does not matc
 
 The per-engineer limit counts `tools/call` requests only. `job_renew` and `job_submit_result` use their own bucket of 60 per window.
 
-`MCP_REQUIRED_GROUP` names a Cognito group that an `/mcp` token must carry. It is off by default. Set it in production, because the default accepts any user of the pool that holds an MCP-client token. The API logs one startup warning when `NODE_ENV=production` and the variable is unset. A valid token without the group gets 403. `ADMIN_ALLOWED_EMAIL_DOMAINS` and `ADMIN_REQUIRED_GROUP` never apply to `/mcp`, because a Cognito access token has no `email` claim.
+`MCP_AUDIENCE` and `MCP_REQUIRED_GROUP` are both required when `NODE_ENV=production`. Without both, `/mcp`, `/mcp/laptop`, and `PUT`/`DELETE /laptop/watcher` answer 503 with `{"error":"mcp_not_configured"}`, and the API logs one configuration error at startup that names the missing variables. There is no fallback to the admin audiences in production, and the admin routes are unaffected. Outside production, an unset `MCP_AUDIENCE` falls back to the local MCP client plus the admin audiences, and the group stays optional. A valid token without the group gets 403. `ADMIN_ALLOWED_EMAIL_DOMAINS` and `ADMIN_REQUIRED_GROUP` never apply to `/mcp`, because a Cognito access token has no `email` claim.
 
 ### Watcher credential
 
@@ -544,7 +544,7 @@ This credential raises the bar against an interactive session that is steered to
 
 ### Install and login
 
-The plugin lives in `modules/plugin`. Start Claude Code with `claude --plugin-dir modules/plugin` from a checkout after `bun install`. The plugin needs `bun` on the path. Then log in once in a terminal.
+The plugin lives in `modules/plugin`. Start Claude Code with `claude --plugin-dir modules/plugin` from a checkout after `bun install`. The plugin needs `bun` on the path. The plugin commands, the skill, and `.mcp.json` call the CLI as `"${CLAUDE_PLUGIN_ROOT}/bin/pw-support"`, so they work without a PATH entry. In your own terminal, `pw-support` below means `modules/plugin/bin/pw-support`. Log in once in a terminal.
 
 ```bash
 export PW_SUPPORT_API_URL=https://<api host>

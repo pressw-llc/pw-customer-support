@@ -37,7 +37,7 @@ describe("plugin bundle", () => {
       });
     const help = run("help");
     expect(help.exitCode).toBe(0);
-    expect(help.stderr.toString()).toContain("usage: pw-support");
+    expect(help.stdout.toString()).toContain("usage: pw-support");
     const submit = run("submit-server");
     expect(submit.exitCode).toBe(1);
     expect(submit.stderr.toString()).toContain("submit-server <config>");

@@ -6,6 +6,7 @@ import {
   WATCHER_PATH,
 } from "@pw-support/contracts";
 import { createTokenValidator } from "./auth";
+import { loadConfig } from "./config";
 import { safeIssueMessage } from "./mcp";
 import { createHarness } from "./testing/harness";
 import {
@@ -405,5 +406,126 @@ describe("mcp access policy", () => {
       url.stop();
       await policy.close();
     }
+  });
+});
+
+describe("production mcp configuration", () => {
+  const MCP_CLIENT = "pw-support-prod-mcp";
+  const rpc = { jsonrpc: "2.0", id: 1, method: "ping" };
+
+  async function productionHarness(extra: Record<string, string>) {
+    const adminAudience = idp.authConfig().audiences[0] as string;
+    const production = loadConfig({
+      NODE_ENV: "production",
+      COGNITO_ISSUER: idp.issuer,
+      COGNITO_AUDIENCE: adminAudience,
+      ...extra,
+    });
+    const instance = await createHarness({
+      config: {
+        auth: { ...production.auth, clockToleranceSeconds: 5 },
+        mcp: production.mcp,
+      },
+    });
+    return { instance, served: serveApp(instance.app), adminAudience };
+  }
+
+  async function expectUnavailable(url: string, token: string) {
+    const headers = { Authorization: `Bearer ${token}` };
+    for (const path of ["/mcp", LAPTOP_PATH]) {
+      const response = await postMcp(url, headers, rpc, path);
+      expect(response.status).toBe(503);
+      expect(await response.json()).toEqual({ error: "mcp_not_configured" });
+    }
+    const watcher = await fetch(`${url}${WATCHER_PATH}`, {
+      method: "PUT",
+      headers: { ...headers, "Content-Type": "application/json" },
+      body: JSON.stringify({ machineId: crypto.randomUUID(), secret: "x" }),
+    });
+    expect(watcher.status).toBe(503);
+  }
+
+  test("production with no MCP_AUDIENCE answers 503 on /mcp, /mcp/laptop, and the watcher registration while admin keeps working", async () => {
+    const { instance, served: url } = await productionHarness({
+      MCP_REQUIRED_GROUP: "engineers",
+    });
+    try {
+      const token = await idp.token({
+        claims: { sub: `noaud-${sub}`, "cognito:groups": ["engineers"] },
+      });
+      await expectUnavailable(url.url, token);
+      const admin = await fetch(`${url.url}/admin/me`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      expect(admin.status).toBe(200);
+    } finally {
+      url.stop();
+      await instance.close();
+    }
+  });
+
+  test("production with MCP_AUDIENCE but no MCP_REQUIRED_GROUP answers 503", async () => {
+    const { instance, served: url } = await productionHarness({
+      MCP_AUDIENCE: MCP_CLIENT,
+    });
+    try {
+      const token = await idp.token({
+        claims: { sub: `nogroup-${sub}`, aud: MCP_CLIENT },
+      });
+      await expectUnavailable(url.url, token);
+    } finally {
+      url.stop();
+      await instance.close();
+    }
+  });
+
+  test("production with both settings accepts the MCP audience with the group and rejects the other tokens", async () => {
+    const {
+      instance,
+      served: url,
+      adminAudience,
+    } = await productionHarness({
+      MCP_AUDIENCE: MCP_CLIENT,
+      MCP_REQUIRED_GROUP: "engineers",
+    });
+    try {
+      const allowed = await idp.token({
+        claims: {
+          sub: `ok-${sub}`,
+          aud: MCP_CLIENT,
+          "cognito:groups": ["engineers"],
+        },
+      });
+      const adminOnly = await idp.token({
+        claims: {
+          sub: `adm-${sub}`,
+          aud: adminAudience,
+          "cognito:groups": ["engineers"],
+        },
+      });
+      const noGroup = await idp.token({
+        claims: { sub: `ng-${sub}`, aud: MCP_CLIENT },
+      });
+      const post = (token: string) =>
+        postMcp(url.url, { Authorization: `Bearer ${token}` }, rpc);
+      expect((await post(allowed)).status).toBe(200);
+      expect((await post(adminOnly)).status).toBe(401);
+      expect((await post(noGroup)).status).toBe(403);
+    } finally {
+      url.stop();
+      await instance.close();
+    }
+  });
+
+  test("outside production the admin audience fallback still reaches /mcp", async () => {
+    const local = loadConfig({});
+    expect(local.mcp.disabled).toBeUndefined();
+    const token = await idp.token({ claims: { sub: `loc-${sub}` } });
+    const response = await postMcp(
+      served.url,
+      { Authorization: `Bearer ${token}` },
+      rpc,
+    );
+    expect(response.status).toBe(200);
   });
 });

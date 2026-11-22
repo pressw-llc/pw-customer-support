@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { loadConfig, mcpAuthConfig, productionWarnings } from "./config";
+import { loadConfig, mcpAuthConfig, productionConfigErrors } from "./config";
 
 test("defaults target the local Compose stack", () => {
   const config = loadConfig({});
@@ -128,12 +128,46 @@ test("the mcp auth config drops the admin email domains and takes its own group"
   expect(mcpAuthConfig(loadConfig({})).requiredGroup).toBeUndefined();
 });
 
-test("production without MCP_REQUIRED_GROUP warns once and names no secret", () => {
+test("production without MCP_AUDIENCE or MCP_REQUIRED_GROUP disables mcp with no admin audience fallback", () => {
+  const base = {
+    NODE_ENV: "production",
+    COGNITO_ISSUER: "https://idp.example",
+    COGNITO_AUDIENCE: "admin-client",
+  };
+  const none = loadConfig(base);
+  expect(none.mcp.disabled).toBe(true);
+  expect(none.mcp.audiences).toEqual([]);
+  expect(loadConfig({ ...base, MCP_AUDIENCE: "mcp-client" }).mcp.disabled).toBe(
+    true,
+  );
+  expect(
+    loadConfig({ ...base, MCP_REQUIRED_GROUP: "engineers" }).mcp.disabled,
+  ).toBe(true);
+  const ready = loadConfig({
+    ...base,
+    MCP_AUDIENCE: "mcp-client",
+    MCP_REQUIRED_GROUP: "engineers",
+  });
+  expect(ready.mcp.disabled).toBeUndefined();
+  expect(ready.mcp.audiences).toEqual(["mcp-client"]);
+});
+
+test("outside production mcp keeps the admin audience fallback and stays enabled", () => {
+  const config = loadConfig({ COGNITO_AUDIENCE: "admin-client" });
+  expect(config.mcp.disabled).toBeUndefined();
+  expect(config.mcp.audiences).toContain("admin-client");
+});
+
+test("productionConfigErrors names each missing setting once and no secret", () => {
   const production = { NODE_ENV: "production" };
-  const warnings = productionWarnings(loadConfig(production), production);
-  expect(warnings).toHaveLength(1);
-  expect(warnings[0]).toContain("MCP_REQUIRED_GROUP");
-  const withGroup = { NODE_ENV: "production", MCP_REQUIRED_GROUP: "engineers" };
-  expect(productionWarnings(loadConfig(withGroup), withGroup)).toEqual([]);
-  expect(productionWarnings(loadConfig({}), {})).toEqual([]);
+  const errors = productionConfigErrors(production);
+  expect(errors).toHaveLength(1);
+  expect(errors[0]).toContain("MCP_AUDIENCE and MCP_REQUIRED_GROUP");
+  const audienceOnly = { ...production, MCP_AUDIENCE: "mcp-client" };
+  expect(productionConfigErrors(audienceOnly)[0]).toContain(
+    "MCP_REQUIRED_GROUP must",
+  );
+  const ready = { ...audienceOnly, MCP_REQUIRED_GROUP: "engineers" };
+  expect(productionConfigErrors(ready)).toEqual([]);
+  expect(productionConfigErrors({})).toEqual([]);
 });

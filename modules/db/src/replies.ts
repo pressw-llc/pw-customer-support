@@ -18,6 +18,7 @@ import {
   isNull,
   lt,
   ne,
+  notExists,
   or,
   sql,
 } from "drizzle-orm";
@@ -689,6 +690,23 @@ export async function confirmHeldReply(
           or(
             eq(inboundComments.commentId, parent),
             eq(inboundComments.parentCommentId, parent),
+          ),
+          notExists(
+            tx
+              .select({ id: replies.id })
+              .from(replies)
+              .where(
+                and(
+                  eq(replies.threadRootId, parent),
+                  or(
+                    eq(replies.warningCommentId, inboundComments.commentId),
+                    eq(
+                      replies.cancelNoticeCommentId,
+                      inboundComments.commentId,
+                    ),
+                  ),
+                ),
+              ),
           ),
         ),
       )

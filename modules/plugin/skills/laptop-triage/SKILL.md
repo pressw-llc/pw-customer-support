@@ -5,7 +5,7 @@ description: Explains how an engineer subscribes to support channels, queries re
 
 # Laptop triage workflow
 
-1. Log in once in a terminal with `pw-support login`. The login stores tokens in a private file under the user config directory.
+1. Log in once in a terminal with `"${CLAUDE_PLUGIN_ROOT}/bin/pw-support" login`. The login stores tokens in a private file under the user config directory.
 2. Subscribe to a channel key prefix with `/support:subscribe <prefix>`. A prefix is `client`, `client:project`, or `client:project:user` and matches whole segments.
 3. Start the watcher with `/support:watch start`. The watcher registers its own credential, polls for open jobs on your subscriptions, and claims one.
 4. The server filters the request before the laptop sees it. A flagged or unfiltered request goes to human triage and the watcher gets nothing.

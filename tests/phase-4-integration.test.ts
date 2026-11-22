@@ -1,12 +1,16 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
-import { createApp, createS3Storage, loadConfig } from "@pw-support/api";
+import { createApp, createS3Storage } from "@pw-support/api";
 import {
   type AdminRequestDetail,
   adminRequestDetailSchema,
   adminRequestListSchema,
 } from "@pw-support/contracts";
 import { listFlaggedReplies } from "@pw-support/db";
-import { createPhase3Harness, type Phase3Harness } from "./phase-3-support";
+import {
+  createPhase3Harness,
+  type Phase3Harness,
+  stackApiConfig,
+} from "./phase-3-support";
 
 let p: Phase3Harness;
 let adminCall: (path: string) => Promise<Response>;
@@ -15,7 +19,7 @@ const staffIdentity = { sub: "staff-1", email: "ada@pressw.test", name: "Ada" };
 
 beforeAll(async () => {
   p = await createPhase3Harness();
-  const config = loadConfig({});
+  const config = stackApiConfig();
   const app = createApp({
     db: p.h.db,
     storage: createS3Storage(config),

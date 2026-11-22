@@ -212,9 +212,14 @@ export async function runCli(
         await runSubmitServerFromFile(path);
         return undefined;
       }
+      case "help":
+      case "--help":
+      case "-h":
+        io.out(USAGE);
+        return 0;
       default:
         io.err(USAGE);
-        return command === undefined || command === "help" ? 0 : 2;
+        return command === undefined ? 0 : 2;
     }
   } catch (error) {
     if (error instanceof NotLoggedInError || error instanceof LoginError) {
