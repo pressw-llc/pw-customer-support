@@ -1,4 +1,4 @@
-import { Duration, RemovalPolicy } from "aws-cdk-lib";
+import { Duration, type RemovalPolicy } from "aws-cdk-lib";
 import * as ec2 from "aws-cdk-lib/aws-ec2";
 import * as rds from "aws-cdk-lib/aws-rds";
 import type * as secretsmanager from "aws-cdk-lib/aws-secretsmanager";
@@ -12,6 +12,8 @@ export const DB_USER = "support";
 export interface SupportDatabaseProps {
   network: SupportNetwork;
   secretName: string;
+  removalPolicy: RemovalPolicy;
+  deletionProtection: boolean;
 }
 
 export class SupportDatabase extends Construct {
@@ -45,8 +47,8 @@ export class SupportDatabase extends Construct {
       serverlessV2MinCapacity: 0.5,
       serverlessV2MaxCapacity: 8,
       storageEncrypted: true,
-      deletionProtection: true,
-      removalPolicy: RemovalPolicy.RETAIN,
+      deletionProtection: props.deletionProtection,
+      removalPolicy: props.removalPolicy,
       backup: { retention: Duration.days(14) },
       iamAuthentication: true,
       cloudwatchLogsExports: ["postgresql"],
@@ -59,6 +61,9 @@ export class SupportDatabase extends Construct {
       "API, worker, migration, and Lambda access",
     );
 
+    (
+      this.cluster.node.findChild("Secret") as secretsmanager.Secret
+    ).applyRemovalPolicy(props.removalPolicy);
     this.secret = this.cluster.secret as secretsmanager.ISecret;
     this.cluster.addRotationSingleUser({
       automaticallyAfter: Duration.days(30),

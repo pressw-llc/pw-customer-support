@@ -4,6 +4,7 @@ import {
   loadConfig,
   mcpAuthConfig,
   productionConfigErrors,
+  productionStartupProblems,
 } from "./config";
 
 test("defaults target the local Compose stack", () => {
@@ -208,4 +209,45 @@ test("a group or an email domain enables /admin in production, and development i
   ).toBe(true);
   expect(adminPolicyMissing({})).toBe(false);
   expect(loadConfig({}).admin.disabled).toBeUndefined();
+});
+
+test("production startup refuses to run without the stack's names and database settings", () => {
+  expect(productionStartupProblems({})).toEqual([]);
+  expect(productionStartupProblems({ NODE_ENV: "development" })).toEqual([]);
+  const problems = productionStartupProblems({ NODE_ENV: "production" });
+  for (const name of [
+    "ATTACHMENTS_BUCKET",
+    "SUPPORT_STAGE",
+    "TRIAGE_WAKE_QUEUE",
+    "DB_SECRET_ARN",
+    "DB_HOST",
+  ]) {
+    expect(problems.join("\n")).toContain(`${name} must be set in production`);
+  }
+  const ready = {
+    NODE_ENV: "production",
+    ATTACHMENTS_BUCKET: "b",
+    SUPPORT_STAGE: "production",
+    TRIAGE_WAKE_QUEUE: "q",
+    DB_SECRET_ARN: "arn",
+    DB_HOST: "h",
+  };
+  expect(productionStartupProblems(ready)).toEqual([]);
+});
+
+test("production startup refuses the local stage, a database URL, and a Linear URL override", () => {
+  const ready = {
+    NODE_ENV: "production",
+    ATTACHMENTS_BUCKET: "b",
+    SUPPORT_STAGE: "local",
+    TRIAGE_WAKE_QUEUE: "q",
+    DB_SECRET_ARN: "arn",
+    DB_HOST: "h",
+    DATABASE_URL: "postgres://x/y",
+    LINEAR_API_URL: "http://stub",
+  };
+  const problems = productionStartupProblems(ready).join("\n");
+  expect(problems).toContain("not local");
+  expect(problems).toContain("DATABASE_URL is not allowed");
+  expect(problems).toContain("LINEAR_API_URL must not be set");
 });

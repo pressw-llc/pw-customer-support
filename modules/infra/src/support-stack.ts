@@ -5,7 +5,6 @@ import {
   CfnOutput,
   DefaultStackSynthesizer,
   DockerBuildSecret,
-  RemovalPolicy,
   type StackProps,
 } from "aws-cdk-lib";
 import * as ec2 from "aws-cdk-lib/aws-ec2";
@@ -21,7 +20,7 @@ import { DB_NAME, DB_USER, SupportDatabase } from "./database";
 import { LOG_RETENTION, SupportNetwork } from "./network";
 import { SupportQueues } from "./queues";
 import { SecretsAccess } from "./secrets-access";
-import { RegionalStack } from "./stack-base";
+import { RegionalStack, removalFor } from "./stack-base";
 
 export { AWS_REGION };
 export function secretsPath(names: ResourceNames): string {
@@ -85,10 +84,14 @@ export class SupportStack extends RegionalStack {
     this.config = props.config;
     this.names = resourceNames(props.config.stage);
 
-    this.network = new SupportNetwork(this, "Network");
+    this.network = new SupportNetwork(this, "Network", {
+      removalPolicy: removalFor(props.config.stage),
+    });
     this.database = new SupportDatabase(this, "Database", {
       network: this.network,
       secretName: this.names.databaseSecret,
+      removalPolicy: removalFor(props.config.stage),
+      deletionProtection: props.config.stage === "production",
     });
 
     this.attachmentsBucket = new s3.Bucket(this, "AttachmentsBucket", {
@@ -96,7 +99,7 @@ export class SupportStack extends RegionalStack {
       encryption: s3.BucketEncryption.S3_MANAGED,
       enforceSSL: true,
       versioned: true,
-      removalPolicy: RemovalPolicy.RETAIN,
+      removalPolicy: removalFor(props.config.stage),
     });
 
     this.queues = new SupportQueues(this, "Queues", {
@@ -106,6 +109,7 @@ export class SupportStack extends RegionalStack {
 
     this.anthropicSecret = new secretsmanager.Secret(this, "AnthropicKey", {
       secretName: this.names.anthropicSecret,
+      removalPolicy: removalFor(props.config.stage),
       description:
         "Anthropic API key for the triage worker. Set it with put-secret-value after the first deploy.",
     });
@@ -145,7 +149,7 @@ export class SupportStack extends RegionalStack {
         streamPrefix: "migrate",
         logGroup: new logs.LogGroup(this, "MigrationLogs", {
           retention: LOG_RETENTION,
-          removalPolicy: RemovalPolicy.RETAIN,
+          removalPolicy: removalFor(props.config.stage),
         }),
       }),
     });

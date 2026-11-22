@@ -7,6 +7,7 @@ import {
   loadConfig,
   mcpAuthConfig,
   productionConfigErrors,
+  productionStartupProblems,
 } from "@pw-support/api";
 import {
   createLinearWebhookIntake,
@@ -27,6 +28,11 @@ import {
   runExtractionSelfTest,
 } from "@pw-support/triage";
 
+const startupProblems = productionStartupProblems();
+if (startupProblems.length > 0) {
+  for (const problem of startupProblems) console.error(`[config] ${problem}`);
+  process.exit(1);
+}
 await runExtractionSelfTest();
 console.log("[api] extraction self-test passed");
 const config = loadConfig();

@@ -6,7 +6,6 @@ import {
   CfnOutput,
   DefaultStackSynthesizer,
   Duration,
-  RemovalPolicy,
   type StackProps,
 } from "aws-cdk-lib";
 import * as acm from "aws-cdk-lib/aws-certificatemanager";
@@ -24,7 +23,7 @@ import type { Construct } from "constructs";
 import { AdminSite } from "./admin-site";
 import { AWS_REGION, type StageConfig } from "./config";
 import { LOG_RETENTION } from "./network";
-import { RegionalStack } from "./stack-base";
+import { RegionalStack, removalFor } from "./stack-base";
 import {
   databaseEnvironment,
   grantServiceRole,
@@ -76,14 +75,14 @@ export class SupportAppStack extends RegionalStack {
     const logGroup = (name: string) =>
       new logs.LogGroup(this, name, {
         retention: LOG_RETENTION,
-        removalPolicy: RemovalPolicy.RETAIN,
+        removalPolicy: removalFor(config.stage),
       });
 
     const albLogs = new s3.Bucket(this, "AlbLogs", {
       blockPublicAccess: s3.BlockPublicAccess.BLOCK_ALL,
       encryption: s3.BucketEncryption.S3_MANAGED,
       enforceSSL: true,
-      removalPolicy: RemovalPolicy.RETAIN,
+      removalPolicy: removalFor(config.stage),
       lifecycleRules: [{ expiration: Duration.days(90) }],
     });
 
@@ -184,6 +183,7 @@ export class SupportAppStack extends RegionalStack {
       : `http://${this.apiService.loadBalancer.loadBalancerDnsName}`;
 
     this.adminSite = new AdminSite(this, "AdminSite", {
+      removalPolicy: removalFor(config.stage),
       apiUrl: this.apiUrl,
       oidc: {
         authority: config.cognitoIssuer,

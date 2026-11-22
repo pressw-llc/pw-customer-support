@@ -1,4 +1,4 @@
-import { RemovalPolicy } from "aws-cdk-lib";
+import type { RemovalPolicy } from "aws-cdk-lib";
 import * as ec2 from "aws-cdk-lib/aws-ec2";
 import * as logs from "aws-cdk-lib/aws-logs";
 import { Construct } from "constructs";
@@ -10,7 +10,11 @@ export class SupportNetwork extends Construct {
   readonly vpc: ec2.Vpc;
   readonly serviceSecurityGroup: ec2.SecurityGroup;
 
-  constructor(scope: Construct, id: string) {
+  constructor(
+    scope: Construct,
+    id: string,
+    props: { removalPolicy: RemovalPolicy },
+  ) {
     super(scope, id);
 
     this.vpc = new ec2.Vpc(this, "Vpc", {
@@ -35,7 +39,7 @@ export class SupportNetwork extends Construct {
           destination: ec2.FlowLogDestination.toCloudWatchLogs(
             new logs.LogGroup(this, "FlowLogs", {
               retention: LOG_RETENTION,
-              removalPolicy: RemovalPolicy.RETAIN,
+              removalPolicy: props.removalPolicy,
             }),
           ),
         },

@@ -12,6 +12,7 @@ export {
   loadConfig,
   mcpAuthConfig,
   productionConfigErrors,
+  productionStartupProblems,
 } from "./config";
 export { type LaptopBackend, type McpDeps, mcpRoutes } from "./mcp";
 export {

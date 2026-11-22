@@ -66,6 +66,31 @@ export function adminPolicyMissing(env: NodeJS.ProcessEnv): boolean {
   );
 }
 
+export function productionStartupProblems(
+  env: NodeJS.ProcessEnv = process.env,
+): string[] {
+  if (env.NODE_ENV !== "production") return [];
+  const problems = [
+    "ATTACHMENTS_BUCKET",
+    "SUPPORT_STAGE",
+    "TRIAGE_WAKE_QUEUE",
+    "DB_SECRET_ARN",
+    "DB_HOST",
+  ]
+    .filter((name) => !env[name])
+    .map((name) => `${name} must be set in production`);
+  if (env.SUPPORT_STAGE === "local") {
+    problems.push("SUPPORT_STAGE must name the deployed stage, not local");
+  }
+  if (env.DATABASE_URL) {
+    problems.push("DATABASE_URL is not allowed in production");
+  }
+  if (env.LINEAR_API_URL) {
+    problems.push("LINEAR_API_URL must not be set in production");
+  }
+  return problems;
+}
+
 export function productionConfigErrors(
   env: NodeJS.ProcessEnv = process.env,
 ): string[] {

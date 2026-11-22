@@ -1,5 +1,14 @@
-import { Annotations, Stack, type StackProps } from "aws-cdk-lib";
+import {
+  Annotations,
+  RemovalPolicy,
+  Stack,
+  type StackProps,
+} from "aws-cdk-lib";
 import type { Construct } from "constructs";
+
+export function removalFor(stage: string): RemovalPolicy {
+  return stage === "production" ? RemovalPolicy.RETAIN : RemovalPolicy.DESTROY;
+}
 
 export const AVAILABILITY_ZONES = ["us-east-1a", "us-east-1b"];
 

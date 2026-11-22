@@ -1,6 +1,11 @@
 import { existsSync } from "node:fs";
 import { join } from "node:path";
-import { Annotations, CfnOutput, Duration, RemovalPolicy } from "aws-cdk-lib";
+import {
+  Annotations,
+  CfnOutput,
+  Duration,
+  type RemovalPolicy,
+} from "aws-cdk-lib";
 import * as cloudfront from "aws-cdk-lib/aws-cloudfront";
 import * as origins from "aws-cdk-lib/aws-cloudfront-origins";
 import * as s3 from "aws-cdk-lib/aws-s3";
@@ -22,6 +27,7 @@ export interface AdminSiteProps {
   apiUrl: string;
   oidc: AdminOidc;
   distDir?: string;
+  removalPolicy: RemovalPolicy;
 }
 
 export function adminRuntimeConfig(
@@ -49,7 +55,7 @@ export class AdminSite extends Construct {
       blockPublicAccess: s3.BlockPublicAccess.BLOCK_ALL,
       encryption: s3.BucketEncryption.S3_MANAGED,
       enforceSSL: true,
-      removalPolicy: RemovalPolicy.RETAIN,
+      removalPolicy: props.removalPolicy,
     });
 
     const headers = new cloudfront.ResponseHeadersPolicy(this, "Headers", {

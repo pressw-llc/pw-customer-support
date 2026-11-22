@@ -45,6 +45,7 @@ const prod = build();
 const { foundationT, appT, oidcT } = prod;
 
 type Statement = {
+  Sid?: string;
   Effect: string;
   Action: string | string[];
   Resource?: unknown;
@@ -1013,6 +1014,73 @@ describe("GitHub OIDC bootstrap stack", () => {
     stagingStack.oidcT.hasOutput("BootstrapQualifier", {
       Value: resourceNames("staging").bootstrapQualifier,
     });
+  });
+});
+
+describe("data protection per stage", () => {
+  const STATEFUL = [
+    "AWS::RDS::DBCluster",
+    "AWS::S3::Bucket",
+    "AWS::Logs::LogGroup",
+    "AWS::SecretsManager::Secret",
+  ];
+  const policies = (template: Template, type: string) =>
+    Object.values(
+      template.toJSON().Resources as Record<
+        string,
+        { Type: string; DeletionPolicy?: string }
+      >,
+    )
+      .filter((resource) => resource.Type === type)
+      .map((resource) => resource.DeletionPolicy);
+
+  test("production retains every stateful resource and protects the database", () => {
+    for (const template of [foundationT, appT]) {
+      for (const type of STATEFUL) {
+        for (const policy of policies(template, type)) {
+          expect(policy, type).toBe("Retain");
+        }
+      }
+    }
+    foundationT.hasResourceProperties("AWS::RDS::DBCluster", {
+      DeletionProtection: true,
+      StorageEncrypted: true,
+      BackupRetentionPeriod: 14,
+    });
+  });
+
+  test("staging deletes its stateful resources so it can be torn down and re-created", () => {
+    const staging = build("staging");
+    let checked = 0;
+    for (const template of [staging.foundationT, staging.appT]) {
+      for (const type of STATEFUL) {
+        for (const policy of policies(template, type)) {
+          expect(policy, type).toBe("Delete");
+          checked += 1;
+        }
+      }
+    }
+    expect(checked).toBeGreaterThan(5);
+    staging.foundationT.hasResourceProperties("AWS::RDS::DBCluster", {
+      DeletionProtection: false,
+      StorageEncrypted: true,
+      BackupRetentionPeriod: 14,
+    });
+  });
+
+  test("every bucket in both stages stays private, encrypted, and TLS-only", () => {
+    for (const stack of [prod, build("staging")]) {
+      for (const template of [stack.foundationT, stack.appT]) {
+        for (const bucket of Object.values(
+          template.findResources("AWS::S3::Bucket"),
+        )) {
+          expect(
+            bucket.Properties.PublicAccessBlockConfiguration.BlockPublicPolicy,
+          ).toBe(true);
+          expect(bucket.Properties.BucketEncryption).toBeDefined();
+        }
+      }
+    }
   });
 });
 
