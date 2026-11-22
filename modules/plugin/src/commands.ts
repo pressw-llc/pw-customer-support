@@ -103,7 +103,9 @@ async function watch(args: string[], config: PluginConfig, io: CliIo) {
     io.out(
       result === "not_running"
         ? "Watcher is not running."
-        : `Watcher ${result}.`,
+        : result === "unverified"
+          ? "Cannot verify the process behind the watcher pid file. Nothing was signalled."
+          : `Watcher ${result}.`,
     );
     return;
   }
@@ -112,7 +114,9 @@ async function watch(args: string[], config: PluginConfig, io: CliIo) {
     io.out(
       status.running
         ? `Watcher is running (pid ${status.pid}). Log: ${status.logFile}`
-        : "Watcher is not running.",
+        : status.unverified
+          ? `Cannot verify the process behind the watcher pid file (pid ${status.pid}).`
+          : "Watcher is not running.",
     );
     for (const line of status.recentLog) io.out(line);
     return;

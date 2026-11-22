@@ -16,6 +16,7 @@ import {
   createFileLogger,
   daemonPaths,
   daemonStatus,
+  inspectDaemon,
   isAlive,
   pruneReports,
   readPid,
@@ -95,6 +96,31 @@ describe("pid files", () => {
     } finally {
       bystander.kill();
     }
+  });
+
+  test("when ps cannot answer the pid is unverified: the file stays and nothing is signalled or started", async () => {
+    const paths = daemonPaths(dir);
+    writePid(paths, process.pid, NONCE);
+    const signals: string[] = [];
+    const deps = {
+      commandLine: () => null,
+      kill: (_pid: number, signal: string) => signals.push(signal),
+    };
+    expect(inspectDaemon(paths, deps)).toEqual({
+      state: "unverified",
+      pid: process.pid,
+    });
+    expect(runningPid(paths, deps)).toBeNull();
+    expect(readPid(paths)).toBe(process.pid);
+    expect(await stopDaemon(paths, { deps })).toBe("unverified");
+    expect(signals).toEqual([]);
+    const status = daemonStatus(paths, 5, deps);
+    expect(status.unverified).toBe(true);
+    expect(status.running).toBe(false);
+    await expect(
+      startDaemon({ paths, command: SLEEPER, env, deps }),
+    ).rejects.toThrow("cannot verify");
+    expect(readPid(paths)).toBe(process.pid);
   });
 
   test("a process with the watcher command line but another nonce is rejected", () => {

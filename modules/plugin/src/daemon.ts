@@ -82,22 +82,37 @@ export function readPid(paths: DaemonPaths): number | null {
   return readPidRecord(paths)?.pid ?? null;
 }
 
-function isOurWatcher(record: PidRecord, deps: DaemonDeps): boolean {
-  if (!isAlive(record.pid)) return false;
-  const line = (deps.commandLine ?? commandLineOf)(record.pid);
-  return Boolean(
-    line?.includes("watch run") && line.includes(`--nonce ${record.nonce}`),
-  );
+export type DaemonState =
+  | { state: "running"; pid: number }
+  | { state: "unverified"; pid: number }
+  | { state: "stopped" };
+
+export function inspectDaemon(
+  paths: DaemonPaths,
+  deps: DaemonDeps = {},
+): DaemonState {
+  const record = readPidRecord(paths);
+  if (record && isAlive(record.pid)) {
+    const line = (deps.commandLine ?? commandLineOf)(record.pid);
+    if (line === null) {
+      if (isAlive(record.pid)) return { state: "unverified", pid: record.pid };
+    } else if (
+      line.includes("watch run") &&
+      line.includes(`--nonce ${record.nonce}`)
+    ) {
+      return { state: "running", pid: record.pid };
+    }
+  }
+  rmSync(paths.pidFile, { force: true });
+  return { state: "stopped" };
 }
 
 export function runningPid(
   paths: DaemonPaths,
   deps: DaemonDeps = {},
 ): number | null {
-  const record = readPidRecord(paths);
-  if (record && isOurWatcher(record, deps)) return record.pid;
-  rmSync(paths.pidFile, { force: true });
-  return null;
+  const found = inspectDaemon(paths, deps);
+  return found.state === "running" ? found.pid : null;
 }
 
 export function newNonce(): string {
@@ -146,8 +161,15 @@ export async function startDaemon(input: {
   settleMs?: number;
   deps?: DaemonDeps;
 }): Promise<StartResult> {
-  const existing = runningPid(input.paths, input.deps);
-  if (existing !== null) return { started: false, pid: existing };
+  const existing = inspectDaemon(input.paths, input.deps);
+  if (existing.state === "unverified") {
+    throw new Error(
+      `cannot verify the process behind the watcher pid file (pid ${existing.pid}); not starting a second watcher`,
+    );
+  }
+  if (existing.state === "running") {
+    return { started: false, pid: existing.pid };
+  }
   mkdirSync(input.paths.dir, { recursive: true, mode: 0o700 });
   const fd = openSync(input.paths.logFile, "a", 0o600);
   try {
@@ -174,14 +196,16 @@ export async function startDaemon(input: {
   }
 }
 
-export type StopResult = "not_running" | "stopped" | "killed";
+export type StopResult = "not_running" | "stopped" | "killed" | "unverified";
 
 export async function stopDaemon(
   paths: DaemonPaths,
   options: { timeoutMs?: number; deps?: DaemonDeps } = {},
 ): Promise<StopResult> {
-  const pid = runningPid(paths, options.deps);
-  if (pid === null) return "not_running";
+  const found = inspectDaemon(paths, options.deps);
+  if (found.state === "unverified") return "unverified";
+  if (found.state === "stopped") return "not_running";
+  const pid = found.pid;
   const kill = options.deps?.kill ?? process.kill.bind(process);
   kill(pid, "SIGTERM");
   const deadline = Date.now() + (options.timeoutMs ?? 10_000);
@@ -203,6 +227,7 @@ export async function stopDaemon(
 
 export interface DaemonStatus {
   running: boolean;
+  unverified: boolean;
   pid: number | null;
   logFile: string;
   recentLog: string[];
@@ -213,12 +238,14 @@ export function daemonStatus(
   tail = 5,
   deps: DaemonDeps = {},
 ): DaemonStatus {
-  const pid = runningPid(paths, deps);
+  const found = inspectDaemon(paths, deps);
+  const pid = found.state === "stopped" ? null : found.pid;
   const lines = existsSync(paths.logFile)
     ? readFileSync(paths.logFile, "utf8").trim().split("\n").filter(Boolean)
     : [];
   return {
-    running: pid !== null,
+    running: found.state === "running",
+    unverified: found.state === "unverified",
     pid,
     logFile: paths.logFile,
     recentLog: lines.slice(-tail),
