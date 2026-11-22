@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { join } from "node:path";
 import {
   duplicates,
+  isBuildOutput,
   missingPaths,
   parseFrontmatter,
   pathMentions,
@@ -9,6 +10,8 @@ import {
   type Skill,
   skillsIn,
   subdirectories,
+  trackedExists,
+  trackedFiles,
 } from "./skills-audit";
 
 const root = join(import.meta.dir, "..");
@@ -51,6 +54,34 @@ describe("skill audit helpers", () => {
     ]);
   });
 
+  test("skips a path marked as build output", () => {
+    const body =
+      "Build writes build output: `modules/x/dist/out`. It uses `src/a.ts`.";
+    expect(pathMentions(body)).toEqual(["src/a.ts"]);
+    expect(isBuildOutput(body, body.indexOf("`modules"))).toBe(true);
+    expect(isBuildOutput(body, body.indexOf("`src"))).toBe(false);
+  });
+
+  test("resolves only tracked files and their directories", () => {
+    const tracked = trackedFiles("/repo", () => "a/b.ts\nmodules/x/src/c.ts\n");
+    const exists = trackedExists("/repo", tracked, () => true);
+    expect(exists("/repo/a/b.ts")).toBe(true);
+    expect(exists("/repo/modules/x")).toBe(true);
+    expect(exists("/repo/modules/x/dist")).toBe(false);
+    expect(trackedFiles("/repo", () => undefined)).toBeUndefined();
+    expect(trackedExists("/repo", undefined, () => false)("/repo/a")).toBe(
+      false,
+    );
+  });
+
+  test("a generated directory that git does not track fails the audit", () => {
+    const skill = { body: "See `modules/plugin/dist/plugin`." } as Skill;
+    const tracked = trackedFiles("/repo", () => "modules/plugin/README.md\n");
+    expect(
+      missingPaths(skill, ["/repo"], trackedExists("/repo", tracked)),
+    ).toEqual(["modules/plugin/dist/plugin"]);
+  });
+
   test("finds duplicate names", () => {
     expect(duplicates(["a", "b", "a", undefined, "b", "c"]).sort()).toEqual([
       "a",
@@ -60,6 +91,7 @@ describe("skill audit helpers", () => {
 });
 
 describe("repository skills (A26)", () => {
+  const tracked = trackedFiles(root);
   const rootSkills = skillsIn(join(root, ".claude", "skills"));
   const moduleDirs = [
     ...subdirectories(join(root, "modules")).map((name) =>
@@ -121,13 +153,11 @@ describe("repository skills (A26)", () => {
     for (const dir of moduleDirs) {
       for (const skill of skillsIn(join(dir, ".claude", "skills"))) {
         expect(
-          missingPaths(skill, [
-            dir,
-            join(dir, "src"),
-            root,
-            join(dir, "node_modules"),
-            join(root, "node_modules"),
-          ]),
+          missingPaths(
+            skill,
+            [dir, join(dir, "src"), root],
+            trackedExists(root, tracked),
+          ),
           skill.file,
         ).toEqual([]);
       }
@@ -139,11 +169,15 @@ describe("repository skills (A26)", () => {
       (item) => item.name === "pw-support-repo",
     ) as Skill;
     expect(
-      missingPaths(skill, [
-        root,
-        join(root, ".claude", "skills"),
-        join(root, "docs", "plans", "customer-support-v1"),
-      ]),
+      missingPaths(
+        skill,
+        [
+          root,
+          join(root, ".claude", "skills"),
+          join(root, "docs", "plans", "customer-support-v1"),
+        ],
+        trackedExists(root, tracked),
+      ),
     ).toEqual([]);
   });
 });

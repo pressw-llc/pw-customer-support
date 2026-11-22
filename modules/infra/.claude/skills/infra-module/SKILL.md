@@ -31,7 +31,7 @@ The foundation stack deploys first. `scripts/deploy/main.ts` runs the migration 
 - Keep the managed-agent step on Fargate. The only Lambda is the `linear-outbound` step.
 - Reference secrets by ARN or by prefix. Never put a secret value in an environment variable or a template.
 - Scope IAM to named resources. Add a wildcard only for an action that AWS does not scope, and justify it in `src/nag-suppressions.ts` in one line.
-- Assert resources with `aws-cdk-lib/assertions`. Do not use snapshots. `src/nag.test.ts` runs cdk-nag AwsSolutions and fails on any unsuppressed finding.
+- Assert resources with the CDK assertions module. Do not use snapshots. `src/nag.test.ts` runs cdk-nag AwsSolutions and fails on any unsuppressed finding.
 - `src/index.ts` exports the surface that `scripts/deploy/main.ts` uses.
 - Deploy only on an owner instruction.
 

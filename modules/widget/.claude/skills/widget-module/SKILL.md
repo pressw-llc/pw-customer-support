@@ -39,7 +39,7 @@ description: Work in the widget module: the React support widget that client app
 
 ## Build output
 
-`bun run build` writes `dist/index.js` (ESM), `dist/*.d.ts`, and `dist/support-widget.global.js` (IIFE with React). `SUPPORT_API_URL` sets the default API URL at build time. `bun run release` builds, verifies, and publishes the same tarball to npmjs and GitHub Packages. It dry-runs by default. Every other workspace package stays `private: true`, and `scripts/release/private-packages.test.ts` enforces it.
+`bun run build` writes build output: `dist/index.js` (ESM), `dist/*.d.ts`, and `dist/support-widget.global.js` (IIFE with React). `SUPPORT_API_URL` sets the default API URL at build time. `bun run release` builds, verifies, and publishes the same tarball to npmjs and GitHub Packages. It dry-runs by default. Every other workspace package stays `private: true`, and `scripts/release/private-packages.test.ts` enforces it.
 
 ## Commands
 

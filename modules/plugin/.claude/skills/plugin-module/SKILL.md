@@ -42,7 +42,7 @@ description: Work in the plugin module: the Claude Code plugin for laptop triage
 - Hermetic tests inject a fake spawner or a fake `claude` script. Never invoke the real `claude` CLI in `bun run check`. Only `validate:phase-5` does.
 - Submit results in the contracts triage result schema.
 - Import other modules only through their package entrypoint.
-- Ship the plugin as a bundle. `bun run build:plugin` writes `modules/plugin/dist/plugin` with one self-contained bundled CLI script, and `claude plugin validate` checks it. `CLI_PATH` resolves to the bundle when it runs from the bundle, so the watcher and the stdio submit server spawn the bundle.
+- Ship the plugin as a bundle. `bun run build:plugin` writes build output: `modules/plugin/dist/plugin` with one self-contained bundled CLI script, and `claude plugin validate` checks it. `CLI_PATH` resolves to the bundle when it runs from the bundle, so the watcher and the stdio submit server spawn the bundle.
 
 ## Commands
 

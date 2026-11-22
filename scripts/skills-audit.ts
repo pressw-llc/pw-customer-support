@@ -1,5 +1,6 @@
+import { spawnSync } from "node:child_process";
 import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
-import { join } from "node:path";
+import { join, relative } from "node:path";
 
 export interface Skill {
   dir: string;
@@ -64,10 +65,16 @@ export function subdirectories(dir: string): string[] {
 
 const PATH_EXTENSIONS = /\.(ts|tsx|json|md|sql|yml|yaml|toml|sh)$/;
 
+export function isBuildOutput(body: string, index: number): boolean {
+  const before = body.slice(0, index);
+  const start = Math.max(before.lastIndexOf("\n"), before.lastIndexOf(". "));
+  return /build output:/i.test(before.slice(start + 1));
+}
+
 export function pathMentions(body: string): string[] {
-  const spans = [...body.matchAll(/(?<!`)`([^`\n]+)`(?!`)/g)].map(
-    (match) => match[1] as string,
-  );
+  const spans = [...body.matchAll(/(?<!`)`([^`\n]+)`(?!`)/g)]
+    .filter((match) => !isBuildOutput(body, match.index ?? 0))
+    .map((match) => match[1] as string);
   const found = new Set<string>();
   for (const span of spans) {
     const token = span.trim();
@@ -114,4 +121,40 @@ export function duplicates(names: (string | undefined)[]): string[] {
 
 export function isDirectory(path: string): boolean {
   return existsSync(path) && statSync(path).isDirectory();
+}
+
+export function trackedFiles(
+  root: string,
+  run: (root: string) => string | undefined = gitListFiles,
+): Set<string> | undefined {
+  const listing = run(root);
+  return listing === undefined
+    ? undefined
+    : new Set(listing.split("\n").filter(Boolean));
+}
+
+function gitListFiles(root: string): string | undefined {
+  const result = spawnSync("git", ["ls-files"], {
+    cwd: root,
+    encoding: "utf8",
+  });
+  return result.status === 0 ? result.stdout : undefined;
+}
+
+export function trackedExists(
+  root: string,
+  tracked: Set<string> | undefined,
+  fallback: (path: string) => boolean = existsSync,
+): (path: string) => boolean {
+  if (!tracked) return fallback;
+  const dirs = new Set<string>();
+  for (const file of tracked) {
+    const parts = file.split("/");
+    for (let i = 1; i < parts.length; i++)
+      dirs.add(parts.slice(0, i).join("/"));
+  }
+  return (absolute) => {
+    const rel = relative(root, absolute);
+    return tracked.has(rel) || dirs.has(rel);
+  };
 }
