@@ -322,6 +322,9 @@ try {
   console.log(
     `FAIL validate:phase-4 crashed - ${error instanceof Error ? error.message : String(error)}`,
   );
+  console.log(
+    logs.split("\n").slice(-12).join("\n").replaceAll(secret, "<key>"),
+  );
 } finally {
   api.kill();
   policyApi.kill();
