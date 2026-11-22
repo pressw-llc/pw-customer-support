@@ -374,6 +374,45 @@ describe("A11 lease expiry", () => {
   });
 });
 
+describe("expired leases", () => {
+  async function laptopClaim(name: string) {
+    const { job } = await openJob(name, 0);
+    const claim = await claimTriageJob(db, {
+      jobId: job.id,
+      kind: "laptop",
+      claimant: "eng-exp",
+      now: at(1),
+    });
+    if (!claim.won) throw new Error("expected a win");
+    return { job, token: claim.job.claimToken as string };
+  }
+
+  test("a renew cannot revive an expired lease", async () => {
+    const { job, token } = await laptopClaim("renew-expired");
+    expect(
+      await extendTriageLease(db, {
+        jobId: job.id,
+        claimToken: token,
+        now: at(defaultTiming.leaseSeconds + 5),
+      }),
+    ).toBe(false);
+    expect(
+      (await getTriageJob(db, job.id))?.leaseExpiresAt?.toISOString(),
+    ).toBe(at(1 + defaultTiming.leaseSeconds)().toISOString());
+  });
+
+  test("a submit stays tolerant of an expired claim that nobody took over", async () => {
+    const { job, token } = await laptopClaim("submit-expired");
+    const result = await submitTriageResult(db, {
+      jobId: job.id,
+      claimToken: token,
+      payload: validResult,
+      now: at(defaultTiming.leaseSeconds + 5),
+    });
+    expect(result.ok).toBe(true);
+  });
+});
+
 describe("result submission", () => {
   async function claimed(name: string) {
     const created = await openJob(name, 0);

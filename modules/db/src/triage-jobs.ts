@@ -9,7 +9,7 @@ import {
   type TriageTiming,
   triageResultSchema,
 } from "@pw-support/contracts";
-import { and, asc, eq, lte, or, sql } from "drizzle-orm";
+import { and, asc, eq, gt, lte, or, sql } from "drizzle-orm";
 import { inTransaction, type SupportExecutor } from "./client";
 import { appendEvent } from "./events";
 import { channelDelays, triageJobs } from "./schema";
@@ -270,6 +270,7 @@ export async function claimTriageJob(
           claimed_by_kind = ${input.kind},
           claimed_by = ${input.claimant},
           claim_token = gen_random_uuid(),
+          submit_token_hash = NULL,
           lease_expires_at = ${nowTs}::timestamptz + make_interval(secs => ${timing.leaseSeconds}),
           attempts = j.attempts + 1,
           laptop_claimed_at = CASE
@@ -395,6 +396,7 @@ async function completeClaimed(
         .set({
           status: "open",
           claimToken: null,
+          submitTokenHash: null,
           claimedBy: null,
           claimedByKind: null,
           leaseExpiresAt: null,
@@ -492,6 +494,7 @@ export async function releaseTriageJob(
       .set({
         status: "open",
         claimToken: null,
+        submitTokenHash: null,
         claimedBy: null,
         claimedByKind: null,
         leaseExpiresAt: null,
@@ -534,6 +537,7 @@ export async function extendTriageLease(
         eq(triageJobs.id, input.jobId),
         eq(triageJobs.status, "claimed"),
         eq(triageJobs.claimToken, input.claimToken),
+        gt(triageJobs.leaseExpiresAt, now),
       ),
     )
     .returning({ id: triageJobs.id });
