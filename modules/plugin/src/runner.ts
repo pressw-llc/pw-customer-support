@@ -523,6 +523,7 @@ export function createClaudeCliRunner(options: CliRunnerOptions): ClaudeRunner {
         signal?.addEventListener("abort", onAbort);
 
         const guard = new StreamGuard();
+        let requestSent = false;
         const send = (data: string, end = false) => {
           try {
             child.stdin.write(data);
@@ -555,7 +556,10 @@ export function createClaudeCliRunner(options: CliRunnerOptions): ClaudeRunner {
             return;
           }
           if (step.initVerified) {
-            send(userMessage(input.content), true);
+            if (!requestSent) {
+              requestSent = true;
+              send(userMessage(input.content), true);
+            }
             return;
           }
           if (event.type === "result") {

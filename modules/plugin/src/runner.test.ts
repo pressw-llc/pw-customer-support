@@ -494,6 +494,24 @@ describe("cli runner", () => {
     expect(seen.stdin.trim().split("\n")).toHaveLength(1);
   });
 
+  test("a repeated per-turn init verifies again but never sends the request twice", async () => {
+    const { spawner, seen } = fakeSpawner({ events: [HOOK, INIT, INIT, INIT] });
+    const report = await runner(spawner).run(input);
+    expect(report.violation).toBeNull();
+    const lines = seen.stdin.trim().split("\n");
+    expect(lines).toHaveLength(2);
+    expect(
+      lines.filter((line) => line.includes("CUSTOMER-SECRET-TEXT")),
+    ).toHaveLength(1);
+    const { spawner: bad, seen: badSeen } = fakeSpawner({
+      hang: true,
+      events: [HOOK, INIT, { ...INIT, tools: [SUBMIT_TOOL_FULL_NAME, "Bash"] }],
+    });
+    const second = await runner(bad).run(input);
+    expect(second.violation?.kind).toBe("init_unverified");
+    expect(badSeen.killed).toBe(true);
+  });
+
   test("kills when no init arrives in time", async () => {
     const { spawner, seen } = fakeSpawner({ hang: true, events: [HOOK] });
     const report = await runner(spawner, { initTimeoutMs: 30 }).run(input);
