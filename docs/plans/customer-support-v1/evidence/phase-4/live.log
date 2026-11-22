@@ -1,0 +1,13 @@
+$ bun scripts/validate/phase-4-live.ts
+PASS A19 401 without a token - status 401
+PASS A19 401 with a token signed by another key - status 401
+PASS A19 401 with a token from another issuer - status 401
+PASS A19 200 with a token from the local issuer - status 200
+PASS A29 the saved CC list is returned on the next read - lead@acme.test,oncall@acme.test
+PASS A15-admin the admin API returns the flagged reply to staff and 401 without a token - anonymous 401, staff 200, 1 flagged request
+PASS A18a Secrets Manager holds the saved key - save status 200
+PASS A18b the database dump holds no key material - pg_dump, 771771 characters scanned
+PASS A18c no admin API response holds the key - save, integrations, projects, requests
+PASS A18d the API logs hold no key - 82 characters of logs scanned
+PASS A18e no event payload holds the key - 1760 events scanned
+validate:phase-4 PASSED
