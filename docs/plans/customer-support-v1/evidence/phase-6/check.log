@@ -2,168 +2,182 @@ $ bun scripts/check.ts --skip-install
 
 [check] lint
 $ biome check . && bun scripts/lint-boundaries.ts
-modules/api/src/mcp.test.ts:265:54 lint/style/useTemplate  FIXABLE  ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+modules/api/src/mcp.test.ts:266:54 lint/style/useTemplate  FIXABLE  ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
   i Template literals are preferred over string concatenation.
   
-    263 │       const rpc = { jsonrpc: "2.0", id: 1, method: "tools/list" };
-    264 │       const machine = crypto.randomUUID();
-  > 265 │       const token = await idp.token({ claims: { sub: "shape-" + sub } });
+    264 │       const rpc = { jsonrpc: "2.0", id: 1, method: "tools/list" };
+    265 │       const machine = crypto.randomUUID();
+  > 266 │       const token = await idp.token({ claims: { sub: "shape-" + sub } });
         │                                                      ^^^^^^^^^^^^^^
-    266 │       const bearer = { Authorization: "Bearer " + token };
-    267 │       const bads = [
+    267 │       const bearer = { Authorization: "Bearer " + token };
+    268 │       const bads = [
   
   i Template literals are easier to read than a chain of + operators and quotes, and they avoid mistakes with spaces and escaped quotes.
   
   i Unsafe fix: Use a template literal.
   
-    263 263 │         const rpc = { jsonrpc: "2.0", id: 1, method: "tools/list" };
-    264 264 │         const machine = crypto.randomUUID();
-    265     │ - ······const·token·=·await·idp.token({·claims:·{·sub:·"shape-"·+·sub·}·});
-        265 │ + ······const·token·=·await·idp.token({·claims:·{·sub:·`shape-${sub}`·}·});
-    266 266 │         const bearer = { Authorization: "Bearer " + token };
-    267 267 │         const bads = [
+    264 264 │         const rpc = { jsonrpc: "2.0", id: 1, method: "tools/list" };
+    265 265 │         const machine = crypto.randomUUID();
+    266     │ - ······const·token·=·await·idp.token({·claims:·{·sub:·"shape-"·+·sub·}·});
+        266 │ + ······const·token·=·await·idp.token({·claims:·{·sub:·`shape-${sub}`·}·});
+    267 267 │         const bearer = { Authorization: "Bearer " + token };
+    268 268 │         const bads = [
   
 
-modules/api/src/mcp.test.ts:266:39 lint/style/useTemplate  FIXABLE  ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+modules/api/src/mcp.test.ts:267:39 lint/style/useTemplate  FIXABLE  ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
   i Template literals are preferred over string concatenation.
   
-    264 │       const machine = crypto.randomUUID();
-    265 │       const token = await idp.token({ claims: { sub: "shape-" + sub } });
-  > 266 │       const bearer = { Authorization: "Bearer " + token };
+    265 │       const machine = crypto.randomUUID();
+    266 │       const token = await idp.token({ claims: { sub: "shape-" + sub } });
+  > 267 │       const bearer = { Authorization: "Bearer " + token };
         │                                       ^^^^^^^^^^^^^^^^^
-    267 │       const bads = [
-    268 │         "",
+    268 │       const bads = [
+    269 │         "",
   
   i Template literals are easier to read than a chain of + operators and quotes, and they avoid mistakes with spaces and escaped quotes.
   
   i Unsafe fix: Use a template literal.
   
-    264 264 │         const machine = crypto.randomUUID();
-    265 265 │         const token = await idp.token({ claims: { sub: "shape-" + sub } });
-    266     │ - ······const·bearer·=·{·Authorization:·"Bearer·"·+·token·};
-        266 │ + ······const·bearer·=·{·Authorization:·`Bearer·${token}`·};
-    267 267 │         const bads = [
-    268 268 │           "",
-  
-
-modules/api/src/mcp.test.ts:271:9 lint/style/useTemplate  FIXABLE  ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-
-  i Template literals are preferred over string concatenation.
-  
-    269 │         "short",
-    270 │         "x".repeat(44),
-  > 271 │         "x".repeat(42) + "'",
-        │         ^^^^^^^^^^^^^^^^^^^^
-    272 │         "x".repeat(40) + " or 1",
-    273 │       ];
-  
-  i Template literals are easier to read than a chain of + operators and quotes, and they avoid mistakes with spaces and escaped quotes.
-  
-  i Unsafe fix: Use a template literal.
-  
-    269 269 │           "short",
-    270 270 │           "x".repeat(44),
-    271     │ - ········"x".repeat(42)·+·"'",
-        271 │ + ········`${"x".repeat(42)}'`,
-    272 272 │           "x".repeat(40) + " or 1",
-    273 273 │         ];
+    265 265 │         const machine = crypto.randomUUID();
+    266 266 │         const token = await idp.token({ claims: { sub: "shape-" + sub } });
+    267     │ - ······const·bearer·=·{·Authorization:·"Bearer·"·+·token·};
+        267 │ + ······const·bearer·=·{·Authorization:·`Bearer·${token}`·};
+    268 268 │         const bads = [
+    269 269 │           "",
   
 
 modules/api/src/mcp.test.ts:272:9 lint/style/useTemplate  FIXABLE  ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
   i Template literals are preferred over string concatenation.
   
-    270 │         "x".repeat(44),
-    271 │         "x".repeat(42) + "'",
-  > 272 │         "x".repeat(40) + " or 1",
+    270 │         "short",
+    271 │         "x".repeat(44),
+  > 272 │         "x".repeat(42) + "'",
+        │         ^^^^^^^^^^^^^^^^^^^^
+    273 │         "x".repeat(40) + " or 1",
+    274 │       ];
+  
+  i Template literals are easier to read than a chain of + operators and quotes, and they avoid mistakes with spaces and escaped quotes.
+  
+  i Unsafe fix: Use a template literal.
+  
+    270 270 │           "short",
+    271 271 │           "x".repeat(44),
+    272     │ - ········"x".repeat(42)·+·"'",
+        272 │ + ········`${"x".repeat(42)}'`,
+    273 273 │           "x".repeat(40) + " or 1",
+    274 274 │         ];
+  
+
+modules/api/src/mcp.test.ts:273:9 lint/style/useTemplate  FIXABLE  ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  i Template literals are preferred over string concatenation.
+  
+    271 │         "x".repeat(44),
+    272 │         "x".repeat(42) + "'",
+  > 273 │         "x".repeat(40) + " or 1",
         │         ^^^^^^^^^^^^^^^^^^^^^^^^
-    273 │       ];
-    274 │       for (const bad of bads) {
+    274 │       ];
+    275 │       for (const bad of bads) {
   
   i Template literals are easier to read than a chain of + operators and quotes, and they avoid mistakes with spaces and escaped quotes.
   
   i Unsafe fix: Use a template literal.
   
-    270 270 │           "x".repeat(44),
-    271 271 │           "x".repeat(42) + "'",
-    272     │ - ········"x".repeat(40)·+·"·or·1",
-        272 │ + ········`${"x".repeat(40)}·or·1`,
-    273 273 │         ];
-    274 274 │         for (const bad of bads) {
+    271 271 │           "x".repeat(44),
+    272 272 │           "x".repeat(42) + "'",
+    273     │ - ········"x".repeat(40)·+·"·or·1",
+        273 │ + ········`${"x".repeat(40)}·or·1`,
+    274 274 │         ];
+    275 275 │         for (const bad of bads) {
   
 
-modules/api/src/mcp.test.ts:281:31 lint/style/useTemplate  FIXABLE  ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+modules/api/src/mcp.test.ts:282:31 lint/style/useTemplate  FIXABLE  ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
   i Template literals are preferred over string concatenation.
   
-    279 │           LAPTOP_PATH,
-    280 │         );
-  > 281 │         expect(submit.status, "submit " + bad).toBe(401);
+    280 │           LAPTOP_PATH,
+    281 │         );
+  > 282 │         expect(submit.status, "submit " + bad).toBe(401);
         │                               ^^^^^^^^^^^^^^^
-    282 │         if (bad === "") continue;
-    283 │         const watcher = await postMcp(
+    283 │         if (bad === "") continue;
+    284 │         const watcher = await postMcp(
   
   i Template literals are easier to read than a chain of + operators and quotes, and they avoid mistakes with spaces and escaped quotes.
   
   i Unsafe fix: Use a template literal.
   
-    279 279 │             LAPTOP_PATH,
-    280 280 │           );
-    281     │ - ········expect(submit.status,·"submit·"·+·bad).toBe(401);
-        281 │ + ········expect(submit.status,·`submit·${bad}`).toBe(401);
-    282 282 │           if (bad === "") continue;
-    283 283 │           const watcher = await postMcp(
+    280 280 │             LAPTOP_PATH,
+    281 281 │           );
+    282     │ - ········expect(submit.status,·"submit·"·+·bad).toBe(401);
+        282 │ + ········expect(submit.status,·`submit·${bad}`).toBe(401);
+    283 283 │           if (bad === "") continue;
+    284 284 │           const watcher = await postMcp(
   
 
-modules/api/src/mcp.test.ts:285:42 lint/style/useTemplate  FIXABLE  ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+modules/api/src/mcp.test.ts:286:42 lint/style/useTemplate  FIXABLE  ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
   i Template literals are preferred over string concatenation.
   
-    283 │         const watcher = await postMcp(
-    284 │           url.url,
-  > 285 │           { ...bearer, [WATCHER_HEADER]: machine + "." + bad },
+    284 │         const watcher = await postMcp(
+    285 │           url.url,
+  > 286 │           { ...bearer, [WATCHER_HEADER]: machine + "." + bad },
         │                                          ^^^^^^^^^^^^^^^^^^^
-    286 │           rpc,
-    287 │           LAPTOP_PATH,
+    287 │           rpc,
+    288 │           LAPTOP_PATH,
   
   i Template literals are easier to read than a chain of + operators and quotes, and they avoid mistakes with spaces and escaped quotes.
   
   i Unsafe fix: Use a template literal.
   
-    283 283 │           const watcher = await postMcp(
-    284 284 │             url.url,
-    285     │ - ··········{·...bearer,·[WATCHER_HEADER]:·machine·+·"."·+·bad·},
-        285 │ + ··········{·...bearer,·[WATCHER_HEADER]:·`${machine}.${bad}`·},
-    286 286 │             rpc,
-    287 287 │             LAPTOP_PATH,
+    284 284 │           const watcher = await postMcp(
+    285 285 │             url.url,
+    286     │ - ··········{·...bearer,·[WATCHER_HEADER]:·machine·+·"."·+·bad·},
+        286 │ + ··········{·...bearer,·[WATCHER_HEADER]:·`${machine}.${bad}`·},
+    287 287 │             rpc,
+    288 288 │             LAPTOP_PATH,
   
 
-modules/api/src/mcp.test.ts:289:32 lint/style/useTemplate  FIXABLE  ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+modules/api/src/mcp.test.ts:290:32 lint/style/useTemplate  FIXABLE  ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
   i Template literals are preferred over string concatenation.
   
-    287 │           LAPTOP_PATH,
-    288 │         );
-  > 289 │         expect(watcher.status, "watcher " + bad).toBe(401);
+    288 │           LAPTOP_PATH,
+    289 │         );
+  > 290 │         expect(watcher.status, "watcher " + bad).toBe(401);
         │                                ^^^^^^^^^^^^^^^^
-    290 │       }
-    291 │     } finally {
+    291 │       }
+    292 │     } finally {
   
   i Template literals are easier to read than a chain of + operators and quotes, and they avoid mistakes with spaces and escaped quotes.
   
   i Unsafe fix: Use a template literal.
   
-    287 287 │             LAPTOP_PATH,
-    288 288 │           );
-    289     │ - ········expect(watcher.status,·"watcher·"·+·bad).toBe(401);
-        289 │ + ········expect(watcher.status,·`watcher·${bad}`).toBe(401);
-    290 290 │         }
-    291 291 │       } finally {
+    288 288 │             LAPTOP_PATH,
+    289 289 │           );
+    290     │ - ········expect(watcher.status,·"watcher·"·+·bad).toBe(401);
+        290 │ + ········expect(watcher.status,·`watcher·${bad}`).toBe(401);
+    291 291 │         }
+    292 292 │       } finally {
   
 
-Checked 379 files in 122ms. No fixes applied.
+modules/plugin/src/plugin-files.test.ts:16:15 lint/suspicious/noTemplateCurlyInString ━━━━━━━━━━━━━━
+
+  ! Unexpected template string placeholder.
+  
+    15 │ const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
+  > 16 │ const CLI = '"${CLAUDE_PLUGIN_ROOT}/bin/pw-support"';
+       │               ^^^^^^^^^^^^^^^^^^^^^
+    17 │ const SUBCOMMANDS =
+    18 │   "login|logout|token|headers|watch|submit-server|help|run|start|stop|status";
+  
+  i Turn the string into a template string.
+  
+
+Checked 380 files in 125ms. No fixes applied.
+Found 1 warning.
 Found 7 infos.
 [lint-boundaries] no violations
 $ bunx pw-pipeline validate
@@ -193,15 +207,15 @@ $ bun run --filter @pressw-llc/support-react build && bun run --filter @pw-suppo
 @pw-support/admin build: - Using dynamic import() to code-split the application
 @pw-support/admin build: - Use build.rollupOptions.output.manualChunks to improve chunking: https://rollupjs.org/configuration-options/#output-manualchunks
 @pw-support/admin build: - Adjust chunk size limit for this warning via build.chunkSizeWarningLimit.
-@pw-support/admin build: ✓ built in 1.34s
+@pw-support/admin build: ✓ built in 1.22s
 @pw-support/admin build: Exited with code 0
 
 [check] typecheck
 $ tsc --noEmit && bun run --filter '*' typecheck
 @pw-support/contracts typecheck: Exited with code 0
 @pressw-llc/support-react typecheck: Exited with code 0
-@pw-support/plugin typecheck: Exited with code 0
 @pw-support/host-app typecheck: Exited with code 0
+@pw-support/plugin typecheck: Exited with code 0
 @pw-support/db typecheck: Exited with code 0
 @pw-support/admin typecheck: Exited with code 0
 @pw-support/e2e typecheck: Exited with code 0
@@ -221,20 +235,20 @@ $ bun scripts/stack.ts up
  Container pw-support-localstack-1 Creating 
  Container pw-support-oidc-1 Creating 
  Container pw-support-localstack-1 Created 
- Container pw-support-oidc-1 Created 
  Container pw-support-postgres-1 Created 
+ Container pw-support-oidc-1 Created 
  Container pw-support-postgres-1 Starting 
  Container pw-support-localstack-1 Starting 
  Container pw-support-oidc-1 Starting 
  Container pw-support-postgres-1 Started 
  Container pw-support-localstack-1 Started 
  Container pw-support-oidc-1 Started 
- Container pw-support-oidc-1 Waiting 
  Container pw-support-postgres-1 Waiting 
  Container pw-support-localstack-1 Waiting 
+ Container pw-support-oidc-1 Waiting 
  Container pw-support-postgres-1 Healthy 
- Container pw-support-localstack-1 Healthy 
  Container pw-support-oidc-1 Healthy 
+ Container pw-support-localstack-1 Healthy 
 [stack-setup] bucket pw-support-attachments, queues pw-support-triage-wake, pw-support-adapter-linear, and their dead-letter queues ready
 $ bun scripts/db-migrate.ts
 [db:migrate] applied 11: pipeline/0000_initial.sql, pipeline/0001_activity_log.sql, pipeline/0002_pipeline_definitions.sql, 0001_support_schema.sql, 0001a_request_customer_project_fk.sql, 0002_intake.sql, 0003_triage.sql, 0004_ticket_deliveries.sql, 0005_reply_loop.sql, 0006_admin_settings.sql, 0007_subscriptions.sql
@@ -277,7 +291,7 @@ WARNING AvailabilityZone: Avoid hardcoding availability zones 'us-east-1b' (Clou
    PwSupport/Network/Vpc/dataSubnet2/Subnet (NetworkVpcdataSubnet2Subnet7A99E9BE) aws-cdk-lib.aws_ec2.CfnSubnet
    Acknowledge with 'CloudFormation-Validate::W3010'
 
-A copy of this report can be found in: /private/var/folders/cx/cpkb6p597wvd3rjrhkwbcchr0000gn/T/cdk.outBUcIWJ/validation-report.json
+A copy of this report can be found in: /private/var/folders/cx/cpkb6p597wvd3rjrhkwbcchr0000gn/T/cdk.outH3aC8N/validation-report.json
 native:1:11
 WARNING AvailabilityZone: Avoid hardcoding availability zones 'us-east-1a' (CloudFormation Validate)
    PwSupport/Network/Vpc/publicSubnet1/Subnet (NetworkVpcpublicSubnet1Subnet00617657) aws-cdk-lib.aws_ec2.CfnSubnet
@@ -308,7 +322,7 @@ WARNING AvailabilityZone: Avoid hardcoding availability zones 'us-east-1b' (Clou
    PwSupport/Network/Vpc/dataSubnet2/Subnet (NetworkVpcdataSubnet2Subnet7A99E9BE) aws-cdk-lib.aws_ec2.CfnSubnet
    Acknowledge with 'CloudFormation-Validate::W3010'
 
-A copy of this report can be found in: /private/var/folders/cx/cpkb6p597wvd3rjrhkwbcchr0000gn/T/cdk.outBUcIWJ/validation-report.json
+A copy of this report can be found in: /private/var/folders/cx/cpkb6p597wvd3rjrhkwbcchr0000gn/T/cdk.outH3aC8N/validation-report.json
 native:1:11
 WARNING AvailabilityZone: Avoid hardcoding availability zones 'us-east-1a' (CloudFormation Validate)
    PwSupport/Network/Vpc/publicSubnet1/Subnet (NetworkVpcpublicSubnet1Subnet00617657) aws-cdk-lib.aws_ec2.CfnSubnet
@@ -339,7 +353,7 @@ WARNING AvailabilityZone: Avoid hardcoding availability zones 'us-east-1b' (Clou
    PwSupport/Network/Vpc/dataSubnet2/Subnet (NetworkVpcdataSubnet2Subnet7A99E9BE) aws-cdk-lib.aws_ec2.CfnSubnet
    Acknowledge with 'CloudFormation-Validate::W3010'
 
-A copy of this report can be found in: /private/var/folders/cx/cpkb6p597wvd3rjrhkwbcchr0000gn/T/cdk.outBUcIWJ/validation-report.json
+A copy of this report can be found in: /private/var/folders/cx/cpkb6p597wvd3rjrhkwbcchr0000gn/T/cdk.outH3aC8N/validation-report.json
 
 modules/infra/src/support-stack.test.ts:
 native:1:11
@@ -372,7 +386,7 @@ WARNING AvailabilityZone: Avoid hardcoding availability zones 'us-east-1b' (Clou
    PwSupport/Network/Vpc/dataSubnet2/Subnet (NetworkVpcdataSubnet2Subnet7A99E9BE) aws-cdk-lib.aws_ec2.CfnSubnet
    Acknowledge with 'CloudFormation-Validate::W3010'
 
-A copy of this report can be found in: /private/var/folders/cx/cpkb6p597wvd3rjrhkwbcchr0000gn/T/cdk.outcKX8oO/validation-report.json
+A copy of this report can be found in: /private/var/folders/cx/cpkb6p597wvd3rjrhkwbcchr0000gn/T/cdk.outB6FaOD/validation-report.json
 native:1:11
 WARNING AvailabilityZone: Avoid hardcoding availability zones 'us-east-1a' (CloudFormation Validate)
    PwSupportStaging/Network/Vpc/publicSubnet1/Subnet (NetworkVpcpublicSubnet1Subnet00617657) aws-cdk-lib.aws_ec2.CfnSubnet
@@ -403,7 +417,7 @@ WARNING AvailabilityZone: Avoid hardcoding availability zones 'us-east-1b' (Clou
    PwSupportStaging/Network/Vpc/dataSubnet2/Subnet (NetworkVpcdataSubnet2Subnet7A99E9BE) aws-cdk-lib.aws_ec2.CfnSubnet
    Acknowledge with 'CloudFormation-Validate::W3010'
 
-A copy of this report can be found in: /private/var/folders/cx/cpkb6p597wvd3rjrhkwbcchr0000gn/T/cdk.outwZnQTd/validation-report.json
+A copy of this report can be found in: /private/var/folders/cx/cpkb6p597wvd3rjrhkwbcchr0000gn/T/cdk.outHOr1QB/validation-report.json
 native:1:11
 WARNING AvailabilityZone: Avoid hardcoding availability zones 'us-east-1a' (CloudFormation Validate)
    PwSupport/Network/Vpc/publicSubnet1/Subnet (NetworkVpcpublicSubnet1Subnet00617657) aws-cdk-lib.aws_ec2.CfnSubnet
@@ -434,7 +448,7 @@ WARNING AvailabilityZone: Avoid hardcoding availability zones 'us-east-1b' (Clou
    PwSupport/Network/Vpc/dataSubnet2/Subnet (NetworkVpcdataSubnet2Subnet7A99E9BE) aws-cdk-lib.aws_ec2.CfnSubnet
    Acknowledge with 'CloudFormation-Validate::W3010'
 
-A copy of this report can be found in: /private/var/folders/cx/cpkb6p597wvd3rjrhkwbcchr0000gn/T/cdk.outezhTXj/validation-report.json
+A copy of this report can be found in: /private/var/folders/cx/cpkb6p597wvd3rjrhkwbcchr0000gn/T/cdk.outLOERZU/validation-report.json
 native:1:11
 WARNING AvailabilityZone: Avoid hardcoding availability zones 'us-east-1a' (CloudFormation Validate)
    PwSupportStaging/Network/Vpc/publicSubnet1/Subnet (NetworkVpcpublicSubnet1Subnet00617657) aws-cdk-lib.aws_ec2.CfnSubnet
@@ -465,7 +479,7 @@ WARNING AvailabilityZone: Avoid hardcoding availability zones 'us-east-1b' (Clou
    PwSupportStaging/Network/Vpc/dataSubnet2/Subnet (NetworkVpcdataSubnet2Subnet7A99E9BE) aws-cdk-lib.aws_ec2.CfnSubnet
    Acknowledge with 'CloudFormation-Validate::W3010'
 
-A copy of this report can be found in: /private/var/folders/cx/cpkb6p597wvd3rjrhkwbcchr0000gn/T/cdk.out8QBnSk/validation-report.json
+A copy of this report can be found in: /private/var/folders/cx/cpkb6p597wvd3rjrhkwbcchr0000gn/T/cdk.out7d1guN/validation-report.json
 native:1:11
 WARNING AvailabilityZone: Avoid hardcoding availability zones 'us-east-1a' (CloudFormation Validate)
    PwSupport/Network/Vpc/publicSubnet1/Subnet (NetworkVpcpublicSubnet1Subnet00617657) aws-cdk-lib.aws_ec2.CfnSubnet
@@ -496,7 +510,7 @@ WARNING AvailabilityZone: Avoid hardcoding availability zones 'us-east-1b' (Clou
    PwSupport/Network/Vpc/dataSubnet2/Subnet (NetworkVpcdataSubnet2Subnet7A99E9BE) aws-cdk-lib.aws_ec2.CfnSubnet
    Acknowledge with 'CloudFormation-Validate::W3010'
 
-A copy of this report can be found in: /private/var/folders/cx/cpkb6p597wvd3rjrhkwbcchr0000gn/T/cdk.outcyXhCV/validation-report.json
+A copy of this report can be found in: /private/var/folders/cx/cpkb6p597wvd3rjrhkwbcchr0000gn/T/cdk.out3bWN1L/validation-report.json
 
 
 
@@ -533,7 +547,7 @@ All files                                              |   99.01 |   99.44 |
  modules/api/src/intake-service.ts                     |  100.00 |  100.00 | 
  modules/api/src/mcp-laptop.ts                         |   94.29 |   98.26 | 114,213,249,335-336
  modules/api/src/mcp-shared.ts                         |   96.15 |  100.00 | 
- modules/api/src/mcp.ts                                |   94.74 |   97.18 | 94-97
+ modules/api/src/mcp.ts                                |   95.00 |   97.30 | 96-99
  modules/api/src/message-checks.ts                     |  100.00 |  100.00 | 
  modules/api/src/middleware.ts                         |  100.00 |  100.00 | 
  modules/api/src/presenters.ts                         |  100.00 |  100.00 | 
@@ -590,7 +604,7 @@ All files                                              |   99.01 |   99.44 |
  modules/db/src/projects.ts                            |  100.00 |  100.00 | 
  modules/db/src/rate-limit.ts                          |  100.00 |  100.00 | 
  modules/db/src/redelivery.ts                          |  100.00 |  100.00 | 
- modules/db/src/replies.ts                             |   98.92 |   98.03 | 281,310-318,382-389
+ modules/db/src/replies.ts                             |   98.92 |   98.07 | 282,311-319,383-390
  modules/db/src/schema.ts                              |  100.00 |  100.00 | 
  modules/db/src/subscriptions.ts                       |   88.46 |   93.56 | 82-91,340-344
  modules/db/src/triage-data.ts                         |  100.00 |  100.00 | 
@@ -608,7 +622,7 @@ All files                                              |   99.01 |   99.44 |
  modules/infra/src/stack-base.ts                       |  100.00 |  100.00 | 
  modules/infra/src/stacks.ts                           |  100.00 |  100.00 | 
  modules/infra/src/support-stack.ts                    |  100.00 |  100.00 | 
- modules/plugin/src/commands.ts                        |   94.44 |   93.16 | 128-136,210-213
+ modules/plugin/src/commands.ts                        |   94.44 |   93.33 | 128-136,210-213
  modules/plugin/src/config.ts                          |  100.00 |  100.00 | 
  modules/plugin/src/daemon.ts                          |  100.00 |   99.38 | 
  modules/plugin/src/index.ts                           |  100.00 |  100.00 | 
@@ -666,14 +680,14 @@ All files                                              |   99.01 |   99.44 |
  scripts/stack.ts                                      |  100.00 |   97.50 | 
  scripts/validate/free-port.ts                         |  100.00 |  100.00 | 
  scripts/validate/local-subset.ts                      |  100.00 |  100.00 | 
- tests/phase-3-support.ts                              |   96.88 |  100.00 | 
+ tests/phase-3-support.ts                              |   96.97 |  100.00 | 
 -------------------------------------------------------|---------|---------|-------------------
 
- 1166 pass
+ 1183 pass
  2 skip
  0 fail
- 7527 expect() calls
-Ran 1168 tests across 81 files. [52.35s]
+ 7598 expect() calls
+Ran 1185 tests across 82 files. [53.81s]
 @pressw-llc/support-react test: bun test v1.3.14 (0d9b296a)
 @pressw-llc/support-react test: 
 @pressw-llc/support-react test: src/mount.test.ts:
@@ -827,7 +841,7 @@ Ran 1168 tests across 81 files. [52.35s]
 @pressw-llc/support-react test:  37 pass
 @pressw-llc/support-react test:  0 fail
 @pressw-llc/support-react test:  125 expect() calls
-@pressw-llc/support-react test: Ran 37 tests across 4 files. [607.00ms]
+@pressw-llc/support-react test: Ran 37 tests across 4 files. [603.00ms]
 @pressw-llc/support-react test: Exited with code 0
 
 [check] e2e
@@ -836,36 +850,36 @@ $ bun run --filter @pw-support/e2e test
 @pw-support/e2e test: 
 @pw-support/e2e test: Running 28 tests using 1 worker
 @pw-support/e2e test: 
-@pw-support/e2e test:   ✓   1 [chromium] › admin.spec.ts:79:1 › A19: an admin route returns 401 without a token and with a forged token (49ms)
-@pw-support/e2e test:   ✓   2 [chromium] › admin.spec.ts:96:1 › A19: a staff member logs in through the mock issuer and sees the request list with a running timer (2.7s)
-@pw-support/e2e test:   ✓   3 [chromium] › admin.spec.ts:122:1 › A19: the access token stays out of localStorage (269ms)
-@pw-support/e2e test:   ✓   4 [chromium] › admin.spec.ts:128:1 › A18: a saved Linear key shows as configured and its value appears nowhere (556ms)
-@pw-support/e2e test:   ✓   5 [chromium] › admin.spec.ts:168:1 › A29: a saved CC list survives a reload (550ms)
-@pw-support/e2e test:   ✓   6 [chromium] › admin.spec.ts:190:1 › creates a project, mints and revokes a key, and saves the Linear team mapping (1.3s)
-@pw-support/e2e test:   ✓   7 [chromium] › admin.spec.ts:234:1 › a signed-in user can sign out and is asked to sign in again (421ms)
-@pw-support/e2e test:   ✓   8 [chromium] › admin.spec.ts:245:1 › the layout works on a phone and in the dark theme (743ms)
-@pw-support/e2e test:   ✓   9 [chromium] › admin.spec.ts:258:1 › A15: a reply scored 2.5 sends and shows a flag in the admin UI (2.5s)
-@pw-support/e2e test:   ✓  10 [chromium] › admin.spec.ts:288:1 › A15: a held reply shows as held with its score until it is confirmed (7.2s)
+@pw-support/e2e test:   ✓   1 [chromium] › admin.spec.ts:79:1 › A19: an admin route returns 401 without a token and with a forged token (48ms)
+@pw-support/e2e test:   ✓   2 [chromium] › admin.spec.ts:96:1 › A19: a staff member logs in through the mock issuer and sees the request list with a running timer (2.6s)
+@pw-support/e2e test:   ✓   3 [chromium] › admin.spec.ts:122:1 › A19: the access token stays out of localStorage (254ms)
+@pw-support/e2e test:   ✓   4 [chromium] › admin.spec.ts:128:1 › A18: a saved Linear key shows as configured and its value appears nowhere (572ms)
+@pw-support/e2e test:   ✓   5 [chromium] › admin.spec.ts:168:1 › A29: a saved CC list survives a reload (560ms)
+@pw-support/e2e test:   ✓   6 [chromium] › admin.spec.ts:190:1 › creates a project, mints and revokes a key, and saves the Linear team mapping (1.4s)
+@pw-support/e2e test:   ✓   7 [chromium] › admin.spec.ts:234:1 › a signed-in user can sign out and is asked to sign in again (372ms)
+@pw-support/e2e test:   ✓   8 [chromium] › admin.spec.ts:245:1 › the layout works on a phone and in the dark theme (724ms)
+@pw-support/e2e test:   ✓   9 [chromium] › admin.spec.ts:258:1 › A15: a reply scored 2.5 sends and shows a flag in the admin UI (2.0s)
+@pw-support/e2e test:   ✓  10 [chromium] › admin.spec.ts:288:1 › A15: a held reply shows as held with its score until it is confirmed (7.1s)
 @pw-support/e2e test:   ✓  11 [chromium] › admin.spec.ts:324:1 › thread bodies, author names, and event payloads render as inert text (2.0s)
 @pw-support/e2e test:   ✓  12 [chromium] › admin.spec.ts:353:1 › a signed-in user outside the allowed domain sees a not-authorized page and no login loop (1.9s)
-@pw-support/e2e test:   ✓  13 [chromium] › admin.spec.ts:375:1 › an allowed domain still signs in against the policy API (278ms)
+@pw-support/e2e test:   ✓  13 [chromium] › admin.spec.ts:375:1 › an allowed domain still signs in against the policy API (294ms)
 @pw-support/e2e test:   ✓  14 [chromium] › admin.spec.ts:386:1 › a persistent 401 triggers one re-login and then a terminal page (2.0s)
 @pw-support/e2e test:   ✓  15 [chromium] › admin.spec.ts:404:1 › a callback error from the issuer ends on a visible page without another login (1.1s)
 @pw-support/e2e test:   ✓  16 [chromium] › admin.spec.ts:418:1 › a callback with an unknown state ends on a visible page without another login (1.1s)
-@pw-support/e2e test:   ✓  17 [chromium] › admin.spec.ts:448:1 › sign out sends the browser to the issuer end-session endpoint and requires a new login (376ms)
-@pw-support/e2e test:   ✓  18 [chromium] › admin.spec.ts:475:1 › sign out uses the configured Cognito logout URL when discovery has no end-session endpoint (444ms)
+@pw-support/e2e test:   ✓  17 [chromium] › admin.spec.ts:448:1 › sign out sends the browser to the issuer end-session endpoint and requires a new login (393ms)
+@pw-support/e2e test:   ✓  18 [chromium] › admin.spec.ts:475:1 › sign out uses the configured Cognito logout URL when discovery has no end-session endpoint (414ms)
 @pw-support/e2e test:   ✓  19 [chromium] › admin.spec.ts:510:1 › sign out without any logout endpoint warns that the issuer session may remain and never auto-signs in (1.4s)
-@pw-support/e2e test:   ✓  20 [chromium] › reply-loop.spec.ts:35:1 › A14: an unmarked staff comment never shows and an @external comment shows and raises the unread indicator (3.6s)
+@pw-support/e2e test:   ✓  20 [chromium] › reply-loop.spec.ts:35:1 › A14: an unmarked staff comment never shows and an @external comment shows and raises the unread indicator (3.3s)
 @pw-support/e2e test:   ✓  21 [chromium] › reply-loop.spec.ts:77:1 › A15: a low scored @external reply stays hidden until its author confirms (3.4s)
-@pw-support/e2e test:   ✓  22 [chromium] › reply-loop.spec.ts:105:1 › A16: a customer reply in the widget appears as a quoted comment on the ticket (1.7s)
-@pw-support/e2e test:   ✓  23 [chromium] › widget.spec.ts:14:1 › A1: the widget renders from the host app inside a shadow root (110ms)
-@pw-support/e2e test:   ✓  24 [chromium] › widget.spec.ts:29:1 › A1: the widget stays usable under hostile host CSS (182ms)
-@pw-support/e2e test:   ✓  25 [chromium] › widget.spec.ts:59:1 › A2: text with two attachments persists the request, files, and request.created (341ms)
-@pw-support/e2e test:   ✓  26 [chromium] › widget.spec.ts:89:1 › A4: a renamed executable shows a rejection in the UI (310ms)
-@pw-support/e2e test:   ✓  27 [chromium] › widget.spec.ts:112:1 › the thread shows the message and a follow-up reply works (336ms)
-@pw-support/e2e test:   ✓  28 [chromium] › widget.spec.ts:137:1 › a staff reply raises the unread badge and opening the thread clears it (459ms)
+@pw-support/e2e test:   ✓  22 [chromium] › reply-loop.spec.ts:105:1 › A16: a customer reply in the widget appears as a quoted comment on the ticket (2.2s)
+@pw-support/e2e test:   ✓  23 [chromium] › widget.spec.ts:14:1 › A1: the widget renders from the host app inside a shadow root (125ms)
+@pw-support/e2e test:   ✓  24 [chromium] › widget.spec.ts:29:1 › A1: the widget stays usable under hostile host CSS (163ms)
+@pw-support/e2e test:   ✓  25 [chromium] › widget.spec.ts:59:1 › A2: text with two attachments persists the request, files, and request.created (340ms)
+@pw-support/e2e test:   ✓  26 [chromium] › widget.spec.ts:89:1 › A4: a renamed executable shows a rejection in the UI (238ms)
+@pw-support/e2e test:   ✓  27 [chromium] › widget.spec.ts:112:1 › the thread shows the message and a follow-up reply works (334ms)
+@pw-support/e2e test:   ✓  28 [chromium] › widget.spec.ts:137:1 › a staff reply raises the unread badge and opening the thread clears it (422ms)
 @pw-support/e2e test: 
-@pw-support/e2e test:   28 passed (41.0s)
+@pw-support/e2e test:   28 passed (39.6s)
 @pw-support/e2e test: Exited with code 0
 $ bun scripts/validate/phase-4-live.ts
 PASS A19 401 without a token - status 401
@@ -877,10 +891,10 @@ PASS A19 401 for a forged token on the group-restricted API - status 401
 PASS A29 the saved CC list is returned on the next read - lead@acme.test,oncall@acme.test
 PASS A15-admin the admin API returns the flagged reply to staff and 401 without a token - anonymous 401, staff 200, 1 flagged request
 PASS A18a Secrets Manager holds the saved key - save status 200
-PASS A18b the database dump holds no key material - pg_dump, 848427 characters scanned
+PASS A18b the database dump holds no key material - pg_dump, 858187 characters scanned
 PASS A18c no admin API response holds the key - save, integrations, projects, requests
 PASS A18d the API logs hold no key - 176 characters of logs scanned
-PASS A18e no event payload holds the key - 2024 events scanned
+PASS A18e no event payload holds the key - 2047 events scanned
 validate:phase-4 PASSED
 
 [check] synth
@@ -895,11 +909,11 @@ $ bun run --filter @pw-support/infra synth
 [check] summary
 stage      status   seconds
 lint       pass     0.7
-build      pass     2.4
-typecheck  pass     14.1
-stack      pass     6.5
-test       pass     53.0
-e2e        pass     43.1
-synth      pass     2.7
+build      pass     2.2
+typecheck  pass     12.5
+stack      pass     7.1
+test       pass     54.5
+e2e        pass     41.6
+synth      pass     2.4
 
 [check] PASSED
