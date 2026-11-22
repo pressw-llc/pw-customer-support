@@ -1,8 +1,15 @@
 {
   "name": "@pressw-llc/support-react",
-  "version": "0.0.0",
-  "private": true,
+  "version": "0.1.0",
+  "description": "Drop-in React support widget for PressW client projects.",
+  "license": "UNLICENSED",
   "type": "module",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/pressw-llc/pw-customer-support.git",
+    "directory": "modules/widget"
+  },
+  "homepage": "https://github.com/pressw-llc/pw-customer-support#readme",
   "main": "./dist/index.js",
   "module": "./dist/index.js",
   "types": "./dist/index.d.ts",
@@ -14,11 +21,13 @@
     "./global": "./dist/support-widget.global.js"
   },
   "files": [
-    "dist"
+    "dist",
+    "README.md",
+    "LICENSE",
+    "CHANGELOG.md"
   ],
   "publishConfig": {
-    "registry": "https://npm.pkg.github.com",
-    "access": "restricted"
+    "access": "public"
   },
   "peerDependencies": {
     "react": ">=18",

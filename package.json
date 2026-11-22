@@ -38,7 +38,14 @@
     "validate:phase-4": "bun scripts/validate/phase-4-live.ts",
     "validate:phase-5": "bun scripts/validate/phase-5-live.ts",
     "synth": "bun run --filter @pw-support/infra synth",
-    "prepare": "git config core.hooksPath .githooks || true"
+    "prepare": "git config core.hooksPath .githooks || true",
+    "release": "bun scripts/release.ts",
+    "demo": "bun scripts/demo.ts",
+    "deploy": "bun scripts/deploy.ts",
+    "smoke": "bun scripts/smoke.ts",
+    "build:plugin": "bun scripts/build-plugin.ts",
+    "validate:release": "bun scripts/validate/phase-6-release.ts",
+    "validate:deploy": "bun scripts/validate/phase-6-deploy.ts"
   },
   "devDependencies": {
     "@anthropic-ai/sdk": "0.137.0",
