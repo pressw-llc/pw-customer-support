@@ -25,7 +25,7 @@ beforeAll(async () => {
       verify: async (token) =>
         token === "staff-token"
           ? { ok: true, identity: staffIdentity, claims: {} }
-          : { ok: false, reason: "bad_token" },
+          : { ok: false, reason: "bad_token", kind: "unauthenticated" },
     },
     secretWriter: { put: async () => "unused" },
   });

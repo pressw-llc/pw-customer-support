@@ -147,6 +147,45 @@ describe("A19: admin routes fail closed", () => {
     });
   });
 
+  test("every route returns 403 for a valid token outside the allowed policy", async () => {
+    const policy = await createHarness({
+      config: {
+        auth: idp.authConfig({
+          allowedEmailDomains: ["pressw.test"],
+          requiredGroup: "staff",
+        }),
+      },
+    });
+    try {
+      const outsiders = [
+        await idp.token({
+          claims: { email: "x@other.test", "cognito:groups": ["staff"] },
+        }),
+        await idp.token({ claims: { "cognito:groups": ["other"] } }),
+      ];
+      for (const token of outsiders) {
+        for (const [method, path] of routes) {
+          const response = await policy.app.request(`/admin${path}`, {
+            method,
+            headers: { Authorization: `Bearer ${token}` },
+          });
+          expect(response.status).toBe(403);
+          expect(await response.json()).toEqual({ error: "forbidden" });
+          expect(response.headers.get("WWW-Authenticate")).toBeNull();
+        }
+      }
+      const wrongAudience = await idp.token({
+        claims: { aud: "x", email: "x@other.test" },
+      });
+      const response = await policy.app.request("/admin/me", {
+        headers: { Authorization: `Bearer ${wrongAudience}` },
+      });
+      expect(response.status).toBe(401);
+    } finally {
+      await policy.close();
+    }
+  });
+
   test("an unconfigured validator rejects a token that would be valid", async () => {
     const closed = await createHarness({
       config: { auth: idp.authConfig({ issuer: undefined }) },

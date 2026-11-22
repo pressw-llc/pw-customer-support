@@ -38,27 +38,40 @@ function report(ok: boolean, name: string, detail = ""): void {
 }
 
 let logs = "";
-const api = Bun.spawn(["bun", "modules/api/src/server.ts"], {
-  env: {
-    ...process.env,
-    API_PORT: String(port),
-    SECRETS_SCOPE: scope,
-    COGNITO_ISSUER: issuer,
-    COGNITO_AUDIENCE: LOCAL_OIDC_CLIENT_ID,
-  } as Record<string, string>,
-  stdout: "pipe",
-  stderr: "pipe",
-});
-for (const stream of [api.stdout, api.stderr]) {
-  void (async () => {
-    for await (const chunk of stream) logs += Buffer.from(chunk).toString();
-  })();
+function spawnApi(apiPort: number, extra: Record<string, string> = {}) {
+  const child = Bun.spawn(["bun", "modules/api/src/server.ts"], {
+    env: {
+      ...process.env,
+      API_PORT: String(apiPort),
+      SECRETS_SCOPE: scope,
+      COGNITO_ISSUER: issuer,
+      COGNITO_AUDIENCE: LOCAL_OIDC_CLIENT_ID,
+      ...extra,
+    } as Record<string, string>,
+    stdout: "pipe",
+    stderr: "pipe",
+  });
+  for (const stream of [child.stdout, child.stderr]) {
+    void (async () => {
+      for await (const chunk of stream) logs += Buffer.from(chunk).toString();
+    })();
+  }
+  return child;
 }
+const policyPort = port + 1;
+const api = spawnApi(port);
+const policyApi = spawnApi(policyPort, { ADMIN_REQUIRED_GROUP: "desk-staff" });
 
 async function waitForApi(): Promise<void> {
+  for (const base of [apiUrl, `http://127.0.0.1:${policyPort}`]) {
+    await waitForHealth(base);
+  }
+}
+
+async function waitForHealth(base: string): Promise<void> {
   for (let attempt = 0; attempt < 60; attempt++) {
     try {
-      if ((await fetch(`${apiUrl}/health`)).ok) return;
+      if ((await fetch(`${base}/health`)).ok) return;
     } catch {}
     await Bun.sleep(250);
   }
@@ -146,6 +159,25 @@ try {
     withReal.status === 200,
     "A19 200 with a token from the local issuer",
     `status ${withReal.status}`,
+  );
+
+  const policyCall = async (token: string) =>
+    fetch(`http://127.0.0.1:${policyPort}/admin/requests`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+  const outsideGroup = await policyCall(real);
+  report(
+    outsideGroup.status === 403 &&
+      outsideGroup.headers.get("WWW-Authenticate") === null &&
+      JSON.stringify(await outsideGroup.json()) === '{"error":"forbidden"}',
+    "A19 403 forbidden for a valid token missing the required group",
+    `status ${outsideGroup.status}`,
+  );
+  const forgedOnPolicy = await policyCall(forged);
+  report(
+    forgedOnPolicy.status === 401,
+    "A19 401 for a forged token on the group-restricted API",
+    `status ${forgedOnPolicy.status}`,
   );
 
   const created = await call("POST", "/admin/projects", real, {
@@ -292,6 +324,7 @@ try {
   );
 } finally {
   api.kill();
+  policyApi.kill();
   await db
     .delete(projects)
     .where(eq(projects.projectSlug, slug))
