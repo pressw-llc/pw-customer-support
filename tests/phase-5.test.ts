@@ -196,6 +196,7 @@ describe("mcp authentication", () => {
     expect((await adaLaptop.tools()).sort()).toEqual([
       "job_claim",
       "job_renew",
+      "job_status",
       "job_submit_result",
     ]);
   });
@@ -587,6 +588,10 @@ describe("claim lease and submit credential", () => {
       nothingToDo: "lease_lost",
     });
     expect(result.text).not.toContain("Slow preparation");
+    const reopened = await getTriageJob(slow.db, jobId);
+    expect(reopened?.status).toBe("open");
+    expect(reopened?.claimToken).toBeNull();
+    expect(slow.wakes.some((wake) => wake.jobId === jobId)).toBe(true);
     await client.call("subscription_remove", { prefix: who.clientSlug });
     await client.close();
     await laptop.close();
@@ -661,7 +666,25 @@ describe("claim lease and submit credential", () => {
     const names = (
       (await listed.json()) as { result: { tools: { name: string }[] } }
     ).result.tools.map((tool) => tool.name);
-    expect(names.sort()).toEqual(["job_renew", "job_submit_result"]);
+    expect(names).toEqual(["job_submit_result"]);
+    const renewWithSubmit = await postMcp(
+      served.url,
+      submitHeaders,
+      {
+        jsonrpc: "2.0",
+        id: 9,
+        method: "tools/call",
+        params: {
+          name: "job_renew",
+          arguments: { jobId: first.jobId, claimToken: claimed.claimToken },
+        },
+      },
+      LAPTOP_PATH,
+    );
+    expect(JSON.stringify(await renewWithSubmit.json())).toContain("not found");
+    expect(
+      (await getTriageJob(h.db, first.jobId))?.leaseExpiresAt?.toISOString(),
+    ).toBe(claimed.leaseExpiresAt);
 
     const forOther = await postMcp(
       served.url,
@@ -724,6 +747,40 @@ describe("claim lease and submit credential", () => {
       jobId: second.jobId,
       claimToken: other.claimToken,
       result: validResult,
+    });
+    await ada.call("subscription_remove", { prefix: who.clientSlug });
+  });
+});
+
+describe("job status", () => {
+  test("reports claimed, then completed with the outcome, and not_held for anyone else", async () => {
+    const who = await h.tenant({ teamId: stub.teams[0]?.id });
+    await ada.call("subscription_add", { prefix: who.clientSlug });
+    const { jobId } = await h.submit(who, "Status case");
+    const claimed = ready(await claim(adaLaptop, jobId));
+    const status = (client: McpTestClient, claimToken: string) =>
+      client.call<{ state: string; outcome: string | null }>("job_status", {
+        jobId,
+        claimToken,
+      });
+    expect(await status(adaLaptop, claimed.claimToken)).toEqual({
+      state: "claimed",
+      outcome: null,
+    });
+    expect((await status(bobLaptop, claimed.claimToken)).state).toBe(
+      "not_held",
+    );
+    expect((await status(adaLaptop, crypto.randomUUID())).state).toBe(
+      "not_held",
+    );
+    await adaLaptop.call("job_submit_result", {
+      jobId,
+      claimToken: claimed.claimToken,
+      result: validResult,
+    });
+    expect(await status(adaLaptop, claimed.claimToken)).toEqual({
+      state: "completed",
+      outcome: "agent",
     });
     await ada.call("subscription_remove", { prefix: who.clientSlug });
   });

@@ -489,7 +489,8 @@ async function main() {
     check(
       "B2 surface",
       interactive.join() === [...interactiveToolNames].sort().join() &&
-        laptopTools.join() === "job_claim,job_renew,job_submit_result" &&
+        laptopTools.join() ===
+          "job_claim,job_renew,job_status,job_submit_result" &&
         noWatcher.status === 401 &&
         otherWatcher.status === 403 &&
         jobOnState.isError === true,

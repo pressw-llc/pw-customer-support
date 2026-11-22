@@ -1,6 +1,7 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import {
   interactiveToolNames,
+  SUBMIT_HEADER,
   WATCHER_HEADER,
   WATCHER_PATH,
 } from "@pw-support/contracts";
@@ -221,7 +222,7 @@ describe("mcp surface split", () => {
       Authorization: `Bearer ${adaToken}`,
       [WATCHER_HEADER]: "nonsense",
     });
-    expect(malformed.status).toBe(403);
+    expect(malformed.status).toBe(401);
     const ok = await call({
       Authorization: `Bearer ${adaToken}`,
       [WATCHER_HEADER]: adaWatcher.header,
@@ -231,8 +232,65 @@ describe("mcp surface split", () => {
     expect(body.result.tools.map((tool) => tool.name).sort()).toEqual([
       "job_claim",
       "job_renew",
+      "job_status",
       "job_submit_result",
     ]);
+  });
+
+  test("a credential header that is not exactly 43 base64url characters is rejected with 401 before any database query", async () => {
+    const throwing = new Proxy(
+      {},
+      {
+        get() {
+          throw new Error("the database was queried");
+        },
+      },
+    ) as never;
+    const guarded = await createHarness({
+      config: {
+        mcp: {
+          audiences: ["pw-support-test-client"],
+          requiredGroup: undefined,
+          perWindow: 50,
+          maxBodyBytes: 2048,
+        },
+        auth: idp.authConfig(),
+      },
+      deps: { db: throwing },
+    });
+    const url = serveApp(guarded.app);
+    try {
+      const rpc = { jsonrpc: "2.0", id: 1, method: "tools/list" };
+      const machine = crypto.randomUUID();
+      const token = await idp.token({ claims: { sub: "shape-" + sub } });
+      const bearer = { Authorization: "Bearer " + token };
+      const bads = [
+        "",
+        "short",
+        "x".repeat(44),
+        "x".repeat(42) + "'",
+        "x".repeat(40) + " or 1",
+      ];
+      for (const bad of bads) {
+        const submit = await postMcp(
+          url.url,
+          { [SUBMIT_HEADER]: bad },
+          rpc,
+          LAPTOP_PATH,
+        );
+        expect(submit.status, "submit " + bad).toBe(401);
+        if (bad === "") continue;
+        const watcher = await postMcp(
+          url.url,
+          { ...bearer, [WATCHER_HEADER]: machine + "." + bad },
+          rpc,
+          LAPTOP_PATH,
+        );
+        expect(watcher.status, "watcher " + bad).toBe(401);
+      }
+    } finally {
+      url.stop();
+    }
   });
 
   test("a revoked watcher credential is refused", async () => {

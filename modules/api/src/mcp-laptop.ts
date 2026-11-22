@@ -5,6 +5,7 @@ import {
   type JobSubmitResult,
   jobClaimResultSchema,
   jobRenewResultSchema,
+  jobStatusResultSchema,
   jobSubmitResultSchema,
   MCP_LAPTOP_PATH,
   mcpInputs,
@@ -23,6 +24,7 @@ import {
   isJobOffered,
   isWatcherValid,
   registerWatcher,
+  releaseTriageJob,
   revokeWatcher,
   setSubmitCredential,
   type TriageJob,
@@ -49,6 +51,7 @@ type LaptopEnv = McpEnv;
 const WATCHER_VALUE =
   /^([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})\.([A-Za-z0-9_-]{43})$/;
 const REGISTRATIONS_PER_WINDOW = 20;
+const SECRET_SHAPE = /^[A-Za-z0-9_-]{43}$/;
 
 function newSubmitSecret(): string {
   return randomBytes(32).toString("base64url");
@@ -77,33 +80,6 @@ export function buildLaptopServer(
       job.claimToken === claimToken;
     return owned ? job : null;
   }
-
-  server.registerTool(
-    "job_renew",
-    {
-      description:
-        "Extend the lease of a job you claimed. Needs the claim token from job_claim.",
-      inputSchema: mcpInputs.job_renew,
-      outputSchema: jobRenewResultSchema.shape,
-    },
-    async ({ jobId, claimToken }) => {
-      const none = { renewed: false, leaseExpiresAt: null };
-      if (!(await ownedClaim(jobId, claimToken))) {
-        return reply(jobRenewResultSchema, none);
-      }
-      const renewed = await extendTriageLease(db, {
-        jobId,
-        claimToken,
-        now: clock,
-        timing,
-      });
-      const job = renewed ? await getTriageJob(db, jobId) : null;
-      return reply(jobRenewResultSchema, {
-        renewed,
-        leaseExpiresAt: job?.leaseExpiresAt?.toISOString() ?? null,
-      });
-    },
-  );
 
   server.registerTool(
     "job_submit_result",
@@ -152,6 +128,60 @@ export function buildLaptopServer(
   const engineer = scope.engineer;
 
   server.registerTool(
+    "job_renew",
+    {
+      description:
+        "Extend the lease of a job you claimed. Needs the claim token from job_claim.",
+      inputSchema: mcpInputs.job_renew,
+      outputSchema: jobRenewResultSchema.shape,
+    },
+    async ({ jobId, claimToken }) => {
+      const none = { renewed: false, leaseExpiresAt: null };
+      if (!(await ownedClaim(jobId, claimToken))) {
+        return reply(jobRenewResultSchema, none);
+      }
+      const renewed = await extendTriageLease(db, {
+        jobId,
+        claimToken,
+        now: clock,
+        timing,
+      });
+      const job = renewed ? await getTriageJob(db, jobId) : null;
+      return reply(jobRenewResultSchema, {
+        renewed,
+        leaseExpiresAt: job?.leaseExpiresAt?.toISOString() ?? null,
+      });
+    },
+  );
+
+  server.registerTool(
+    "job_status",
+    {
+      description:
+        "Report whether a job you claimed is still claimed, completed, or no longer held. State only.",
+      inputSchema: mcpInputs.job_status,
+      outputSchema: jobStatusResultSchema.shape,
+    },
+    async ({ jobId, claimToken }) => {
+      const job = await getTriageJob(db, jobId);
+      const mine =
+        job?.claimedByKind === "laptop" &&
+        job.claimedBy === engineer.sub &&
+        job.claimToken === claimToken;
+      const state =
+        mine && job?.status === "completed"
+          ? "completed"
+          : mine && job?.status === "claimed"
+            ? "claimed"
+            : "not_held";
+      return reply(jobStatusResultSchema, {
+        state,
+        outcome: state === "completed" ? (job?.outcome ?? null) : null,
+      });
+    },
+  );
+
+  server.registerTool(
     "job_claim",
     {
       description:
@@ -187,18 +217,26 @@ export function buildLaptopServer(
           nothingToDo: prepared.reason,
         });
       }
-      const leaseLost = () =>
-        reply(jobClaimResultSchema, {
+      const leaseLost = async () => {
+        await releaseTriageJob(db, {
+          jobId,
+          claimToken,
+          reason: "lease_lost",
+          now: clock,
+        });
+        await deps.wake?.send(jobId, 0);
+        return reply(jobClaimResultSchema, {
           status: "nothing_to_do",
           nothingToDo: "lease_lost",
         });
+      };
       const extended = await extendTriageLease(db, {
         jobId,
         claimToken,
         now: clock,
         timing,
       });
-      if (!extended) return leaseLost();
+      if (!extended) return await leaseLost();
       const submitToken = newSubmitSecret();
       const stored = await setSubmitCredential(db, {
         jobId,
@@ -208,7 +246,7 @@ export function buildLaptopServer(
       });
       const held = stored ? await getTriageJob(db, jobId) : null;
       if (!held?.leaseExpiresAt || held.claimToken !== claimToken) {
-        return leaseLost();
+        return await leaseLost();
       }
       return reply(jobClaimResultSchema, {
         status: "ready",
@@ -231,6 +269,9 @@ function submitOrEngineer(deps: McpDeps): MiddlewareHandler<McpEnv> {
   return async (c, next) => {
     const submit = c.req.header(SUBMIT_HEADER);
     if (!submit) return engineerAuth(c, next);
+    if (!SECRET_SHAPE.test(submit)) {
+      return c.json({ error: "unauthorized" }, 401);
+    }
     const job = await findJobBySubmitCredential(deps.db, {
       secret: submit,
       now: clock,
@@ -249,14 +290,12 @@ function requireWatcher(deps: McpDeps): MiddlewareHandler<McpEnv> {
     const header = c.req.header(WATCHER_HEADER);
     if (!header) return c.json({ error: "watcher_required" }, 401);
     const match = WATCHER_VALUE.exec(header);
-    const valid =
-      match?.[1] && match[2]
-        ? await isWatcherValid(deps.db, {
-            engineerSub: engineer.sub,
-            machineId: match[1],
-            secret: match[2],
-          })
-        : false;
+    if (!match?.[1] || !match[2]) return c.json({ error: "unauthorized" }, 401);
+    const valid = await isWatcherValid(deps.db, {
+      engineerSub: engineer.sub,
+      machineId: match[1],
+      secret: match[2],
+    });
     if (!valid) return c.json({ error: "forbidden" }, 403);
     c.set("scope", { kind: "engineer", engineer });
     return next();

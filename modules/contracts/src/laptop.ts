@@ -22,6 +22,7 @@ export const interactiveToolNames = [
 export const laptopToolNames = [
   "job_claim",
   "job_renew",
+  "job_status",
   "job_submit_result",
 ] as const;
 export const mcpToolNames = [...interactiveToolNames, ...laptopToolNames];
@@ -177,6 +178,12 @@ export const jobRenewResultSchema = z.object({
   leaseExpiresAt: z.string().nullable(),
 });
 
+export const jobStatusResultSchema = z.object({
+  state: z.enum(["claimed", "completed", "not_held"]),
+  outcome: stateTokenSchema.nullable(),
+});
+export type JobStatusResult = z.infer<typeof jobStatusResultSchema>;
+
 export const submitIssueSchema = z.object({
   path: z.string(),
   message: z.string(),
@@ -205,6 +212,7 @@ export const mcpInputs = {
   jobs_offers: {},
   job_claim: { jobId: z.string().uuid() },
   job_renew: { jobId: z.string().uuid(), claimToken: z.string().uuid() },
+  job_status: { jobId: z.string().uuid(), claimToken: z.string().uuid() },
   job_submit_result: {
     jobId: z.string().uuid(),
     claimToken: z.string().uuid(),

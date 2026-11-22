@@ -17,6 +17,10 @@ CREATE INDEX IF NOT EXISTS triage_jobs_offer_idx
 ALTER TABLE support.triage_jobs
   ADD COLUMN IF NOT EXISTS submit_token_hash text;
 
+CREATE INDEX IF NOT EXISTS triage_jobs_submit_token_idx
+  ON support.triage_jobs (submit_token_hash)
+  WHERE submit_token_hash IS NOT NULL;
+
 CREATE TABLE IF NOT EXISTS support.watcher_credentials (
   engineer_sub text NOT NULL,
   machine_id uuid NOT NULL,
