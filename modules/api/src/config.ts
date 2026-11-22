@@ -1,6 +1,7 @@
 import {
   ATTACHMENT_LIMITS,
   DEFAULT_ADMIN_DEV_PORT,
+  LOCAL_MCP_CLIENT_ID,
   LOCAL_OIDC_CLIENT_ID,
   RESOURCE_NAMES,
   resolveSecretsScope,
@@ -19,6 +20,13 @@ export interface ApiConfig {
   };
   auth: AuthConfig;
   adminOrigins: string[];
+  mcp: {
+    audiences: string[];
+    requiredGroup: string | undefined;
+    perWindow: number;
+    maxBodyBytes: number;
+    disabled?: boolean;
+  };
   admin: {
     maxBodyBytes: number;
     mutationsPerWindow: number;
@@ -29,6 +37,33 @@ export interface ApiConfig {
     endpoint: string | undefined;
     credentials: { accessKeyId: string; secretAccessKey: string } | undefined;
   };
+}
+
+export function mcpAuthConfig(config: ApiConfig): AuthConfig {
+  return {
+    ...config.auth,
+    audiences: config.mcp.audiences,
+    allowedEmailDomains: [],
+    requiredGroup: config.mcp.requiredGroup,
+  };
+}
+
+export function mcpMissingSettings(env: NodeJS.ProcessEnv): string[] {
+  if (env.NODE_ENV !== "production") return [];
+  const missing: string[] = [];
+  if (csv(env.MCP_AUDIENCE).length === 0) missing.push("MCP_AUDIENCE");
+  if (!env.MCP_REQUIRED_GROUP) missing.push("MCP_REQUIRED_GROUP");
+  return missing;
+}
+
+export function productionConfigErrors(
+  env: NodeJS.ProcessEnv = process.env,
+): string[] {
+  const missing = mcpMissingSettings(env);
+  if (missing.length === 0) return [];
+  return [
+    `${missing.join(" and ")} must be set in production; /mcp, /mcp/laptop, and /laptop/watcher answer 503 until they are`,
+  ];
 }
 
 const DEFAULT_PORT = 8787;
@@ -49,6 +84,12 @@ function csv(value: string | undefined): string[] {
 export function loadConfig(env: NodeJS.ProcessEnv = process.env): ApiConfig {
   const local = env.NODE_ENV !== "production";
   const stack = resolveStackEnv(env);
+  const adminAudiences = env.COGNITO_AUDIENCE
+    ? csv(env.COGNITO_AUDIENCE)
+    : local
+      ? [LOCAL_OIDC_CLIENT_ID]
+      : [];
+  const mcpDisabled = mcpMissingSettings(env).length > 0;
   const accessKeyId = env.AWS_ACCESS_KEY_ID ?? (local ? "test" : undefined);
   const secretAccessKey =
     env.AWS_SECRET_ACCESS_KEY ?? (local ? "test" : undefined);
@@ -67,11 +108,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): ApiConfig {
     },
     auth: {
       issuer: env.COGNITO_ISSUER || (local ? stack.localIssuer : undefined),
-      audiences: env.COGNITO_AUDIENCE
-        ? csv(env.COGNITO_AUDIENCE)
-        : local
-          ? [LOCAL_OIDC_CLIENT_ID]
-          : [],
+      audiences: adminAudiences,
       allowedEmailDomains: csv(env.ADMIN_ALLOWED_EMAIL_DOMAINS).map((domain) =>
         domain.toLowerCase(),
       ),
@@ -87,6 +124,17 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): ApiConfig {
             `http://localhost:${env.ADMIN_DEV_PORT || DEFAULT_ADMIN_DEV_PORT}`,
           ]
         : [],
+    mcp: {
+      audiences: env.MCP_AUDIENCE
+        ? csv(env.MCP_AUDIENCE)
+        : local
+          ? [LOCAL_MCP_CLIENT_ID, ...adminAudiences]
+          : [],
+      requiredGroup: env.MCP_REQUIRED_GROUP || undefined,
+      ...(mcpDisabled ? { disabled: true } : {}),
+      perWindow: positiveInt(env.MCP_RATE_LIMIT_PER_WINDOW, 120),
+      maxBodyBytes: positiveInt(env.MCP_MAX_BODY_BYTES, 256 * 1024),
+    },
     admin: {
       maxBodyBytes: positiveInt(env.ADMIN_MAX_BODY_BYTES, 16 * 1024),
       mutationsPerWindow: positiveInt(env.ADMIN_RATE_LIMIT_PER_WINDOW, 60),

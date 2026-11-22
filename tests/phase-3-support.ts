@@ -9,6 +9,7 @@ import {
 import {
   freshConnectionFetch,
   type LinearStub,
+  STUB_HOST,
   startLinearStub,
 } from "@pw-support/channels/testing";
 import {
@@ -57,6 +58,14 @@ export function textScorer(
   };
 }
 
+export function stackApiConfig() {
+  return loadConfig({
+    SUPPORT_LOCALSTACK_PORT: process.env.SUPPORT_LOCALSTACK_PORT,
+    SUPPORT_OIDC_PORT: process.env.SUPPORT_OIDC_PORT,
+    AWS_ENDPOINT_URL: process.env.AWS_ENDPOINT_URL,
+  });
+}
+
 export const markedScore = (text: string): number | Error => {
   const hit = /\[s=([0-9.]+|ERR)\]/.exec(text);
   if (!hit) return 4;
@@ -93,7 +102,7 @@ export async function createPhase3Harness(
     wording,
     now: h.clock.now,
   });
-  const apiConfig = loadConfig({});
+  const apiConfig = stackApiConfig();
   const intake = createLinearWebhookIntake({ db: h.db, secrets });
   const app = createApp({
     db: h.db,
@@ -101,8 +110,13 @@ export async function createPhase3Harness(
     config: apiConfig,
     linearWebhook: intake,
   });
-  const server = Bun.serve({ port: 0, idleTimeout: 0, fetch: app.fetch });
-  const webhookUrl = `http://127.0.0.1:${server.port}/webhooks/linear`;
+  const server = Bun.serve({
+    port: 0,
+    hostname: STUB_HOST,
+    idleTimeout: 0,
+    fetch: app.fetch,
+  });
+  const webhookUrl = `http://${STUB_HOST}:${server.port}/webhooks/linear`;
   stub.configureWebhook({ url: webhookUrl, secret: WEBHOOK_SECRET });
   const seen = new Set<number>();
 
@@ -237,6 +251,7 @@ export async function createPhase3Harness(
     linear,
     adapter,
     app,
+    apiConfig,
     server,
     webhookUrl,
     scenario,

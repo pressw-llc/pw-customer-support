@@ -1,11 +1,8 @@
-import { type ObjectStorage, readObjectBytes } from "@pw-support/api";
+import type { ObjectStorage } from "@pw-support/api";
 import type { HumanTriageReason } from "@pw-support/contracts";
 import {
   claimTriageJob,
-  type JudgmentInput,
-  loadTriageContext,
   recordAgentSession,
-  recordJudgments,
   releaseTriageJob,
   type SupportDb,
   submitHumanTriage,
@@ -15,22 +12,12 @@ import {
 import {
   AgentAbortedError,
   AgentDefinitionUnsafeError,
-  type AgentInput,
   type AgentRunner,
 } from "./agent-runner";
 import type { TriageConfig } from "./config";
-import {
-  type AttachmentInput,
-  type ExtractedItem,
-  extractAttachments,
-} from "./extract";
-import {
-  type FilterSubject,
-  INJECTION_KIND,
-  runInjectionFilter,
-} from "./filter";
 import type { JevClient } from "./jev";
 import { parseAgentOutput } from "./parse";
+import { prepareAgentInput } from "./prepare";
 
 export interface ProcessDeps {
   db: SupportDb;
@@ -50,8 +37,6 @@ export type ProcessOutcome =
       reason?: HumanTriageReason;
     }
   | { status: "released"; reason: string };
-
-export const WITHHELD_IMAGE_REASON = "image_not_analyzed";
 
 function logOf(deps: ProcessDeps) {
   return deps.log ?? (() => {});
@@ -73,80 +58,6 @@ async function complete(
   return { status: "completed", outcome: "human_triage", reason };
 }
 
-function judgedMessage(requestText: string, filenames: string[]): string {
-  return filenames.length === 0
-    ? requestText
-    : `${requestText}\n\nAttachment filenames:\n${filenames.join("\n")}`;
-}
-
-function withheldJudgment(
-  requestId: string,
-  imageId: string,
-  threshold: number,
-  reason: string,
-): JudgmentInput {
-  return {
-    requestId,
-    kind: INJECTION_KIND,
-    subject: `image:${imageId}`,
-    score: 0,
-    threshold,
-    flagged: false,
-    raw: { skipped: true, reason },
-  };
-}
-
-function judgedImageIds(judgments: JudgmentInput[]): Set<string> {
-  return new Set(
-    judgments
-      .filter(
-        (judgment) =>
-          judgment.subject.startsWith("image:") &&
-          !judgment.flagged &&
-          judgment.raw.skipped !== true,
-      )
-      .map((judgment) => judgment.subject.slice("image:".length)),
-  );
-}
-
-function buildAgentInput(
-  requestText: string,
-  items: ExtractedItem[],
-  judged: Set<string>,
-): AgentInput {
-  const images = items.flatMap((item) =>
-    item.kind === "image" && judged.has(item.id)
-      ? [
-          {
-            filename: item.filename,
-            mediaType: item.mediaType,
-            base64: item.base64,
-          },
-        ]
-      : [],
-  );
-  const documents = items.flatMap((item) =>
-    item.kind === "document"
-      ? [
-          {
-            filename: item.filename,
-            text: item.text,
-            truncated: item.truncated,
-          },
-        ]
-      : [],
-  );
-  const skipped = items.flatMap((item) => {
-    if (item.kind === "skipped") {
-      return [{ filename: item.filename, reason: item.reason }];
-    }
-    return item.kind === "image" && !judged.has(item.id)
-      ? [{ filename: item.filename, reason: WITHHELD_IMAGE_REASON }]
-      : [];
-  });
-  return { requestText, images, documents, skipped };
-}
-
 const LEASE_LOST: ProcessOutcome = { status: "released", reason: "lease_lost" };
 
 export async function processClaimedJob(
@@ -156,87 +67,19 @@ export async function processClaimedJob(
 ): Promise<ProcessOutcome> {
   const token = job.claimToken as string;
   const log = logOf(deps);
-  const { threshold } = deps.config.jev;
   try {
     if (job.attempts > deps.config.timing.maxAttempts) {
       return await complete(deps, job, "attempts_exhausted");
     }
-    const context = await loadTriageContext(deps.db, job.requestId);
-    if (!context) throw new Error("request missing for job");
-    const inputs: AttachmentInput[] = context.attachments.map((attachment) => ({
-      id: attachment.id,
-      filename: attachment.filename,
-      contentType: attachment.contentType,
-      sizeBytes: attachment.sizeBytes,
-      load: () => readObjectBytes(deps.storage, attachment.storageKey),
-    }));
-    const items = await extractAttachments(inputs, deps.config.extract);
-    if (signal.aborted) return LEASE_LOST;
-    const requestText = context.messages.map((m) => m.body).join("\n\n");
-
-    const subjects: FilterSubject[] = [
-      {
-        subject: "message",
-        text: judgedMessage(
-          requestText,
-          context.attachments.map((attachment) => attachment.filename),
-        ),
-      },
-    ];
-    const withheld: JudgmentInput[] = [];
-    for (const item of items) {
-      if (item.kind === "document") {
-        subjects.push({ subject: `attachment:${item.id}`, text: item.text });
-      } else if (item.kind === "image") {
-        if (!deps.config.jev.judgeImages) {
-          withheld.push(
-            withheldJudgment(
-              job.requestId,
-              item.id,
-              threshold,
-              "image_judging_disabled",
-            ),
-          );
-        } else if (item.format === "png" || item.format === "jpeg") {
-          subjects.push({
-            subject: `image:${item.id}`,
-            image: { format: item.format, base64: item.base64 },
-          });
-        } else {
-          withheld.push(
-            withheldJudgment(
-              job.requestId,
-              item.id,
-              threshold,
-              "image_format_not_judgeable",
-            ),
-          );
-        }
-      }
+    const prepared = await prepareAgentInput(deps, job, signal);
+    if (prepared.status === "aborted") return LEASE_LOST;
+    if (prepared.status === "human_triage") {
+      return await complete(deps, job, prepared.reason);
     }
-    const verdict = await runInjectionFilter(subjects, {
-      jev: deps.jev,
-      threshold,
-      chunkChars: deps.config.jev.chunkChars,
-      requestId: job.requestId,
-    });
-    await recordJudgments(deps.db, [...verdict.judgments, ...withheld]);
-    if (signal.aborted) return LEASE_LOST;
-    if (verdict.unavailable) {
-      log("jev unavailable", { jobId: job.id, error: verdict.error });
-      return await complete(deps, job, "filter_unavailable");
-    }
-    if (verdict.flagged) return await complete(deps, job, "injection_flagged");
-
-    const agentInput = buildAgentInput(
-      requestText,
-      items,
-      judgedImageIds(verdict.judgments),
-    );
 
     let run: Awaited<ReturnType<AgentRunner["run"]>>;
     try {
-      run = await deps.agent.run(agentInput, {
+      run = await deps.agent.run(prepared.agentInput, {
         signal,
         onSession: (sessionId) =>
           recordAgentSession(deps.db, {

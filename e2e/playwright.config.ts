@@ -1,3 +1,4 @@
+import { createServer } from "node:net";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { defineConfig, devices } from "@playwright/test";
@@ -6,17 +7,40 @@ import { LOCAL_OIDC_CLIENT_ID, resolveStackEnv } from "@pw-support/contracts";
 const here = dirname(fileURLToPath(import.meta.url));
 const root = resolve(here, "..");
 
+function freePort(): Promise<number> {
+  return new Promise((resolvePort, reject) => {
+    const probe = createServer();
+    probe.once("error", reject);
+    probe.listen(0, "127.0.0.1", () => {
+      const address = probe.address();
+      probe.close(() =>
+        typeof address === "object" && address
+          ? resolvePort(address.port)
+          : reject(new Error("no free port")),
+      );
+    });
+  });
+}
+
+async function port(name: string): Promise<number> {
+  const configured = Number(process.env[name]);
+  if (configured) return configured;
+  const chosen = await freePort();
+  process.env[name] = String(chosen);
+  return chosen;
+}
+
 export const E2E = {
-  apiPort: Number(process.env.E2E_API_PORT) || 8788,
-  appPort: Number(process.env.E2E_APP_PORT) || 5174,
-  adminPort: Number(process.env.E2E_ADMIN_PORT) || 5184,
-  policyApiPort: Number(process.env.E2E_POLICY_API_PORT) || 8789,
-  audienceApiPort: Number(process.env.E2E_AUDIENCE_API_PORT) || 8790,
+  apiPort: await port("E2E_API_PORT"),
+  appPort: await port("E2E_APP_PORT"),
+  adminPort: await port("E2E_ADMIN_PORT"),
+  policyApiPort: await port("E2E_POLICY_API_PORT"),
+  audienceApiPort: await port("E2E_AUDIENCE_API_PORT"),
   projectKey: "pk_e2e_acme_portal",
   projectSlug: "e2e",
   clientSlug: "acme",
-  stubPort: Number(process.env.E2E_STUB_PORT) || 4591,
-  controlPort: Number(process.env.E2E_CONTROL_PORT) || 4592,
+  stubPort: await port("E2E_STUB_PORT"),
+  controlPort: await port("E2E_CONTROL_PORT"),
   webhookSecret: "whsec_e2e_secret",
 } as const;
 
@@ -38,7 +62,7 @@ export const ADMIN = {
 
 function variantApi(port: number, env: Record<string, string>) {
   return {
-    command: "bun modules/api/src/server.ts",
+    command: "bun apps/server/src/server.ts",
     cwd: root,
     url: `http://127.0.0.1:${port}/health`,
     reuseExistingServer: false,
@@ -66,7 +90,7 @@ export default defineConfig({
   projects: [{ name: "chromium", use: { ...devices["Desktop Chrome"] } }],
   webServer: [
     {
-      command: "bun scripts/seed-dev.ts && bun modules/api/src/server.ts",
+      command: "bun scripts/seed-dev.ts && bun apps/server/src/server.ts",
       cwd: root,
       url: `${apiUrl}/health`,
       reuseExistingServer: false,

@@ -1,0 +1,8 @@
+{
+  "name": "support",
+  "displayName": "PressW Support",
+  "version": "0.1.0",
+  "description": "Subscribe to support channels, query request state, and triage jobs from a laptop.",
+  "author": { "name": "PressW" },
+  "keywords": ["support", "triage", "mcp"]
+}

@@ -6,6 +6,7 @@ import {
   type SecretWriter,
 } from "@pw-support/channels";
 import {
+  defaultTiming,
   LINEAR_DELIVERY_HEADER,
   LINEAR_SIGNATURE_HEADER,
   LINEAR_WEBHOOK_MAX_BYTES,
@@ -20,7 +21,7 @@ import { bodyLimit } from "hono/body-limit";
 import { cors } from "hono/cors";
 import { adminRoutes } from "./admin";
 import { createTokenValidator, type TokenValidator } from "./auth";
-import type { ApiConfig } from "./config";
+import { type ApiConfig, mcpAuthConfig } from "./config";
 import {
   type Checks,
   createIntakeService,
@@ -28,6 +29,7 @@ import {
   type IntakeService,
   ProcessingError,
 } from "./intake-service";
+import { type LaptopBackend, mcpRoutes } from "./mcp";
 import { MAX_TEXT_FIELD_BYTES } from "./message-checks";
 import { type IntakeEnv, identify, rateLimit } from "./middleware";
 import type { ObjectStorage } from "./storage";
@@ -39,6 +41,8 @@ export interface AppDeps {
   checks?: Checks;
   wake?: WakeSender;
   validator?: TokenValidator;
+  mcpValidator?: TokenValidator;
+  laptop?: LaptopBackend;
   secretWriter?: SecretWriter;
   secrets?: Pick<ManagedSecrets, "invalidate">;
   timing?: TriageTiming;
@@ -184,6 +188,24 @@ export function createApp(deps: AppDeps): Hono {
         if (reason === "not_configured") console.error("[auth] not configured");
       },
     });
+  app.route(
+    "/",
+    mcpRoutes({
+      db: deps.db,
+      validator:
+        deps.mcpValidator ??
+        deps.validator ??
+        createTokenValidator(mcpAuthConfig(deps.config)),
+      config: {
+        ...deps.config.mcp,
+        windowSeconds: deps.config.rateLimit.windowSeconds,
+      },
+      timing: deps.timing ?? defaultTiming,
+      laptop: deps.laptop,
+      wake: deps.wake,
+      now: deps.now,
+    }),
+  );
   app.route(
     "/admin",
     adminRoutes({

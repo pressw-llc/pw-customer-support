@@ -13,12 +13,7 @@ import {
   migrate,
 } from "@pw-support/db";
 
-function freePort(): number {
-  const probe = Bun.serve({ port: 0, fetch: () => new Response("") });
-  const port = probe.port;
-  probe.stop(true);
-  return port ?? 0;
-}
+import { freePort } from "./free-port";
 
 const PORT = Number(process.env.SMOKE_API_PORT) || freePort();
 const BASE = `http://127.0.0.1:${PORT}`;
@@ -115,7 +110,7 @@ async function run(): Promise<void> {
   const db = createDb();
   const suffix = randomSuffix();
   const slugs = [`smoke-a-${suffix}`, `smoke-b-${suffix}`];
-  const child = Bun.spawn(["bun", "modules/api/src/server.ts"], {
+  const child = Bun.spawn(["bun", "apps/server/src/server.ts"], {
     env: { ...process.env, API_PORT: String(PORT) },
     stdout: "ignore",
     stderr: "inherit",

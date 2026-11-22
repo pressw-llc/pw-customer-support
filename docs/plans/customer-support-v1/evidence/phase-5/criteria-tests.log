@@ -1,0 +1,4 @@
+PASS A12 a subscriber on acme receives a job keyed acme:p:u and a subscriber on acme:other does not
+PASS A13 a schema-invalid laptop result is refused and the job reopens
+PASS A20 subscriptions are listed, added, and removed and request state is queried over MCP
+junit failures: 0

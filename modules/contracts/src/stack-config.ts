@@ -4,6 +4,7 @@ export const DEFAULT_OIDC_PORT = "4599";
 export const DEFAULT_ADMIN_DEV_PORT = "5183";
 export const LOCAL_OIDC_ISSUER_ID = "support";
 export const LOCAL_OIDC_CLIENT_ID = "pw-support-admin";
+export const LOCAL_MCP_CLIENT_ID = "pw-support-mcp";
 
 export interface StackEnv {
   postgresPort: string;

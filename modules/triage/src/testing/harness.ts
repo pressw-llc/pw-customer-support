@@ -1,8 +1,10 @@
 import {
   createApp,
   createS3Storage,
+  type LaptopBackend,
   loadConfig,
   type ObjectStorage,
+  type TokenValidator,
 } from "@pw-support/api";
 import {
   hashCustomerId,
@@ -23,6 +25,7 @@ import { eq } from "drizzle-orm";
 import type { AgentInput, AgentRunner } from "../agent-runner";
 import { loadTriageConfig, type TriageConfig } from "../config";
 import type { JevClient, JevSubject } from "../jev";
+import { createLaptopBackend } from "../laptop";
 import type { WorkerDeps } from "../worker";
 
 export class TestClock {
@@ -94,6 +97,8 @@ export interface HarnessOptions {
   storage?: ObjectStorage;
   env?: Record<string, string>;
   wake?: WakeSender;
+  validator?: TokenValidator;
+  wrapLaptop?: (base: LaptopBackend, clock: TestClock) => LaptopBackend;
 }
 
 export interface Tenant {
@@ -128,6 +133,18 @@ export async function createTriageHarness(options: HarnessOptions = {}) {
       await options.wake?.send(jobId, delaySeconds);
     },
   };
+  const jev = options.jev === undefined ? fakeJev() : options.jev;
+  const baseLaptop = createLaptopBackend({
+    db,
+    storage,
+    jev,
+    config,
+    wake,
+    now: clock.now,
+  });
+  const laptop = options.wrapLaptop
+    ? options.wrapLaptop(baseLaptop, clock)
+    : baseLaptop;
   const app = createApp({
     db,
     storage,
@@ -135,10 +152,11 @@ export async function createTriageHarness(options: HarnessOptions = {}) {
     wake,
     timing: config.timing,
     now: clock.now,
+    validator: options.validator,
+    laptop,
   });
   const clientSlug = `acme-triage-${crypto.randomUUID().slice(0, 8)}`;
   const agent = options.agent ?? fakeAgent();
-  const jev = options.jev === undefined ? fakeJev() : options.jev;
 
   const deps: WorkerDeps = {
     db,

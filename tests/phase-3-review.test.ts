@@ -455,6 +455,76 @@ describe("S3 a confirm answers only the hold it was written for", () => {
     await handleDue(s);
     expect(bodiesOf(await p.thread(s.who, s.requestId))).toHaveLength(2);
   });
+
+  test("a hold warning delivered after the confirm does not delay the confirm", async () => {
+    const s = await p.scenario();
+    p.stub.configureWebhook(null);
+    let warning: StubComment | undefined;
+    let held: StubComment;
+    try {
+      held = (
+        await p.stub.staffComment({
+          issueId: s.issueId,
+          body: "@external rough [s=1.0]",
+        })
+      ).comment;
+      await deliver(held);
+      await p.drain(s.requestId);
+      warning = p.stub.comments.find(
+        (c) => c.parentId === held.id && c.userId === STUB_VIEWER_ID,
+      );
+    } finally {
+      p.stub.configureWebhook(target());
+    }
+    if (!warning?.createdAt) throw new Error("hold warning missing");
+    const confirm = await staff(s, "@confirm", {
+      parentId: held.id,
+      createdAt: new Date(Date.parse(warning.createdAt) + 20),
+      deliver: false,
+    });
+    await deliver(confirm);
+    await deliver(warning);
+    await p.drain(s.requestId);
+    expect(bodiesOf(await p.thread(s.who, s.requestId))).toEqual([
+      "Where is my invoice?",
+      "rough [s=1.0]",
+    ]);
+    expect((await inboundOf(s.requestId, confirm.id))?.disposition).toBe(
+      "confirm",
+    );
+    expect((await inboundOf(s.requestId, warning.id))?.disposition).toBe(
+      "own_comment",
+    );
+  });
+
+  test("a staff comment delivered after the confirm still holds the confirm back", async () => {
+    const s = await p.scenario();
+    const t0 = Date.now();
+    const root = await staff(s, "@external first rough [s=1.0]", {
+      createdAt: new Date(t0),
+    });
+    const second = await staff(s, "@external second rough [s=1.0]", {
+      parentId: root.id,
+      createdAt: new Date(t0 + 20),
+      deliver: false,
+    });
+    const confirm = await staff(s, "@confirm", {
+      parentId: root.id,
+      createdAt: new Date(t0 + 40),
+      deliver: false,
+    });
+    await deliver(confirm);
+    await deliver(second);
+    await p.drain(s.requestId);
+    expect(bodiesOf(await p.thread(s.who, s.requestId))).toHaveLength(1);
+    expect((await inboundOf(s.requestId, confirm.id))?.status).toBe("pending");
+    p.h.clock.advance(TICKET_REDELIVERY_BASE_SECONDS + 1);
+    await handleDue(s);
+    expect(bodiesOf(await p.thread(s.who, s.requestId))).toEqual([
+      "Where is my invoice?",
+      "second rough [s=1.0]",
+    ]);
+  });
 });
 
 describe("S4 released staff text is plain text", () => {

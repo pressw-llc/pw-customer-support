@@ -7,6 +7,8 @@
       "!.delivery",
       "!docs",
       "!.claude",
+      "!modules/plugin/commands",
+      "!modules/plugin/skills",
       "!**/fixtures",
       "!**/cdk.out"
     ]

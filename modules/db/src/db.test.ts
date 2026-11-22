@@ -413,9 +413,11 @@ describe("migrate on an empty database", () => {
         "replies",
         "requests",
         "schema_migrations",
+        "subscriptions",
         "ticket_deliveries",
         "tickets",
         "triage_jobs",
+        "watcher_credentials",
         "webhook_deliveries",
       ]);
     } finally {

@@ -117,11 +117,32 @@ describe("H5 getComment tells a removed comment from a refused request", () => {
   });
 });
 
+describe("the stub owns the loopback port it advertises", () => {
+  test("a port another process holds on 127.0.0.1 is refused, never shared", async () => {
+    const decoy = Bun.serve({
+      port: 0,
+      hostname: "127.0.0.1",
+      fetch: () => new Response("decoy", { status: 418 }),
+    });
+    let shared: ReturnType<typeof startLinearStub> | null = null;
+    let refused: unknown = null;
+    try {
+      shared = startLinearStub({ port: decoy.port });
+    } catch (error) {
+      refused = error;
+    }
+    await shared?.stop();
+    decoy.stop(true);
+    expect(refused).toBeInstanceOf(Error);
+  });
+});
+
 describe("the stub settles its own webhooks before it stops", () => {
   test("stop waits for a comment webhook that createComment started", async () => {
     const received: string[] = [];
     const target = Bun.serve({
       port: 0,
+      hostname: "127.0.0.1",
       async fetch(request) {
         await Bun.sleep(50);
         received.push(await request.text());

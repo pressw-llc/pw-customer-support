@@ -8,7 +8,7 @@ description: Work in the api module: the Hono HTTP server on Bun. Use when you a
 
 ## Ownership
 
-`modules/api` owns the HTTP surface. It serves `GET /health`, the public intake routes under `/v1`, and the staff routes under `/admin`. Later phases add the Linear webhook and the MCP route.
+`modules/api` owns the HTTP surface. It serves `GET /health`, the public intake routes under `/v1`, the staff routes under `/admin`, the Linear webhook, and the engineer MCP routes: `/mcp` for state tools, `/mcp/laptop` for job tools, and `/laptop/watcher` for the watcher credential.
 
 ## Layout
 
@@ -22,10 +22,12 @@ description: Work in the api module: the Hono HTTP server on Bun. Use when you a
 | `storage.ts`          | `ObjectStorage` interface and the S3 implementation                                                                                                                                                                                      |
 | `config.ts`           | `loadConfig(env)` with local defaults for the Compose stack                                                                                                                                                                              |
 | `wake.ts`             | SQS client, queue lookup, and the wake sender that sends `DelaySeconds`. Triage reuses it                                                                                                                                                |
-| `auth.ts`             | `createTokenValidator` and `parseBearer`. The Phase 5 MCP route reuses them                                                                                                                                                              |
+| `auth.ts`             | `createTokenValidator` and `parseBearer`. The MCP route reuses them                                                                                                                                                                      |
+| `mcp.ts`              | `mcpRoutes` and `buildMcpServer`: the six state-only tools on `/mcp`                                                                                                                                                                     |
+| `mcp-laptop.ts`       | `/mcp/laptop` with the watcher or submit credential, the three job tools, and `/laptop/watcher` register and revoke                                                                                                                      |
+| `mcp-shared.ts`       | Shared token middleware, body cap, tool-call rate limit, and the `LaptopBackend` port                                                                                                                                                    |
 | `admin.ts`            | `adminRoutes` and `requireStaff`: CORS, token check, body cap, mutation rate limit, `/admin/*` handlers                                                                                                                                  |
 | `admin-presenters.ts` | Map db rows to the admin contracts                                                                                                                                                                                                       |
-| `server.ts`           | Process entry. It is glue and no test loads it                                                                                                                                                                                           |
 | `testing/`            | `fixtures.ts` builds magic-byte buffers. `harness.ts` builds an app against real Postgres and LocalStack. `oidc.ts` is a local issuer with signing helpers. `dump.ts` dumps the database. Both are exported as `@pw-support/api/testing` |
 
 ## Routes
@@ -51,6 +53,12 @@ description: Work in the api module: the Hono HTTP server on Bun. Use when you a
 - Verify tokens with RS256 only. Accept `COGNITO_AUDIENCE` in `aud`, or in `client_id` when `aud` is absent.
 - Never log or return an admin request body or an error message that could echo it. The admin error handler logs the error name and the path.
 - Write an integration secret to Secrets Manager first, then store the reference in Postgres. Never store the value.
+- `/mcp` serves six tools and never returns customer text. Every string in an output schema is an id, timestamp, channel key, state token, or ticket identifier, and the contracts test keeps it that way. Never add a body, preview, filename, title, or staff text field. Build one `McpServer` per request with the identity from the token, so no tool argument can name an engineer. Fail closed with 401 and `WWW-Authenticate`, and 403 when `MCP_REQUIRED_GROUP` fails.
+- `/mcp/laptop` is never declared in a plugin config. It needs the engineer token plus a watcher credential bound to that engineer and machine, or a submit credential bound to one job and claim. Store only hashes. Keep `ADMIN_ALLOWED_EMAIL_DOMAINS` off `/mcp`, because a Cognito access token has no email.
+- Count only `tools/call` against the per-engineer limit. Keep `job_renew` and `job_submit_result` in their own bucket.
+- `job_claim` extends the lease after preparation and returns `lease_lost` with no content when that fails. Never return content for a job that this claim no longer holds.
+- Accept only the `MCP_AUDIENCE` client ids on `/mcp`. A refused claim returns `refused`. A refused result returns paths and short messages and never the value. A claim or result for another engineer's job answers like a stale claim.
+- The laptop backend (`prepare`, `submit`) implements the `LaptopBackend` port from this module. `@pw-support/triage` provides it and `apps/server` wires it through `createApp` deps. This module never depends on triage and has no code path that reads an attachment for a laptop.
 - Import other modules only through their package entrypoint.
 
 ## Tests
@@ -60,6 +68,6 @@ Integration tests use the real Compose Postgres and LocalStack. Title a test wit
 ## Commands
 
 ```bash
-bun run dev:api
+bun run dev:api   # runs apps/server
 bun test modules/api
 ```
