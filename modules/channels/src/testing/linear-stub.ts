@@ -80,6 +80,7 @@ export const STUB_VIEWER_ID = "user-integration";
 export const STUB_VIEWER_NAME = "PressW Support Integration";
 export const STUB_STAFF_ID = "user-staff-ada";
 export const STUB_STAFF_NAME = "Ada Staff";
+export const STUB_HOST = "127.0.0.1";
 
 export function commentWebhookPayload(
   comment: StubComment,
@@ -530,6 +531,7 @@ export function startLinearStub(options: StubOptions = {}): LinearStub {
 
   const server = Bun.serve({
     port: options.port ?? 0,
+    hostname: STUB_HOST,
     idleTimeout: 0,
     async fetch(request) {
       if (request.method !== "POST") {
@@ -586,6 +588,6 @@ export function startLinearStub(options: StubOptions = {}): LinearStub {
     },
   });
   stub.port = server.port ?? 0;
-  stub.url = `http://127.0.0.1:${stub.port}/graphql`;
+  stub.url = `http://${STUB_HOST}:${stub.port}/graphql`;
   return stub;
 }

@@ -1,5 +1,5 @@
 import { createAdapterRuntime } from "@pw-support/channels";
-import { startLinearStub } from "@pw-support/channels/testing";
+import { STUB_HOST, startLinearStub } from "@pw-support/channels/testing";
 import {
   advanceEventCursor,
   createDb,
@@ -56,6 +56,7 @@ await advanceEventCursor(db, "linear", await maxEventSeq(db));
 
 Bun.serve({
   port: controlPort,
+  hostname: STUB_HOST,
   async fetch(request) {
     const url = new URL(request.url);
     if (url.pathname === "/health") return Response.json({ status: "ok" });

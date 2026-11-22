@@ -9,6 +9,7 @@ import {
 import {
   freshConnectionFetch,
   type LinearStub,
+  STUB_HOST,
   startLinearStub,
 } from "@pw-support/channels/testing";
 import {
@@ -101,8 +102,13 @@ export async function createPhase3Harness(
     config: apiConfig,
     linearWebhook: intake,
   });
-  const server = Bun.serve({ port: 0, idleTimeout: 0, fetch: app.fetch });
-  const webhookUrl = `http://127.0.0.1:${server.port}/webhooks/linear`;
+  const server = Bun.serve({
+    port: 0,
+    hostname: STUB_HOST,
+    idleTimeout: 0,
+    fetch: app.fetch,
+  });
+  const webhookUrl = `http://${STUB_HOST}:${server.port}/webhooks/linear`;
   stub.configureWebhook({ url: webhookUrl, secret: WEBHOOK_SECRET });
   const seen = new Set<number>();
 
