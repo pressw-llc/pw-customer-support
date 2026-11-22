@@ -5,7 +5,7 @@ Path exercised: `bash scripts/validate/phase-6-evidence.sh`. The script rebuilds
 
 ```text
 A22  NOT RUN  The stack has no AWS account to deploy to. Local stand-in, deploy.log: 14 PASS lines, including "PASS deploy --dry-run succeeds with placeholder config", "PASS deploy the S3, SQS, and Secrets Manager subset of the stack: 13 resources deployed, 64 need real AWS", "PASS deploy the linear-outbound Lambda step into LocalStack Lambda (T15)", "PASS smoke: API, worker, deployed queues, and Linear stub produce a ticket", "PASS the worker container processes one job to a stub ticket".
-A23  NOT RUN  The npmjs organization and its token do not exist. Local stand-in, release.log: 9 PASS lines, including "PASS release --publish pushes one tarball to both", "PASS both registries hold the same tarball", "PASS a fresh app installs and builds from registry A", "PASS a fresh app installs and builds from registry B", "PASS a second publish is idempotent".
+A23  NOT RUN  The npmjs organization and its token do not exist. Local stand-in, release.log: 10 PASS lines, including "PASS release --publish pushes one tarball to both", "PASS both registries hold the same tarball", "PASS a fresh app installs and builds from registry A", "PASS a fresh app installs and builds from registry B", "PASS a second publish is idempotent".
 A26  PASS     skills-audit.log: 13 pass, 0 fail. The audit runs inside `bun run check`. Each module and `apps/server` holds a skill. The root holds the pipelines skills, the managed-agents skills, and the repository skill.
 
 3 criteria: 1 pass, 0 fail, 2 not run
