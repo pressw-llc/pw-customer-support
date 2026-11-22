@@ -18,7 +18,7 @@
   "exitCode": 0,
   "permissionDenials": 0,
   "turns": 2,
-  "costUsd": 0.0664905,
+  "costUsd": 0.0302375,
   "digest": [
     {
       "type": "system",
@@ -44,25 +44,25 @@
       "plugins": [
         {
           "name": "delivery-loop",
-          "path": "/Users/dallas/.claude/plugins/cache/pressw-marketplace/delivery-loop/0.18.3",
+          "path": "~/.claude/plugins/cache/pressw-marketplace/delivery-loop/0.18.3",
           "source": "delivery-loop@pressw-marketplace",
           "version": "0.18.3"
         },
         {
           "name": "factory",
-          "path": "/Users/dallas/.claude/plugins/cache/agent-factory/factory/0.11.0",
+          "path": "~/.claude/plugins/cache/agent-factory/factory/0.11.0",
           "source": "factory@agent-factory",
           "version": "0.11.0"
         },
         {
           "name": "make-it-better",
-          "path": "/Users/dallas/.claude/plugins/cache/pressw-marketplace/make-it-better/0.3.0",
+          "path": "~/.claude/plugins/cache/pressw-marketplace/make-it-better/0.3.0",
           "source": "make-it-better@pressw-marketplace",
           "version": "0.3.0"
         },
         {
           "name": "pressw-artifacts",
-          "path": "/Users/dallas/.claude/plugins/cache/pressw-marketplace/pressw-artifacts/0.42.0",
+          "path": "~/.claude/plugins/cache/pressw-marketplace/pressw-artifacts/0.42.0",
           "source": "pressw-artifacts@pressw-marketplace",
           "version": "0.42.0"
         },
@@ -149,7 +149,7 @@
       "subtype": "success",
       "is_error": false,
       "num_turns": 2,
-      "total_cost_usd": 0.0664905,
+      "total_cost_usd": 0.0302375,
       "permission_denials": []
     }
   ]

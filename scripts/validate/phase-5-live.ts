@@ -623,9 +623,15 @@ async function main() {
     const issue = (stub as LinearStub).issues.find(
       (i) => i.id === ticket.linearIssueId,
     );
-    const reports = readdirSync(reportDir).filter((name) =>
-      name.endsWith(".json"),
+    const listReports = () =>
+      readdirSync(reportDir).filter((name) => name.endsWith(".json"));
+    await until(
+      async () => listReports().length > 0,
+      "the subagent run report",
+      30_000,
     );
+    await sleep(500);
+    const reports = listReports();
     const report =
       reports.length > 0
         ? (JSON.parse(

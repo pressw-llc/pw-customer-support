@@ -28,20 +28,20 @@
     {
       "name": "mcp__pw-support__subscription_add",
       "input": {
-        "prefix": "acme-v5-a20-c437b8"
+        "prefix": "acme-v5-a20-2537e2"
       }
     },
     {
       "name": "mcp__pw-support__requests_query",
       "input": {
-        "channelPrefix": "acme-v5-a20-c437b8",
+        "channelPrefix": "acme-v5-a20-2537e2",
         "limit": 5
       }
     },
     {
       "name": "mcp__pw-support__subscription_remove",
       "input": {
-        "prefix": "acme-v5-a20-c437b8"
+        "prefix": "acme-v5-a20-2537e2"
       }
     }
   ],
@@ -67,7 +67,7 @@
     "subtype": "success",
     "is_error": false,
     "num_turns": 5,
-    "total_cost_usd": 0.09687600000000002,
+    "total_cost_usd": 0.0966836,
     "permission_denials": 0
   },
   "events": 14
