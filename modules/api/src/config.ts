@@ -47,6 +47,19 @@ export function mcpAuthConfig(config: ApiConfig): AuthConfig {
   };
 }
 
+export function productionWarnings(
+  config: ApiConfig,
+  env: NodeJS.ProcessEnv = process.env,
+): string[] {
+  const warnings: string[] = [];
+  if (env.NODE_ENV === "production" && !config.mcp.requiredGroup) {
+    warnings.push(
+      "MCP_REQUIRED_GROUP is not set; /mcp accepts any user of the pool that holds an MCP-client token",
+    );
+  }
+  return warnings;
+}
+
 const DEFAULT_PORT = 8787;
 const BODY_OVERHEAD_BYTES = 1024 * 1024;
 

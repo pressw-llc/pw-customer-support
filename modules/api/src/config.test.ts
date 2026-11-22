@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { loadConfig, mcpAuthConfig } from "./config";
+import { loadConfig, mcpAuthConfig, productionWarnings } from "./config";
 
 test("defaults target the local Compose stack", () => {
   const config = loadConfig({});
@@ -126,4 +126,14 @@ test("the mcp auth config drops the admin email domains and takes its own group"
   expect(mcpAuthConfig(config).allowedEmailDomains).toEqual([]);
   expect(mcpAuthConfig(config).requiredGroup).toBe("engineers");
   expect(mcpAuthConfig(loadConfig({})).requiredGroup).toBeUndefined();
+});
+
+test("production without MCP_REQUIRED_GROUP warns once and names no secret", () => {
+  const production = { NODE_ENV: "production" };
+  const warnings = productionWarnings(loadConfig(production), production);
+  expect(warnings).toHaveLength(1);
+  expect(warnings[0]).toContain("MCP_REQUIRED_GROUP");
+  const withGroup = { NODE_ENV: "production", MCP_REQUIRED_GROUP: "engineers" };
+  expect(productionWarnings(loadConfig(withGroup), withGroup)).toEqual([]);
+  expect(productionWarnings(loadConfig({}), {})).toEqual([]);
 });

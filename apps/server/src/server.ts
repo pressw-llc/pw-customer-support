@@ -6,6 +6,7 @@ import {
   createTokenValidator,
   loadConfig,
   mcpAuthConfig,
+  productionWarnings,
 } from "@pw-support/api";
 import {
   createLinearWebhookIntake,
@@ -22,6 +23,9 @@ import {
 } from "@pw-support/triage";
 
 const config = loadConfig();
+for (const warning of productionWarnings(config)) {
+  console.warn(`[config] ${warning}`);
+}
 const db = createDb();
 const secretsClient = createSecretsManagerClient();
 const validator = createTokenValidator(config.auth, {

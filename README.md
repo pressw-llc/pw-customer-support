@@ -500,7 +500,7 @@ Two endpoints serve Streamable HTTP in stateless mode with `@modelcontextprotoco
 
 No interactive tool returns a message body, a sanitized body, a preview, an attachment filename, a ticket title or summary, or staff reply text. The ticket link drops the title slug. Every string field in an output schema is an id, a timestamp, a channel key, a state token, or a ticket identifier, and a contract test fails when a field can carry free text. Engineers read the message text in the admin UI. The interactive session holds the full tool set of the engineer, so customer text never enters it.
 
-`/mcp/laptop` is the watcher surface. No plugin config names it. It serves `job_claim`, `job_renew`, and `job_submit_result`. A call needs one of two credentials.
+`/mcp/laptop` is the watcher surface. No plugin config names it. It serves `job_claim`, `job_renew`, `job_status`, and `job_submit_result`. A call needs one of two credentials. A header that is not exactly 43 base64url characters gets 401 before any database query. The submit credential reaches `job_submit_result` only, and the watcher renews with the engineer token and the watcher credential. The endpoint has no per-address limiter, because the API has no helper for client addresses.
 
 | Credential                         | Sent as                                             | Allows                                                        |
 | ---------------------------------- | --------------------------------------------------- | ------------------------------------------------------------- |
@@ -515,7 +515,7 @@ Without the watcher header the endpoint answers 401. A header that does not matc
 
 The per-engineer limit counts `tools/call` requests only. `job_renew` and `job_submit_result` use their own bucket of 60 per window.
 
-`MCP_REQUIRED_GROUP` names a Cognito group that an `/mcp` token must carry. It is off by default. A valid token without the group gets 403. `ADMIN_ALLOWED_EMAIL_DOMAINS` and `ADMIN_REQUIRED_GROUP` never apply to `/mcp`, because a Cognito access token has no `email` claim.
+`MCP_REQUIRED_GROUP` names a Cognito group that an `/mcp` token must carry. It is off by default. Set it in production, because the default accepts any user of the pool that holds an MCP-client token. The API logs one startup warning when `NODE_ENV=production` and the variable is unset. A valid token without the group gets 403. `ADMIN_ALLOWED_EMAIL_DOMAINS` and `ADMIN_REQUIRED_GROUP` never apply to `/mcp`, because a Cognito access token has no `email` claim.
 
 ### Watcher credential
 
@@ -585,7 +585,9 @@ The run report records the verified init facts and the hook events seen, without
 
 Claude Code lists built-in agents and the agents of organization-managed plugins at init even with `--tools ""`. An agent definition does nothing without a tool that spawns it, and the exact tool list proves that no such tool exists. The watcher records the agent count and does not require it to be zero. Managed plugins stay loaded, and their count is recorded. They add no tool, skill, or command, which the checks above prove. Organization-managed `CLAUDE.md` content and `SessionStart` output can enter the headless context, and no flag disables them. `--safe-mode` drops the `--mcp-config` server as well, so the watcher does not use it. `--bare` would skip managed settings but accepts only API key authentication.
 
-A hard timeout kills the process. The watcher then stops renewing and lets the lease lapse, and the cloud completes the job. A refused result is never retried.
+The kill on a foreign tool call is detection. It reacts after the model has already emitted the call. Prevention rests on `--tools ""`, the strict single-server MCP config, the `init` verification, and `dontAsk`. The verification repeats for every `init` event, which Claude Code emits per turn, and the request is sent once.
+
+A hard timeout kills the process. The watcher then stops renewing and lets the lease lapse, and the cloud completes the job. A refused result is never retried. After a transport error the submit server records `unknown_after_transport_error` and the watcher reads the job state with `job_status` before it logs an outcome.
 
 ### Facts from the Claude Code documentation
 
