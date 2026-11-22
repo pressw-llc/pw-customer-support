@@ -4,6 +4,8 @@
   "adminClientId": "example-admin-client-id",
   "mcpClientId": "example-mcp-client-id",
   "mcpRequiredGroup": "example-support-staff",
+  "adminRequiredGroup": "example-support-admins",
+  "adminAllowedEmailDomains": ["example.com"],
   "certificateArn": "arn:aws:acm:us-east-1:123456789012:certificate/00000000-0000-0000-0000-000000000000",
   "apiDomain": "support-api.example.com",
   "triageAgentId": "agent_example",

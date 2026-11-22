@@ -30,6 +30,7 @@ export interface ApiConfig {
   admin: {
     maxBodyBytes: number;
     mutationsPerWindow: number;
+    disabled?: boolean;
   };
   secretsScope: string;
   s3: {
@@ -56,14 +57,30 @@ export function mcpMissingSettings(env: NodeJS.ProcessEnv): string[] {
   return missing;
 }
 
+export function adminPolicyMissing(env: NodeJS.ProcessEnv): boolean {
+  return (
+    env.NODE_ENV === "production" &&
+    !env.ADMIN_REQUIRED_GROUP &&
+    csv(env.ADMIN_ALLOWED_EMAIL_DOMAINS).length === 0
+  );
+}
+
 export function productionConfigErrors(
   env: NodeJS.ProcessEnv = process.env,
 ): string[] {
+  const errors: string[] = [];
   const missing = mcpMissingSettings(env);
-  if (missing.length === 0) return [];
-  return [
-    `${missing.join(" and ")} must be set in production; /mcp, /mcp/laptop, and /laptop/watcher answer 503 until they are`,
-  ];
+  if (missing.length > 0) {
+    errors.push(
+      `${missing.join(" and ")} must be set in production; /mcp, /mcp/laptop, and /laptop/watcher answer 503 until they are`,
+    );
+  }
+  if (adminPolicyMissing(env)) {
+    errors.push(
+      "ADMIN_REQUIRED_GROUP or ADMIN_ALLOWED_EMAIL_DOMAINS must be set in production; every /admin route answers 503 admin_not_configured until one is",
+    );
+  }
+  return errors;
 }
 
 const DEFAULT_PORT = 8787;
@@ -138,6 +155,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): ApiConfig {
     admin: {
       maxBodyBytes: positiveInt(env.ADMIN_MAX_BODY_BYTES, 16 * 1024),
       mutationsPerWindow: positiveInt(env.ADMIN_RATE_LIMIT_PER_WINDOW, 60),
+      ...(adminPolicyMissing(env) ? { disabled: true } : {}),
     },
     secretsScope: resolveSecretsScope(env),
     s3: {

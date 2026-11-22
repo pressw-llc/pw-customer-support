@@ -12,6 +12,8 @@ export interface StageConfig {
   adminClientId: string;
   mcpClientId: string;
   mcpRequiredGroup: string;
+  adminRequiredGroup: string;
+  adminAllowedEmailDomains: string[];
   certificateArn: string | undefined;
   apiDomain: string | undefined;
   triageAgentId: string;
@@ -38,6 +40,8 @@ export const CONFIG_KEYS = [
   "adminClientId",
   "mcpClientId",
   "mcpRequiredGroup",
+  "adminRequiredGroup",
+  "adminAllowedEmailDomains",
   "certificateArn",
   "apiDomain",
   "triageAgentId",
@@ -45,6 +49,11 @@ export const CONFIG_KEYS = [
   "extraAdminOrigins",
   "alarmEmail",
 ] as const;
+
+const GROUP_HINTS: Partial<Record<keyof typeof PLACEHOLDERS, string>> = {
+  mcpRequiredGroup: "set the Cognito group that may use /mcp",
+  adminRequiredGroup: "set the Cognito group that may use /admin",
+};
 
 const FORBIDDEN_IN_PRODUCTION = ["linearApiUrl"] as const;
 
@@ -55,6 +64,7 @@ const PLACEHOLDERS = {
   adminClientId: "placeholder-admin-client-id",
   mcpClientId: "placeholder-mcp-client-id",
   mcpRequiredGroup: "placeholder-staff-group",
+  adminRequiredGroup: "placeholder-admin-group",
   certificateArn:
     "arn:aws:acm:us-east-1:000000000000:certificate/00000000-0000-0000-0000-000000000000",
   apiDomain: "support-api.example.invalid",
@@ -97,9 +107,9 @@ export function resolveStageConfig(input: ResolveInput): StageConfig {
   ): string | undefined => {
     const given = text(values[key]);
     if (given !== undefined && given !== "") return given;
-    if (given === "" && key === "mcpRequiredGroup" && production) {
+    if (given === "" && GROUP_HINTS[key] && production) {
       problems.push(
-        "mcpRequiredGroup must not be empty in production; set the Cognito group that may use /mcp",
+        `${key} must not be empty in production; ${GROUP_HINTS[key]}`,
       );
       return "";
     }
@@ -145,6 +155,13 @@ export function resolveStageConfig(input: ResolveInput): StageConfig {
     "the Cognito group allowed on /mcp",
     production,
   );
+  const adminRequiredGroup = need(
+    "adminRequiredGroup",
+    "the Cognito group allowed on /admin",
+  );
+  const adminAllowedEmailDomains = list(values.adminAllowedEmailDomains).map(
+    (domain) => domain.toLowerCase(),
+  );
   const certificateArn = need(
     "certificateArn",
     "the ACM certificate ARN in us-east-1 for the API domain",
@@ -189,6 +206,8 @@ export function resolveStageConfig(input: ResolveInput): StageConfig {
     adminClientId: adminClientId as string,
     mcpClientId: mcpClientId as string,
     mcpRequiredGroup: mcpRequiredGroup ?? "",
+    adminRequiredGroup: adminRequiredGroup ?? "",
+    adminAllowedEmailDomains,
     certificateArn,
     apiDomain,
     triageAgentId: triageAgentId ?? "",

@@ -104,6 +104,13 @@ export class SupportAppStack extends RegionalStack {
       COGNITO_AUDIENCE: config.adminClientId,
       MCP_AUDIENCE: config.mcpClientId,
       MCP_REQUIRED_GROUP: config.mcpRequiredGroup,
+      ADMIN_REQUIRED_GROUP: config.adminRequiredGroup,
+      ...(config.adminAllowedEmailDomains.length > 0
+        ? {
+            ADMIN_ALLOWED_EMAIL_DOMAINS:
+              config.adminAllowedEmailDomains.join(","),
+          }
+        : {}),
     };
 
     this.apiService = new ecsPatterns.ApplicationLoadBalancedFargateService(

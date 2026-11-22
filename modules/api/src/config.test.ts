@@ -1,5 +1,10 @@
 import { expect, test } from "bun:test";
-import { loadConfig, mcpAuthConfig, productionConfigErrors } from "./config";
+import {
+  adminPolicyMissing,
+  loadConfig,
+  mcpAuthConfig,
+  productionConfigErrors,
+} from "./config";
 
 test("defaults target the local Compose stack", () => {
   const config = loadConfig({});
@@ -159,7 +164,7 @@ test("outside production mcp keeps the admin audience fallback and stays enabled
 });
 
 test("productionConfigErrors names each missing setting once and no secret", () => {
-  const production = { NODE_ENV: "production" };
+  const production = { NODE_ENV: "production", ADMIN_REQUIRED_GROUP: "staff" };
   const errors = productionConfigErrors(production);
   expect(errors).toHaveLength(1);
   expect(errors[0]).toContain("MCP_AUDIENCE and MCP_REQUIRED_GROUP");
@@ -170,4 +175,37 @@ test("productionConfigErrors names each missing setting once and no secret", () 
   const ready = { ...audienceOnly, MCP_REQUIRED_GROUP: "engineers" };
   expect(productionConfigErrors(ready)).toEqual([]);
   expect(productionConfigErrors({})).toEqual([]);
+});
+
+test("production without an admin group or email domain disables /admin and reports one error", () => {
+  const production = {
+    NODE_ENV: "production",
+    MCP_AUDIENCE: "m",
+    MCP_REQUIRED_GROUP: "engineers",
+  };
+  expect(adminPolicyMissing(production)).toBe(true);
+  expect(loadConfig(production).admin.disabled).toBe(true);
+  const errors = productionConfigErrors(production);
+  expect(errors).toHaveLength(1);
+  expect(errors[0]).toContain(
+    "ADMIN_REQUIRED_GROUP or ADMIN_ALLOWED_EMAIL_DOMAINS",
+  );
+});
+
+test("a group or an email domain enables /admin in production, and development is unchanged", () => {
+  const production = { NODE_ENV: "production" };
+  for (const policy of [
+    { ADMIN_REQUIRED_GROUP: "staff" },
+    { ADMIN_ALLOWED_EMAIL_DOMAINS: "pressw.com" },
+  ]) {
+    expect(adminPolicyMissing({ ...production, ...policy })).toBe(false);
+    expect(
+      loadConfig({ ...production, ...policy }).admin.disabled,
+    ).toBeUndefined();
+  }
+  expect(
+    adminPolicyMissing({ ...production, ADMIN_ALLOWED_EMAIL_DOMAINS: " , " }),
+  ).toBe(true);
+  expect(adminPolicyMissing({})).toBe(false);
+  expect(loadConfig({}).admin.disabled).toBeUndefined();
 });

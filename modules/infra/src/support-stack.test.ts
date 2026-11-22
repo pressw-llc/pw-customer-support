@@ -351,6 +351,8 @@ describe("API service", () => {
   test("requires the MCP group and wires the Cognito settings", () => {
     expect(env.MCP_REQUIRED_GROUP).toBe(prod.config.mcpRequiredGroup);
     expect(env.MCP_REQUIRED_GROUP).not.toBe("");
+    expect(env.ADMIN_REQUIRED_GROUP).toBe(prod.config.adminRequiredGroup);
+    expect(env.ADMIN_REQUIRED_GROUP).not.toBe("");
     expect(env.COGNITO_ISSUER).toBe(prod.config.cognitoIssuer);
     expect(env.COGNITO_AUDIENCE).toBe(prod.config.adminClientId);
     expect(env.MCP_AUDIENCE).toBe(prod.config.mcpClientId);
@@ -714,6 +716,25 @@ describe("stage rules", () => {
   test("rejects an empty MCP required group in production even when placeholders are on", () => {
     expect(() => build("production", { mcpRequiredGroup: "" })).toThrow(
       "mcpRequiredGroup must not be empty in production",
+    );
+  });
+
+  test("passes the admin email domains to the API only when configured", () => {
+    expect(
+      envOf(containerEnv(appT, "web")).ADMIN_ALLOWED_EMAIL_DOMAINS,
+    ).toBeUndefined();
+    const stack = build("production", {
+      adminAllowedEmailDomains: "pressw.com",
+    });
+    expect(
+      envOf(containerEnv(Template.fromStack(stack.app), "web"))
+        .ADMIN_ALLOWED_EMAIL_DOMAINS,
+    ).toBe("pressw.com");
+  });
+
+  test("rejects an empty admin group in production", () => {
+    expect(() => build("production", { adminRequiredGroup: "" })).toThrow(
+      "adminRequiredGroup must not be empty in production",
     );
   });
 

@@ -23,6 +23,7 @@ const complete: RawValues = {
   adminClientId: "admin-id",
   mcpClientId: "mcp-id",
   mcpRequiredGroup: "staff",
+  adminRequiredGroup: "admins",
   certificateArn:
     "arn:aws:acm:us-east-1:123456789012:certificate/11111111-2222-3333-4444-555555555555",
   apiDomain: "api.example.com",
@@ -64,6 +65,7 @@ describe("resolveStageConfig", () => {
       "adminClientId",
       "mcpClientId",
       "mcpRequiredGroup",
+      "adminRequiredGroup",
       "certificateArn",
       "apiDomain",
       "triageAgentId",
@@ -93,6 +95,7 @@ describe("resolveStageConfig", () => {
         cognitoIssuer: "https://issuer.example",
         adminClientId: "a",
         mcpClientId: "m",
+        adminRequiredGroup: "admins",
       },
     });
     expect(config.certificateArn).toBeUndefined();
@@ -120,6 +123,39 @@ describe("resolveStageConfig", () => {
       "adminLogoutUrl must be an https URL",
       "admin origin https://bad.example/path must be https with no path",
     ]);
+  });
+
+  test("refuses an empty admin group in every stage and lowercases email domains", () => {
+    expect(
+      problems({
+        stage: "production",
+        placeholders: true,
+        values: { adminRequiredGroup: "" },
+      }),
+    ).toEqual([
+      "adminRequiredGroup must not be empty in production; set the Cognito group that may use /admin",
+    ]);
+    const config = resolveStageConfig({
+      stage: "staging",
+      placeholders: true,
+      values: { adminAllowedEmailDomains: "PressW.com, Example.org" },
+    });
+    expect(config.adminAllowedEmailDomains).toEqual([
+      "pressw.com",
+      "example.org",
+    ]);
+    expect(
+      problems({
+        stage: "staging",
+        placeholders: false,
+        values: {
+          account: "123456789012",
+          cognitoIssuer: "https://i",
+          adminClientId: "a",
+          mcpClientId: "m",
+        },
+      }).some((line) => line.startsWith("adminRequiredGroup is required")),
+    ).toBe(true);
   });
 
   test("refuses an empty required group and a Linear URL in production", () => {
