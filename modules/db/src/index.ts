@@ -10,5 +10,6 @@ export * from "./redelivery";
 export * from "./replies";
 export * as schema from "./schema";
 export * from "./schema";
+export * from "./subscriptions";
 export * from "./triage-data";
 export * from "./triage-jobs";

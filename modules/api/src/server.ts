@@ -6,6 +6,11 @@ import {
 } from "@pw-support/channels";
 import { loadTimingConfig, RESOURCE_NAMES } from "@pw-support/contracts";
 import { createDb } from "@pw-support/db";
+import {
+  createLaptopBackend,
+  jevFromSecrets,
+  loadTriageConfig,
+} from "@pw-support/triage";
 import { createApp } from "./app";
 import { createTokenValidator } from "./auth";
 import { loadConfig } from "./config";
@@ -20,9 +25,17 @@ const validator = createTokenValidator(config.auth, {
     if (reason === "not_configured") console.error("[auth] not configured");
   },
 });
+const mcpValidator = createTokenValidator(
+  { ...config.auth, audiences: config.mcp.audiences },
+  {
+    onReject: (reason) => {
+      if (reason === "not_configured") console.error("[mcp] not configured");
+    },
+  },
+);
 if (!validator.configured) {
   console.error(
-    "[auth] COGNITO_ISSUER and COGNITO_AUDIENCE are not set; /admin rejects every request",
+    "[auth] COGNITO_ISSUER and COGNITO_AUDIENCE are not set; /admin and /mcp reject every request",
   );
 }
 const secrets = createManagedSecrets({
@@ -30,18 +43,32 @@ const secrets = createManagedSecrets({
   client: secretsClient,
   scope: config.secretsScope,
 });
+const storage = createS3Storage(config);
+const timing = loadTimingConfig();
+const triageConfig = loadTriageConfig();
+const wake = createSqsWakeSender({
+  client: createSqsClient(),
+  queueName: process.env.TRIAGE_WAKE_QUEUE || RESOURCE_NAMES.triageWakeQueue,
+});
 const app = createApp({
   db,
   validator,
+  mcpValidator,
   secretWriter: createSecretWriter(secretsClient),
   secrets,
-  storage: createS3Storage(config),
+  storage,
   config,
   linearWebhook: createLinearWebhookIntake({ db, secrets }),
-  timing: loadTimingConfig(),
-  wake: createSqsWakeSender({
-    client: createSqsClient(),
-    queueName: process.env.TRIAGE_WAKE_QUEUE || RESOURCE_NAMES.triageWakeQueue,
+  timing,
+  wake,
+  laptop: createLaptopBackend({
+    db,
+    storage,
+    jev: jevFromSecrets(triageConfig, secrets),
+    config: triageConfig,
+    wake,
+    log: (message, detail) =>
+      console.log(`[laptop] ${message}`, detail ? JSON.stringify(detail) : ""),
   }),
 });
 

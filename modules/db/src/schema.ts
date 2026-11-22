@@ -409,3 +409,21 @@ export const integrations = support.table(
   },
   (t) => [primaryKey({ columns: [t.scope, t.kind] })],
 );
+
+export const subscriptions = support.table(
+  "subscriptions",
+  {
+    id: id(),
+    engineerSub: text("engineer_sub").notNull(),
+    engineerEmail: text("engineer_email"),
+    channelPrefix: text("channel_prefix").notNull(),
+    createdAt: createdAt(),
+  },
+  (t) => [
+    unique("subscriptions_engineer_prefix_uq").on(
+      t.engineerSub,
+      t.channelPrefix,
+    ),
+    index("subscriptions_prefix_idx").on(t.channelPrefix),
+  ],
+);

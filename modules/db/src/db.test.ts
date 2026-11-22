@@ -413,6 +413,7 @@ describe("migrate on an empty database", () => {
         "replies",
         "requests",
         "schema_migrations",
+        "subscriptions",
         "ticket_deliveries",
         "tickets",
         "triage_jobs",

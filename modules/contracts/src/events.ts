@@ -27,6 +27,8 @@ export const eventTypes = [
   "admin.key.minted",
   "admin.key.revoked",
   "admin.integration.updated",
+  "mcp.subscription.added",
+  "mcp.subscription.removed",
 ] as const;
 
 export const eventTypeSchema = z.enum(eventTypes);

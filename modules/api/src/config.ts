@@ -1,6 +1,7 @@
 import {
   ATTACHMENT_LIMITS,
   DEFAULT_ADMIN_DEV_PORT,
+  LOCAL_MCP_CLIENT_ID,
   LOCAL_OIDC_CLIENT_ID,
   RESOURCE_NAMES,
   resolveSecretsScope,
@@ -19,6 +20,11 @@ export interface ApiConfig {
   };
   auth: AuthConfig;
   adminOrigins: string[];
+  mcp: {
+    audiences: string[];
+    perWindow: number;
+    maxBodyBytes: number;
+  };
   admin: {
     maxBodyBytes: number;
     mutationsPerWindow: number;
@@ -49,6 +55,11 @@ function csv(value: string | undefined): string[] {
 export function loadConfig(env: NodeJS.ProcessEnv = process.env): ApiConfig {
   const local = env.NODE_ENV !== "production";
   const stack = resolveStackEnv(env);
+  const adminAudiences = env.COGNITO_AUDIENCE
+    ? csv(env.COGNITO_AUDIENCE)
+    : local
+      ? [LOCAL_OIDC_CLIENT_ID]
+      : [];
   const accessKeyId = env.AWS_ACCESS_KEY_ID ?? (local ? "test" : undefined);
   const secretAccessKey =
     env.AWS_SECRET_ACCESS_KEY ?? (local ? "test" : undefined);
@@ -67,11 +78,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): ApiConfig {
     },
     auth: {
       issuer: env.COGNITO_ISSUER || (local ? stack.localIssuer : undefined),
-      audiences: env.COGNITO_AUDIENCE
-        ? csv(env.COGNITO_AUDIENCE)
-        : local
-          ? [LOCAL_OIDC_CLIENT_ID]
-          : [],
+      audiences: adminAudiences,
       allowedEmailDomains: csv(env.ADMIN_ALLOWED_EMAIL_DOMAINS).map((domain) =>
         domain.toLowerCase(),
       ),
@@ -87,6 +94,15 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): ApiConfig {
             `http://localhost:${env.ADMIN_DEV_PORT || DEFAULT_ADMIN_DEV_PORT}`,
           ]
         : [],
+    mcp: {
+      audiences: env.MCP_AUDIENCE
+        ? csv(env.MCP_AUDIENCE)
+        : local
+          ? [LOCAL_MCP_CLIENT_ID, ...adminAudiences]
+          : adminAudiences,
+      perWindow: positiveInt(env.MCP_RATE_LIMIT_PER_WINDOW, 120),
+      maxBodyBytes: positiveInt(env.MCP_MAX_BODY_BYTES, 256 * 1024),
+    },
     admin: {
       maxBodyBytes: positiveInt(env.ADMIN_MAX_BODY_BYTES, 16 * 1024),
       mutationsPerWindow: positiveInt(env.ADMIN_RATE_LIMIT_PER_WINDOW, 60),

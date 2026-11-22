@@ -15,6 +15,8 @@ export const channelKeySchema = z.string().refine(
   { message: "Channel key must be client[:project[:user]]" },
 );
 
+export const channelPrefixSchema = z.string().max(200).pipe(channelKeySchema);
+
 export interface ChannelKeyParts {
   client: string;
   project?: string;

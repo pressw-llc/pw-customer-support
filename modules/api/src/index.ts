@@ -8,6 +8,7 @@ export {
   type TokenValidator,
 } from "./auth";
 export { type ApiConfig, loadConfig } from "./config";
+export { type LaptopBackend, type McpDeps, mcpRoutes } from "./mcp";
 export {
   createS3Storage,
   type ObjectStorage,

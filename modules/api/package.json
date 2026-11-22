@@ -15,13 +15,15 @@
     "@aws-sdk/client-s3": "^3.717.0",
     "@aws-sdk/client-secrets-manager": "^3.717.0",
     "@aws-sdk/client-sqs": "^3.717.0",
+    "@modelcontextprotocol/sdk": "1.32.2",
     "@pw-support/channels": "workspace:*",
     "@pw-support/contracts": "workspace:*",
     "@pw-support/db": "workspace:*",
+    "@pw-support/triage": "workspace:*",
     "hono": "^4.6.14",
+    "jose": "6.2.3",
     "postgres": "^3.4.9",
-    "zod": "^3.24.1",
-    "jose": "6.2.3"
+    "zod": "^3.24.1"
   },
   "devDependencies": {
     "drizzle-orm": "^0.36.4"
