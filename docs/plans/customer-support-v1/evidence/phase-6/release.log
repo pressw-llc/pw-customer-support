@@ -1,12 +1,12 @@
 $ bun scripts/validate/phase-6-release.ts
-PASS start two Verdaccio registries: http://127.0.0.1:51710 and http://127.0.0.1:51711 (the second refuses publishing for now)
+PASS start two Verdaccio registries: http://127.0.0.1:60418 and http://127.0.0.1:60419 (the second refuses publishing for now)
 PASS publish refuses to start without both tokens
-PASS a failing second registry leaves one registry published and prints the retry command: integrity sha512-0v0J1lIfTQlDqvNv0...
+PASS a failing second registry leaves one registry published and prints the retry command: integrity sha512-DU5qypv9R+sO2TYFX...
 PASS a changed build with the same version is refused before anything is sent
-PASS the retry publishes the identical tarball without rebuilding: both hold sha512-0v0J1lIfTQlDqvNv0...
-PASS both registries hold the same tarball: shasum 8d6ccf70849dd7536dc89002b34a2345add15061
-PASS a fresh app installs and builds from registry A: @pressw-llc/support-react@0.1.0 installed from http://127.0.0.1:51710
-PASS a fresh app installs and builds from registry B: @pressw-llc/support-react@0.1.0 installed from http://127.0.0.1:51711
+PASS the retry publishes the identical tarball without rebuilding: both hold sha512-DU5qypv9R+sO2TYFX...
+PASS both registries hold the same tarball: shasum 7c3fb0bb839af692ad87feec3d4439ea2cee6109
+PASS a fresh app installs and builds from registry A: @pressw-llc/support-react@0.1.0 installed from http://127.0.0.1:60418
+PASS a fresh app installs and builds from registry B: @pressw-llc/support-react@0.1.0 installed from http://127.0.0.1:60419
 PASS an unchanged tree rebuilds to the same tarball and a second publish is a no-op
 PASS publish plan against the real registry URLs, no tokens: 
 [release] tarball 103.7 kB, unpacked 414.0 kB, 17 files
