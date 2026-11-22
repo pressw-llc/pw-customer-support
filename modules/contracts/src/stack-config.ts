@@ -21,16 +21,6 @@ function nonEmpty(value: string | undefined): string | undefined {
   return value === undefined || value === "" ? undefined : value;
 }
 
-export function databaseUrlFromParts(env: EnvLike): string | undefined {
-  const host = nonEmpty(env.DB_HOST);
-  const user = nonEmpty(env.DB_USER);
-  const password = nonEmpty(env.DB_PASSWORD);
-  if (!host || !user || !password) return undefined;
-  const port = nonEmpty(env.DB_PORT) ?? "5432";
-  const name = nonEmpty(env.DB_NAME) ?? "support";
-  return `postgres://${encodeURIComponent(user)}:${encodeURIComponent(password)}@${host}:${port}/${name}?sslmode=require`;
-}
-
 export function resolveStackEnv(env: EnvLike = process.env): StackEnv {
   const postgresPort =
     nonEmpty(env.SUPPORT_POSTGRES_PORT) ?? DEFAULT_POSTGRES_PORT;
@@ -44,7 +34,6 @@ export function resolveStackEnv(env: EnvLike = process.env): StackEnv {
     localIssuer: `http://127.0.0.1:${oidcPort}/${LOCAL_OIDC_ISSUER_ID}`,
     databaseUrl:
       nonEmpty(env.DATABASE_URL) ??
-      databaseUrlFromParts(env) ??
       `postgres://support:support@127.0.0.1:${postgresPort}/support`,
     awsEndpointUrl:
       nonEmpty(env.AWS_ENDPOINT_URL) ?? `http://127.0.0.1:${localstackPort}`,

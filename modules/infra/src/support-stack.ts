@@ -16,7 +16,7 @@ import * as s3 from "aws-cdk-lib/aws-s3";
 import * as secretsmanager from "aws-cdk-lib/aws-secretsmanager";
 import type { Construct } from "constructs";
 import { AWS_REGION, type StageConfig } from "./config";
-import { DB_NAME, SupportDatabase } from "./database";
+import { DB_NAME, DB_USER, SupportDatabase } from "./database";
 import { LOG_RETENTION, SupportNetwork } from "./network";
 import { SupportQueues } from "./queues";
 import { SecretsAccess } from "./secrets-access";
@@ -120,8 +120,10 @@ export class SupportStack extends RegionalStack {
       image: ecs.ContainerImage.fromDockerImageAsset(this.apiImage),
       command: MIGRATE_COMMAND,
       readonlyRootFilesystem: false,
-      environment: { NODE_ENV: "production", DB_NAME },
-      secrets: databaseSecrets(this.database),
+      environment: {
+        NODE_ENV: "production",
+        ...databaseEnvironment(this.database),
+      },
       logging: ecs.LogDrivers.awsLogs({
         streamPrefix: "migrate",
         logGroup: new logs.LogGroup(this, "MigrationLogs", {
@@ -150,14 +152,17 @@ export class SupportStack extends RegionalStack {
   }
 }
 
-export function databaseSecrets(
+export const RDS_CA_PATH = "/etc/ssl/rds/us-east-1-bundle.pem";
+
+export function databaseEnvironment(
   database: SupportDatabase,
-): Record<string, ecs.Secret> {
+): Record<string, string> {
   return {
-    DB_HOST: ecs.Secret.fromSecretsManager(database.secret, "host"),
-    DB_PORT: ecs.Secret.fromSecretsManager(database.secret, "port"),
-    DB_USER: ecs.Secret.fromSecretsManager(database.secret, "username"),
-    DB_PASSWORD: ecs.Secret.fromSecretsManager(database.secret, "password"),
+    DB_HOST: database.cluster.clusterEndpoint.hostname,
+    DB_PORT: database.cluster.clusterEndpoint.port.toString(),
+    DB_USER: DB_USER,
+    DB_NAME,
+    DB_SECRET_ARN: database.secret.secretArn,
   };
 }
 

@@ -9,6 +9,7 @@ import { Match, Template } from "aws-cdk-lib/assertions";
 import {
   API_PORT,
   LAMBDA_BATCH_SIZE,
+  LAMBDA_RDS_CA_PATH,
   LAMBDA_TIMEOUT_SECONDS,
   WORKER_COMMAND,
   WORKER_MEMORY_MIB,
@@ -208,16 +209,12 @@ describe("foundation stack", () => {
     });
   });
 
-  test("runs the migration as a one-off task with the database secrets", () => {
+  test("runs the migration as a one-off task that reads the database secret by ARN", () => {
     const migrate = containerEnv(foundationT, "migrate");
     expect(migrate.Command).toEqual(MIGRATE_COMMAND);
     expect(envOf(migrate).NODE_ENV).toBe("production");
-    expect(migrate.Secrets.map((secret) => secret.Name).sort()).toEqual([
-      "DB_HOST",
-      "DB_PASSWORD",
-      "DB_PORT",
-      "DB_USER",
-    ]);
+    expect(envOf(migrate).DB_SECRET_ARN).toBeDefined();
+    expect(migrate.Secrets ?? []).toEqual([]);
     expect(foundationT.findResources("AWS::ECS::Service")).toEqual({});
     foundationT.hasOutput("MigrationTaskDefinitionArn", Match.anyValue());
     foundationT.hasOutput("ClusterName", Match.anyValue());
@@ -365,15 +362,7 @@ describe("API service", () => {
         /LINEAR_API_URL|AWS_ENDPOINT_URL|KEY|TOKEN|PASSWORD/,
       );
     }
-    expect(api.Secrets.map((secret) => secret.Name).sort()).toEqual([
-      "DB_HOST",
-      "DB_PASSWORD",
-      "DB_PORT",
-      "DB_USER",
-    ]);
-    for (const secret of api.Secrets) {
-      expect(JSON.stringify(secret.ValueFrom)).toContain("Ref");
-    }
+    expect(api.Secrets ?? []).toEqual([]);
   });
 
   test("runs in private subnets with rolling deploys and a circuit breaker", () => {
@@ -431,12 +420,8 @@ describe("worker service", () => {
       Memory: String(WORKER_MEMORY_MIB),
       RequiresCompatibilities: ["FARGATE"],
     });
-    expect(worker.Secrets.map((secret) => secret.Name).sort()).toEqual([
+    expect(worker.Secrets.map((secret) => secret.Name)).toEqual([
       "ANTHROPIC_API_KEY",
-      "DB_HOST",
-      "DB_PASSWORD",
-      "DB_PORT",
-      "DB_USER",
     ]);
     foundationT.hasResourceProperties("AWS::SecretsManager::Secret", {
       Name: ANTHROPIC_SECRET_NAME,
@@ -497,6 +482,91 @@ describe("linear-outbound Lambda", () => {
       "HealthyHostCount",
       "RunningTaskCount",
     ]);
+  });
+});
+
+describe("database credentials", () => {
+  const consumers = () => {
+    const functions = Object.values(
+      appT.findResources("AWS::Lambda::Function"),
+    ).filter((fn) => fn.Properties.PackageType === "Image");
+    return [
+      envOf(containerEnv(foundationT, "migrate")),
+      envOf(containerEnv(appT, "web")),
+      envOf(containerEnv(appT, "worker")),
+      Object.fromEntries(
+        Object.entries(functions[0]?.Properties.Environment.Variables),
+      ),
+    ];
+  };
+
+  test("no task definition or function receives the password as an environment value or secret", () => {
+    for (const template of [foundationT, appT]) {
+      const text = JSON.stringify(
+        Object.values(
+          template.toJSON().Resources as Record<string, { Type: string }>,
+        ).filter(
+          (resource) =>
+            !["AWS::RDS::DBCluster", "AWS::SecretsManager::Secret"].includes(
+              resource.Type,
+            ),
+        ),
+      );
+      expect(text).not.toContain("DB_PASSWORD");
+      expect(text).not.toContain(":password::");
+      for (const task of Object.values(
+        template.findResources("AWS::ECS::TaskDefinition"),
+      )) {
+        for (const container of task.Properties.ContainerDefinitions) {
+          for (const secret of container.Secrets ?? []) {
+            expect(JSON.stringify(secret.ValueFrom)).not.toContain(
+              "Secret5E91",
+            );
+            expect(secret.Name).toBe("ANTHROPIC_API_KEY");
+          }
+        }
+      }
+    }
+  });
+
+  test("the migration task, API, worker, and Lambda all receive the secret ARN and the verified-TLS settings", () => {
+    for (const env of consumers()) {
+      expect(env.DB_SECRET_ARN).toBeDefined();
+      expect(env.DB_HOST).toBeDefined();
+      expect(env.DB_USER).toBe("support");
+      expect(env.DATABASE_URL).toBeUndefined();
+    }
+    expect(consumers()[3]?.RDS_CA_BUNDLE_PATH).toBe(LAMBDA_RDS_CA_PATH);
+  });
+
+  test("each role reads exactly the database secret and no wildcard secret", () => {
+    for (const [template, rolePart] of [
+      [foundationT, "MigrationTask"],
+      [appT, "ApiTaskRole"],
+      [appT, "WorkerTaskRole"],
+      [appT, "LinearOutbound"],
+    ] as const) {
+      const policies = Object.values(
+        template.findResources("AWS::IAM::Policy"),
+      ).filter((policy) => JSON.stringify(policy).includes(rolePart));
+      const reads = policies.flatMap((policy) =>
+        policy.Properties.PolicyDocument.Statement.filter(
+          (statement: Statement) =>
+            asList(statement.Action).includes("secretsmanager:GetSecretValue"),
+        ),
+      );
+      const dbReads = reads.filter((statement: Statement) =>
+        JSON.stringify(statement.Resource).includes("DatabaseClusterSecret"),
+      );
+      expect(dbReads.length, rolePart).toBeGreaterThan(0);
+      for (const statement of dbReads) {
+        expect(asList(statement.Action).sort()).toEqual([
+          "secretsmanager:DescribeSecret",
+          "secretsmanager:GetSecretValue",
+        ]);
+        expect(statement.Resource).not.toBe("*");
+      }
+    }
   });
 });
 

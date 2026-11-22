@@ -44,9 +44,10 @@ The pool lives in the `pw-telemetry-platform` account. Create two app clients on
 - [ ] The admin origin is the CloudFront URL that step 6 prints as `AdminUrl`. Create the admin client with the temporary callback `https://localhost/auth/callback`. Replace it with the exact URLs after step 6.
 - [ ] Allow the scopes `openid`, `profile`, and `email` on both clients.
 - [ ] Note the pool issuer `https://cognito-idp.us-east-1.amazonaws.com/<poolId>` and the two client ids.
-- [ ] Create a Cognito group for support staff, for example `support-staff`. Add the engineers. The API requires this group on `/mcp`.
+- [ ] Create two Cognito groups. `support-staff` holds the engineers who use the laptop plugin. The API requires it on `/mcp`. `support-admins` holds the PressW admins who sign in to the admin site. The API requires it on `/admin`, which can write integration secrets. Add people to the group they need. Keep `support-admins` small.
+- [ ] The admin site sends the ID token. The ID token carries `cognito:groups` and `email`, so the group check passes. The plugin sends the access token to `/mcp`, and the same group claim applies.
 - [ ] Note the hosted UI domain. Set `adminLogoutUrl` to `https://<hosted UI domain>/logout?client_id={client_id}&logout_uri={logout_uri}`.
-- [ ] Put `cognitoIssuer`, `adminClientId`, `mcpClientId`, `mcpRequiredGroup`, and `adminLogoutUrl` in the stage file.
+- [ ] Put `cognitoIssuer`, `adminClientId`, `mcpClientId`, `mcpRequiredGroup`, `adminRequiredGroup`, and `adminLogoutUrl` in the stage file. Add `adminAllowedEmailDomains` to also limit admin sign-in by email domain.
 
 ### 3. Anthropic agent and Jev
 
@@ -176,6 +177,27 @@ An alarm on a DLQ means a message failed five times.
 - A job that failed three cloud attempts completes as human triage. The ticket carries the human triage label.
 - A held reply waits for `@confirm` from its author in the Linear thread. A hold expires after its lifetime and the next dispatcher tick marks it expired. The admin request detail shows held and flagged replies.
 - A comment that never reached the widget needs a Linear webhook check. Open Linear webhooks and read the delivery log. A 401 means the signing secret differs from the saved one.
+
+## Production settings that must be set
+
+The API reads blank settings as off. The stage config makes each one mandatory or justifies the default.
+
+| Setting | Production rule |
+| --- | --- |
+| `ADMIN_REQUIRED_GROUP`, `ADMIN_ALLOWED_EMAIL_DOMAINS` | `adminRequiredGroup` is mandatory in every stage. The API also answers 503 `admin_not_configured` on every `/admin` route when neither is set |
+| `MCP_REQUIRED_GROUP`, `MCP_AUDIENCE` | `mcpRequiredGroup` is mandatory in production. The API answers 503 on `/mcp` routes when either is missing |
+| `COGNITO_ISSUER`, `COGNITO_AUDIENCE` | Mandatory. The admin token validator rejects every request without them |
+| `ADMIN_ORIGINS` | The stack sets it to the admin CloudFront origin plus `extraAdminOrigins`. It is never blank |
+| `DB_SECRET_ARN`, `DB_HOST` | Set by the stack. The API refuses to start a database client in production without them and refuses `DATABASE_URL` |
+| `LINEAR_WEBHOOK_SECRET` | Saved through the admin Integrations page. The webhook route answers 503 until a secret exists, so it fails closed |
+| Rate limits (`RATE_LIMIT_*`, `MCP_RATE_LIMIT_PER_WINDOW`, `ADMIN_RATE_LIMIT_PER_WINDOW`) | The defaults are safe. They are not blank, so they stay unset in the stack |
+| `LINEAR_API_URL` | Ignored in production and refused by the stage config |
+
+## Database credentials and TLS
+
+The database password rotates every 30 days. The API, worker, migration task, and Lambda hold only the secret ARN. Each new connection reads the password from Secrets Manager. A five minute cache applies, and a connection that fails after a rotation refreshes it, so the next connection uses the new password with no restart.
+
+Production connections verify the server certificate against the RDS CA bundle that the image carries at `/etc/ssl/rds/us-east-1-bundle.pem`. The Dockerfile downloads the bundle from the AWS trust store and pins its SHA-256. When AWS publishes a new bundle, the image build fails on the checksum. Download the new bundle, check its source, and update the pinned checksum in `Dockerfile`.
 
 ## Alarms
 

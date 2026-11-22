@@ -131,10 +131,12 @@ export function adminRoutes(deps: AdminDeps): Hono<AdminEnv> {
       exposeHeaders: ["Retry-After", "Content-Disposition"],
       maxAge: 600,
     }),
-    (c, next) =>
-      config.admin.disabled
-        ? c.json({ error: "admin_not_configured" }, 503)
-        : next(),
+    async (c, next) => {
+      if (config.admin.disabled) {
+        return c.json({ error: "admin_not_configured" }, 503);
+      }
+      return next();
+    },
     requireStaff(deps.validator),
     bodyLimit({
       maxSize: config.admin.maxBodyBytes,

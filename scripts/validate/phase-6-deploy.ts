@@ -25,7 +25,7 @@ import {
   S3Client,
 } from "@aws-sdk/client-s3";
 import {
-  GetSecretValueCommand,
+  PutSecretValueCommand,
   SecretsManagerClient,
 } from "@aws-sdk/client-secrets-manager";
 import {
@@ -42,11 +42,12 @@ import {
 } from "@pw-support/contracts";
 import {
   closeDb,
+  createCredentialsProvider,
   createDb,
   ensureProject,
+  secretsManagerFetcher,
   setProjectLinearTeam,
 } from "@pw-support/db";
-import { hydrateDatabaseEnv } from "../../pipelines/linear-outbound/lambda-entries/db-secret";
 import { runSmoke } from "../smoke/lib";
 import { freePort } from "./free-port";
 import {
@@ -403,19 +404,29 @@ try {
   );
 
   await steps.run(
-    "the deployed DB secret hydrates the Lambda database environment",
+    "the credentials provider reads the deployed DB secret by ARN and picks up a new value",
     async () => {
-      const env: Record<string, string | undefined> = {
-        DB_SECRET_ARN: state.outputs.DbSecret,
-      };
-      await hydrateDatabaseEnv(env, async (id) => {
-        const value = await secrets.send(
-          new GetSecretValueCommand({ SecretId: id }),
-        );
-        return value.SecretString;
+      const provider = createCredentialsProvider({
+        fetchSecret: secretsManagerFetcher(
+          state.outputs.DbSecret as string,
+          secrets,
+        ),
       });
-      assert(env.DB_USER && env.DB_PASSWORD, "credentials were not copied");
-      return `user ${env.DB_USER}, password length ${env.DB_PASSWORD?.length}`;
+      const first = await provider.get();
+      assert(first.username && first.password, "no credentials");
+      await secrets.send(
+        new PutSecretValueCommand({
+          SecretId: state.outputs.DbSecret as string,
+          SecretString: JSON.stringify({
+            username: first.username,
+            password: "rotated-by-rehearsal",
+          }),
+        }),
+      );
+      provider.invalidate();
+      const second = await provider.get();
+      assert(second.password === "rotated-by-rehearsal", "rotation not seen");
+      return `user ${first.username}, a new value is read after invalidate`;
     },
   );
 
@@ -629,6 +640,40 @@ try {
         "{{.Size}}",
       ]);
       return `user bun, NODE_ENV=production, no @playwright or @biomejs, ${(Number(size.out) / 1e6).toFixed(0)} MB`;
+    },
+  );
+
+  await steps.run(
+    "the image carries the RDS CA bundle and production refuses DATABASE_URL",
+    async () => {
+      const ca = await exec([
+        "docker",
+        "run",
+        "--rm",
+        API_IMAGE,
+        "sh",
+        "-c",
+        "grep -c 'BEGIN CERTIFICATE' /etc/ssl/rds/us-east-1-bundle.pem",
+      ]);
+      assert(Number(ca.out.trim()) >= 1, `no CA certificates: ${ca.out}`);
+      const refused = await exec([
+        "docker",
+        "run",
+        "--rm",
+        "-e",
+        "NODE_ENV=production",
+        "-e",
+        "DATABASE_URL=postgres://x:y@host/db",
+        API_IMAGE,
+        "bun",
+        "scripts/db-migrate.ts",
+      ]);
+      assert(refused.code !== 0, "production accepted DATABASE_URL");
+      assert(
+        refused.out.includes("not allowed in production"),
+        refused.out.slice(-400),
+      );
+      return `${ca.out.trim()} CA certificates readable by the bun user; DATABASE_URL refused`;
     },
   );
 

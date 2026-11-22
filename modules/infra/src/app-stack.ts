@@ -22,11 +22,10 @@ import * as s3 from "aws-cdk-lib/aws-s3";
 import type { Construct } from "constructs";
 import { AdminSite } from "./admin-site";
 import { AWS_REGION, type StageConfig } from "./config";
-import { DB_NAME } from "./database";
 import { LOG_RETENTION } from "./network";
 import { RegionalStack } from "./stack-base";
 import {
-  databaseSecrets,
+  databaseEnvironment,
   grantServiceRole,
   imageAssetOptions,
   REPO_ROOT,
@@ -34,6 +33,7 @@ import {
 } from "./support-stack";
 
 export const API_PORT = 8787;
+export const LAMBDA_RDS_CA_PATH = "/var/task/rds-ca.pem";
 export const DB_PORT = 5432;
 export const LAMBDA_BATCH_SIZE = 5;
 export const LAMBDA_TIMEOUT_SECONDS = Math.floor(
@@ -97,7 +97,7 @@ export class SupportAppStack extends RegionalStack {
     const apiEnvironment: Record<string, string> = {
       NODE_ENV: "production",
       API_PORT: String(API_PORT),
-      DB_NAME,
+      ...databaseEnvironment(foundation.database),
       ATTACHMENTS_BUCKET: foundation.attachmentsBucket.bucketName,
       TRIAGE_WAKE_QUEUE: RESOURCE_NAMES.triageWakeQueue,
       COGNITO_ISSUER: config.cognitoIssuer,
@@ -149,7 +149,6 @@ export class SupportAppStack extends RegionalStack {
           containerPort: API_PORT,
           taskRole: apiRole,
           environment: apiEnvironment,
-          secrets: databaseSecrets(foundation.database),
           logDriver: ecs.LogDrivers.awsLogs({
             streamPrefix: "api",
             logGroup: logGroup("ApiLogs"),
@@ -207,14 +206,13 @@ export class SupportAppStack extends RegionalStack {
       memoryLimitMiB: WORKER_MEMORY_MIB,
       environment: {
         NODE_ENV: "production",
-        DB_NAME,
+        ...databaseEnvironment(foundation.database),
         ATTACHMENTS_BUCKET: foundation.attachmentsBucket.bucketName,
         TRIAGE_WAKE_QUEUE: RESOURCE_NAMES.triageWakeQueue,
         TRIAGE_AGENT_ID: config.triageAgentId,
         BUN_JSC_forceRAMSize: String(WORKER_HEAP_BYTES),
       },
       secrets: {
-        ...databaseSecrets(foundation.database),
         ANTHROPIC_API_KEY: ecs.Secret.fromSecretsManager(
           foundation.anthropicSecret,
         ),
@@ -250,8 +248,8 @@ export class SupportAppStack extends RegionalStack {
         logGroup: logGroup("LinearOutboundLogs"),
         environment: {
           NODE_ENV: "production",
-          DB_SECRET_ARN: foundation.database.secret.secretArn,
-          DB_NAME,
+          ...databaseEnvironment(foundation.database),
+          RDS_CA_BUNDLE_PATH: LAMBDA_RDS_CA_PATH,
         },
       },
     );

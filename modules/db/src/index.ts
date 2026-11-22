@@ -1,6 +1,7 @@
 export * from "./admin";
 export * from "./client";
 export * from "./comment-refresh";
+export * from "./credentials";
 export * from "./events";
 export * from "./intake";
 export * from "./laptop-credentials";

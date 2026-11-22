@@ -12,6 +12,10 @@ FROM oven/bun:1.3.14-slim AS runtime
 RUN apt-get update \
     && apt-get upgrade -y --no-install-recommends \
     && rm -rf /var/lib/apt/lists/*
+# The RDS CA bundle lets the database client verify the server certificate.
+# Source: https://truststore.pki.rds.amazonaws.com. A new bundle changes the checksum and fails the build until it is updated here.
+ADD --chmod=0644 --checksum=sha256:b1711d12bae51838581281e23b6cb97b1074016873b4dafc80ed14002462dd77 \
+    https://truststore.pki.rds.amazonaws.com/us-east-1/us-east-1-bundle.pem /etc/ssl/rds/us-east-1-bundle.pem
 WORKDIR /app
 ENV NODE_ENV=production
 COPY package.json bun.lock .npmrc ./
@@ -62,4 +66,5 @@ RUN bun build pipelines/linear-outbound/lambda-entries/production.ts \
 
 FROM public.ecr.aws/lambda/nodejs:22 AS lambda
 COPY --from=lambda-bundle /out/index.mjs ${LAMBDA_TASK_ROOT}/index.mjs
+COPY --from=lambda-bundle /etc/ssl/rds/us-east-1-bundle.pem ${LAMBDA_TASK_ROOT}/rds-ca.pem
 CMD ["index.handler"]

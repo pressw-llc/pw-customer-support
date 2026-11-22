@@ -59,7 +59,7 @@ description: Work in the api module: the Hono HTTP server on Bun. Use when you a
 - `job_claim` extends the lease after preparation and returns `lease_lost` with no content when that fails. Never return content for a job that this claim no longer holds.
 - Accept only the `MCP_AUDIENCE` client ids on `/mcp`. A refused claim returns `refused`. A refused result returns paths and short messages and never the value. A claim or result for another engineer's job answers like a stale claim.
 - The laptop backend (`prepare`, `submit`) implements the `LaptopBackend` port from this module. `@pw-support/triage` provides it and `apps/server` wires it through `createApp` deps. This module never depends on triage and has no code path that reads an attachment for a laptop.
-- With `NODE_ENV=production`, `loadConfig` drops every local default: no mock issuer, no test credentials, no local endpoint. `productionWarnings` flags an unset `MCP_REQUIRED_GROUP`, and the deploy config requires it. The database URL comes from `DATABASE_URL` or from `DB_HOST`, `DB_USER`, and `DB_PASSWORD` through `databaseUrlFromParts` in contracts.
+- With `NODE_ENV=production`, `loadConfig` drops every local default: no mock issuer, no test credentials, no local endpoint. `productionWarnings` flags an unset `MCP_REQUIRED_GROUP`, and the deploy config requires it. Production needs `ADMIN_REQUIRED_GROUP` or `ADMIN_ALLOWED_EMAIL_DOMAINS`, or every `/admin` route answers 503 `admin_not_configured`. The admin app sends the ID token, which carries `cognito:groups` and `email`. The database connection is built by `@pw-support/db` from `DB_SECRET_ARN`.
 - Import other modules only through their package entrypoint.
 
 ## Tests

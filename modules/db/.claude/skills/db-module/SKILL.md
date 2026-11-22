@@ -41,6 +41,7 @@ description: Work in the db module: Postgres schema, hand-written migrations, th
 - `support.projects.severe_cc_emails` holds the CC list for a project.
 - `laptop-credentials.ts` owns `support.watcher_credentials` and the job submit credential hash. Store only a SHA-256 hash. A claim and a reopen clear `submit_token_hash`. A renew needs `lease_expires_at > now`.
 - `subscriptions.ts` owns `support.subscriptions`: one row per engineer subject and channel prefix. Match a prefix by whole segment with `channel_key = prefix OR left(channel_key, length(prefix) + 1) = prefix || ':'`. Never use `LIKE`. `listJobOffers` and `isJobOffered` share one predicate: open, intake done, no earlier laptop claim, and a matching subscription. `queryRequestSummaries` and `getRequestDetailForEngineer` return state only: ids, status, timestamps, counts, reply hold and flag states, and a ticket link without its title slug. Never return a body, a preview, a filename, or a title from them. Subscription changes append `mcp.subscription.*` events in the same transaction.
+- `client.ts` builds the connection from `connectionPlan`. Production needs `DB_SECRET_ARN` and `DB_HOST`, refuses `DATABASE_URL`, and verifies the server certificate against the RDS CA bundle. `credentials.ts` reads the password from Secrets Manager at connection time with a five minute cache, and refetches after a failed attempt. Never resolve the password once at start, because the secret rotates.
 - Test against the Compose Postgres. Do not mock the database.
 
 ## Commands
