@@ -1,12 +1,11 @@
 import type { ClaudeRunner, RunReport } from "./runner";
-import type { SupportApi } from "./support-api";
+import { RateLimitedError, type SupportApi } from "./support-api";
 
 export type LogDetail = Record<string, string | number | boolean | null>;
 
 export interface WatcherDeps {
   api: SupportApi;
   runner: ClaudeRunner;
-  getToken: (minValiditySeconds: number) => Promise<string>;
   sleep: (ms: number, signal: AbortSignal) => Promise<void>;
   log: (event: string, detail?: LogDetail) => void;
   pollMs: number;
@@ -20,16 +19,19 @@ export type TickResult =
   | { kind: "nothing_to_do"; reason: string }
   | { kind: "completed" }
   | { kind: "refused" }
-  | { kind: "lapsed"; why: "timeout" | "tool_set" | "aborted" | "no_outcome" };
+  | {
+      kind: "lapsed";
+      why: "timeout" | "tool_set" | "guard" | "aborted" | "no_outcome";
+    };
 
 const MIN_HEARTBEAT_MS = 1000;
 const MAX_BACKOFF_MS = 120_000;
-const TOKEN_MARGIN_SECONDS = 60;
 
 function lapseReason(
   report: RunReport,
-): "timeout" | "tool_set" | "aborted" | "no_outcome" {
+): "timeout" | "tool_set" | "guard" | "aborted" | "no_outcome" {
   if (report.timedOut) return "timeout";
+  if (report.violation?.kind.startsWith("foreign_")) return "guard";
   if (!report.toolSetOk) return "tool_set";
   if (report.aborted) return "aborted";
   return "no_outcome";
@@ -73,14 +75,11 @@ export async function tick(
     Math.max(MIN_HEARTBEAT_MS, (claim.leaseSeconds * 1000) / 3),
   );
   try {
-    const accessToken = await deps.getToken(
-      Math.ceil(deps.runTimeoutMs / 1000) + TOKEN_MARGIN_SECONDS,
-    );
     const report = await deps.runner.run(
       {
         jobId: claim.jobId,
         claimToken: claim.claimToken,
-        accessToken,
+        submitToken: claim.submitToken,
         content: claim.content,
       },
       run.signal,
@@ -90,6 +89,7 @@ export async function tick(
       job: claim.jobId,
       tools: report.tools?.join(",") ?? null,
       toolSetOk: report.toolSetOk,
+      violation: report.violation?.kind ?? null,
       exitCode: report.exitCode,
       turns: report.turns,
       permissionDenials: report.permissionDenials,
@@ -125,14 +125,29 @@ export async function runWatcher(
     try {
       const result = await tick(deps, signal);
       failures = 0;
-      if (result.kind !== "idle") wait = MIN_HEARTBEAT_MS;
+      if (result.kind === "completed" || result.kind === "refused") {
+        wait = MIN_HEARTBEAT_MS;
+      }
     } catch (error) {
-      failures += 1;
-      wait = Math.min(MAX_BACKOFF_MS, deps.pollMs * 2 ** Math.min(failures, 6));
-      deps.log("tick failed", {
-        error: error instanceof Error ? error.name : "unknown",
-        failures,
-      });
+      if (error instanceof RateLimitedError) {
+        wait = Math.min(
+          MAX_BACKOFF_MS,
+          Math.max(deps.pollMs, error.retryAfterSeconds * 1000),
+        );
+        deps.log("rate limited", {
+          retryAfterSeconds: error.retryAfterSeconds,
+        });
+      } else {
+        failures += 1;
+        wait = Math.min(
+          MAX_BACKOFF_MS,
+          deps.pollMs * 2 ** Math.min(failures, 6),
+        );
+        deps.log("tick failed", {
+          error: error instanceof Error ? error.name : "unknown",
+          failures,
+        });
+      }
     }
     if (signal.aborted) break;
     await deps.sleep(wait, signal);

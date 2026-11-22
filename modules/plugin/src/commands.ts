@@ -10,7 +10,9 @@ import {
   loopbackLogin,
   NotLoggedInError,
 } from "./oauth";
+import { revokeWatcher } from "./support-api";
 import { createFileTokenStore } from "./token-store";
+import { createWatcherCredentialStore } from "./watcher-credential";
 
 type EnvLike = Record<string, string | undefined>;
 
@@ -21,6 +23,7 @@ export interface CliIo {
   openUrl: (url: string) => void | Promise<void>;
   fetcher?: typeof fetch;
   cliPath: string;
+  overrides?: Partial<PluginConfig>;
 }
 
 export const CLI_PATH = join(dirname(fileURLToPath(import.meta.url)), "cli.ts");
@@ -116,15 +119,46 @@ async function watch(args: string[], config: PluginConfig, io: CliIo) {
   }
   if (sub === "run") {
     const { runWatchCommand } = await import("./run-watch");
+    const nonceAt = args.indexOf("--nonce");
     await runWatchCommand({
       config,
       cliPath: io.cliPath,
       fetcher: io.fetcher,
-      env: io.env,
+      nonce: nonceAt >= 0 ? args[nonceAt + 1] : undefined,
     });
     return;
   }
   throw new LoginError("usage: pw-support watch start|stop|status|run");
+}
+
+async function logout(config: PluginConfig, io: CliIo) {
+  const credentials = createWatcherCredentialStore(config.configDir);
+  const credential = credentials.read();
+  let revocation: "none" | "revoked" | "failed" = "none";
+  if (credential) {
+    try {
+      const revoked = await revokeWatcher(
+        {
+          apiUrl: config.apiUrl,
+          token: await currentToken(config, io),
+          fetcher: io.fetcher,
+        },
+        credential.machineId,
+      );
+      revocation = revoked ? "revoked" : "failed";
+    } catch {
+      revocation = "failed";
+    }
+  }
+  await stopDaemon(daemonPaths(config.configDir));
+  credentials.clear();
+  createFileTokenStore(config.configDir).clear();
+  io.out("Logged out.");
+  if (revocation === "failed") {
+    io.err(
+      "The server did not confirm the watcher credential revocation. Run pw-support login and pw-support logout again while online.",
+    );
+  }
 }
 
 async function currentToken(config: PluginConfig, io: CliIo) {
@@ -140,15 +174,14 @@ export async function runCli(
   io: CliIo = defaultIo(),
 ): Promise<number | undefined> {
   const [command, ...args] = argv;
-  const config = loadPluginConfig(io.env);
+  const config = loadPluginConfig(io.env, io.overrides);
   try {
     switch (command) {
       case "login":
         await login(args, config, io);
         return 0;
       case "logout":
-        createFileTokenStore(config.configDir).clear();
-        io.out("Logged out.");
+        await logout(config, io);
         return 0;
       case "token":
         io.out(await currentToken(config, io));
@@ -164,8 +197,11 @@ export async function runCli(
         await watch(args, config, io);
         return 0;
       case "submit-server": {
-        const { runSubmitServerFromEnv } = await import("./submit-main");
-        await runSubmitServerFromEnv(io.env);
+        const { runSubmitServerFromFile } = await import("./submit-main");
+        const path = args[0];
+        if (!path)
+          throw new LoginError("usage: pw-support submit-server <config>");
+        await runSubmitServerFromFile(path);
         return undefined;
       }
       default:

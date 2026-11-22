@@ -73,12 +73,14 @@ beforeEach(() => {
   dir = mkdtempSync(join(tmpdir(), "pw-support-oauth-"));
   clock = 1_000_000_000_000;
   config = {
-    ...loadPluginConfig({
-      PW_SUPPORT_ISSUER: issuer.url,
-      PW_SUPPORT_CONFIG_DIR: dir,
-      PW_SUPPORT_LOGIN_PORT: "0",
-      PW_SUPPORT_CLIENT_ID: "client-1",
-    }),
+    ...loadPluginConfig(
+      {
+        PW_SUPPORT_ISSUER: issuer.url,
+        PW_SUPPORT_CONFIG_DIR: dir,
+        PW_SUPPORT_CLIENT_ID: "client-1",
+      },
+      { loginPort: 0 },
+    ),
   };
   store = createFileTokenStore(dir);
 });
@@ -228,7 +230,7 @@ describe("client credentials", () => {
   test("requires a secret and stores a client credentials session", async () => {
     await expect(
       clientCredentialsLogin({ config, store, now }),
-    ).rejects.toThrow("PW_SUPPORT_CLIENT_SECRET");
+    ).rejects.toThrow("client secret");
     const withSecret = { ...config, clientSecret: "s3cret" };
     const tokens = await clientCredentialsLogin({
       config: withSecret,

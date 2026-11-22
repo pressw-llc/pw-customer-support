@@ -6,6 +6,8 @@ import { LOCAL_MCP_CLIENT_ID, resolveStackEnv } from "@pw-support/contracts";
 import { decodeJwt } from "jose";
 import { type CliIo, defaultIo, openInBrowser, runCli } from "./commands";
 import { completeMockLogin } from "./testing/mock-login";
+import { createFileTokenStore } from "./token-store";
+import { createWatcherCredentialStore } from "./watcher-credential";
 
 let dir: string;
 let out: string[];
@@ -14,12 +16,13 @@ let err: string[];
 function io(
   env: Record<string, string> = {},
   openUrl?: CliIo["openUrl"],
+  overrides: CliIo["overrides"] = {},
 ): CliIo {
   return {
+    overrides: { loginPort: 0, ...overrides },
     env: {
       ...process.env,
       PW_SUPPORT_CONFIG_DIR: dir,
-      PW_SUPPORT_LOGIN_PORT: "0",
       PW_SUPPORT_ISSUER: resolveStackEnv(process.env).localIssuer,
       ...env,
     },
@@ -63,28 +66,84 @@ describe("pw-support commands", () => {
 
   test("login with client credentials against the mock issuer, then token, headers, and logout", async () => {
     expect(await runCli(["login", "--client-credentials"], io())).toBe(1);
-    expect(err.at(-1)).toContain("PW_SUPPORT_CLIENT_SECRET");
-    const env = {
-      PW_SUPPORT_CLIENT_SECRET: "secret",
-      PW_SUPPORT_CLIENT_ID: "engineer-cli-test",
-      PW_SUPPORT_SCOPE: LOCAL_MCP_CLIENT_ID,
-    };
-    expect(await runCli(["login", "--client-credentials"], io(env))).toBe(0);
+    expect(err.at(-1)).toContain("client secret");
+    const env = { PW_SUPPORT_CLIENT_ID: "engineer-cli-test" };
+    const overrides = { clientSecret: "secret", scope: LOCAL_MCP_CLIENT_ID };
+    const session = (): CliIo => io(env, undefined, overrides);
+    expect(await runCli(["login", "--client-credentials"], session())).toBe(0);
     expect(out.at(-1)).toContain("client credentials");
-    expect(await runCli(["token"], io(env))).toBe(0);
+    expect(await runCli(["token"], session())).toBe(0);
     const claims = decodeJwt(out.at(-1) as string);
     expect(claims.sub).toBe("engineer-cli-test");
     expect(claims.aud).toBe(LOCAL_MCP_CLIENT_ID);
-    expect(await runCli(["headers"], io(env))).toBe(0);
-    const headers = JSON.parse(out.at(-1) as string) as {
-      Authorization: string;
-    };
+    const secret = createWatcherCredentialStore(dir).ensure().secret;
+    expect(await runCli(["headers"], session())).toBe(0);
+    const headers = JSON.parse(out.at(-1) as string) as Record<string, string>;
+    expect(Object.keys(headers)).toEqual(["Authorization"]);
     expect(headers.Authorization).toStartWith("Bearer ey");
-    expect(await runCli(["logout"], io(env))).toBe(0);
+    expect(out.join("\n")).not.toContain(secret);
+    expect(await runCli(["logout"], session())).toBe(0);
     err.length = 0;
-    expect(await runCli(["token"], io(env))).toBe(1);
+    expect(await runCli(["token"], session())).toBe(1);
     expect(err[0]).toContain("not logged in");
     expect(err.join("")).not.toContain("ey");
+  });
+
+  test("logout revokes the watcher credential on the server and deletes every local secret", async () => {
+    const env = { PW_SUPPORT_CLIENT_ID: "engineer-logout-test" };
+    const overrides = { clientSecret: "secret", scope: LOCAL_MCP_CLIENT_ID };
+    expect(
+      await runCli(
+        ["login", "--client-credentials"],
+        io(env, undefined, overrides),
+      ),
+    ).toBe(0);
+    const credential = createWatcherCredentialStore(dir).ensure();
+    const calls: { method: string; url: string; body: string }[] = [];
+    const fetcher = (async (target: unknown, init?: RequestInit) => {
+      calls.push({
+        method: init?.method ?? "GET",
+        url: String(target),
+        body: String(init?.body ?? ""),
+      });
+      return Response.json({ revoked: true });
+    }) as typeof fetch;
+    err.length = 0;
+    const session = {
+      ...io(env, undefined, { ...overrides, apiUrl: "http://api.test" }),
+      fetcher,
+    };
+    expect(await runCli(["logout"], session)).toBe(0);
+    expect(calls).toEqual([
+      {
+        method: "DELETE",
+        url: "http://api.test/laptop/watcher",
+        body: JSON.stringify({ machineId: credential.machineId }),
+      },
+    ]);
+    expect(createWatcherCredentialStore(dir).read()).toBeNull();
+    expect(createFileTokenStore(dir).read()).toBeNull();
+    expect(err).toEqual([]);
+  });
+
+  test("logout still clears local state and says so when the server cannot revoke", async () => {
+    const env = { PW_SUPPORT_CLIENT_ID: "engineer-logout-fail" };
+    const overrides = { clientSecret: "secret", scope: LOCAL_MCP_CLIENT_ID };
+    await runCli(
+      ["login", "--client-credentials"],
+      io(env, undefined, overrides),
+    );
+    createWatcherCredentialStore(dir).ensure();
+    err.length = 0;
+    const session = {
+      ...io(env, undefined, overrides),
+      fetcher: (async () =>
+        new Response("down", { status: 503 })) as unknown as typeof fetch,
+    };
+    expect(await runCli(["logout"], session)).toBe(0);
+    expect(err.join("\n")).toContain("did not confirm");
+    expect(createWatcherCredentialStore(dir).read()).toBeNull();
+    expect(createFileTokenStore(dir).read()).toBeNull();
   });
 
   test("interactive login completes the PKCE flow against the mock issuer", async () => {
@@ -136,6 +195,7 @@ describe("pw-support commands", () => {
     expect(await runCli(["watch", "stop"], io())).toBe(0);
     expect(out.at(-1)).toBe("Watcher is not running.");
     expect(await runCli(["watch", "bogus"], io())).toBe(1);
+    expect(await runCli(["submit-server"], io())).toBe(1);
   });
 
   test("watch start launches a detached watcher and watch stop ends it", async () => {

@@ -210,7 +210,7 @@ export async function clientCredentialsLogin(options: {
 }) {
   const { config } = options;
   if (!config.clientSecret) {
-    throw new LoginError("PW_SUPPORT_CLIENT_SECRET is required");
+    throw new LoginError("a client secret is required");
   }
   const fetcher = options.fetcher ?? fetch;
   const endpoints = await discover(config.issuer, fetcher);

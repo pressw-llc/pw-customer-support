@@ -9,9 +9,21 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { DEFAULT_API_URL, defaultConfigDir, loadPluginConfig } from "./config";
+import {
+  DEFAULT_API_URL,
+  DEFAULT_LOGIN_PORT,
+  DEFAULT_MAX_BUDGET_USD,
+  DEFAULT_MAX_TURNS,
+  DEFAULT_SCOPE,
+  defaultConfigDir,
+  loadPluginConfig,
+} from "./config";
 import { challengeFor, createPkce, randomToken } from "./pkce";
 import { createFileTokenStore, TOKEN_FILE } from "./token-store";
+import {
+  createWatcherCredentialStore,
+  WATCHER_CREDENTIAL_FILE,
+} from "./watcher-credential";
 
 let dir: string;
 
@@ -92,21 +104,74 @@ describe("plugin config", () => {
     expect(config.configDir).toBe("/x/pw-support");
     expect(config.issuer).toBe("http://127.0.0.1:4599/support");
     expect(config.clientId).toBe("pw-support-mcp");
-    expect(config.maxTurns).toBe(3);
+    expect(config.maxTurns).toBe(DEFAULT_MAX_TURNS);
+    expect(config.maxBudgetUsd).toBe(DEFAULT_MAX_BUDGET_USD);
+    expect(config.loginPort).toBe(DEFAULT_LOGIN_PORT);
+    expect(config.scope).toBe(DEFAULT_SCOPE);
+    expect(config.clientSecret).toBeUndefined();
+    expect(config.model).toBeUndefined();
     const custom = loadPluginConfig({
       PW_SUPPORT_API_URL: "https://api.test/",
       PW_SUPPORT_ISSUER: "https://idp.test/",
       PW_SUPPORT_RUN_TIMEOUT_SECONDS: "30",
-      PW_SUPPORT_MODEL: "m",
       PW_SUPPORT_CONFIG_DIR: "/c",
-      PW_SUPPORT_LOGIN_PORT: "bad",
+      PW_SUPPORT_CLAUDE_BIN: "/bin/claude",
+      PW_SUPPORT_POLL_SECONDS: "3",
+      PW_SUPPORT_CLIENT_ID: "c1",
+      PW_SUPPORT_MODEL: "ignored",
+      PW_SUPPORT_LOGIN_PORT: "1234",
+      PW_SUPPORT_SCOPE: "ignored",
+      PW_SUPPORT_MAX_TURNS: "99",
+      PW_SUPPORT_MAX_BUDGET_USD: "99",
+      PW_SUPPORT_CLIENT_SECRET: "ignored",
     });
     expect(custom.apiUrl).toBe("https://api.test");
     expect(custom.issuer).toBe("https://idp.test");
     expect(custom.runTimeoutSeconds).toBe(30);
-    expect(custom.model).toBe("m");
     expect(custom.configDir).toBe("/c");
-    expect(custom.loginPort).toBe(53682);
+    expect(custom.claudeBin).toBe("/bin/claude");
+    expect(custom.pollSeconds).toBe(3);
+    expect(custom.clientId).toBe("c1");
+    expect(custom.model).toBeUndefined();
+    expect(custom.loginPort).toBe(DEFAULT_LOGIN_PORT);
+    expect(custom.scope).toBe(DEFAULT_SCOPE);
+    expect(custom.maxTurns).toBe(DEFAULT_MAX_TURNS);
+    expect(custom.maxBudgetUsd).toBe(DEFAULT_MAX_BUDGET_USD);
+    expect(custom.clientSecret).toBeUndefined();
+    const injected = loadPluginConfig(
+      {},
+      { loginPort: 0, maxTurns: 2, scope: "s" },
+    );
+    expect(injected.loginPort).toBe(0);
+    expect(injected.maxTurns).toBe(2);
+    expect(injected.scope).toBe("s");
     expect(defaultConfigDir({})).toContain("pw-support");
+  });
+});
+
+describe("watcher credential store", () => {
+  test("generates once, keeps a private file, survives a reread, and clears", () => {
+    const store = createWatcherCredentialStore(join(dir, "nested"));
+    expect(store.read()).toBeNull();
+    const first = store.ensure();
+    expect(first.secret).toMatch(/^[A-Za-z0-9_-]{43}$/);
+    expect(first.machineId).toMatch(/^[0-9a-f-]{36}$/);
+    const path = join(dir, "nested", WATCHER_CREDENTIAL_FILE);
+    expect(statSync(path).mode & 0o777).toBe(0o600);
+    expect(statSync(join(dir, "nested")).mode & 0o777).toBe(0o700);
+    expect(store.ensure()).toEqual(first);
+    expect(createWatcherCredentialStore(join(dir, "nested")).read()).toEqual(
+      first,
+    );
+    store.clear();
+    expect(store.read()).toBeNull();
+    expect(store.ensure().secret).not.toBe(first.secret);
+  });
+
+  test("replaces a corrupt file", () => {
+    const store = createWatcherCredentialStore(dir);
+    writeFileSync(join(dir, WATCHER_CREDENTIAL_FILE), "{broken");
+    expect(store.read()).toBeNull();
+    expect(store.ensure().secret).toHaveLength(43);
   });
 });

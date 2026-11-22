@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import type { JobClaimResult, JobOffer } from "@pw-support/contracts";
 import type { ClaudeRunner, RunInput, RunReport } from "./runner";
-import type { SupportApi } from "./support-api";
+import { RateLimitedError, type SupportApi } from "./support-api";
 import { abortableSleep, runWatcher, tick, type WatcherDeps } from "./watcher";
 
 const JOB = "11111111-1111-4111-8111-111111111111";
@@ -21,6 +21,7 @@ const ready: JobClaimResult = {
   status: "ready",
   jobId: JOB,
   claimToken: TOKEN,
+  submitToken: "S".repeat(43),
   leaseExpiresAt: "2026-01-01T00:02:00.000Z",
   leaseSeconds: 3,
   content: [{ type: "text", text: "CUSTOMER-SECRET-TEXT" }],
@@ -29,6 +30,11 @@ const ready: JobClaimResult = {
 function report(overrides: Partial<RunReport> = {}): RunReport {
   return {
     toolSetOk: true,
+    init: null,
+    hookEvents: ["SessionStart"],
+    violation: null,
+    childEnvKeys: [],
+    managedContext: "note",
     tools: ["mcp__pw_submit__submit_result"],
     mcpServers: [],
     outcome: { accepted: true },
@@ -69,6 +75,7 @@ function harness(options: {
     async submit() {
       throw new Error("the watcher never submits");
     },
+    async close() {},
   };
   const runner: ClaudeRunner = {
     async run(input, signal) {
@@ -86,7 +93,6 @@ function harness(options: {
   const deps: WatcherDeps = {
     api,
     runner,
-    getToken: async () => "fresh-token",
     sleep: async () => {},
     log: (event, detail) =>
       logs.push(`${event} ${JSON.stringify(detail ?? {})}`),
@@ -116,9 +122,10 @@ describe("watcher tick", () => {
     expect(h.inputs[0]).toEqual({
       jobId: JOB,
       claimToken: TOKEN,
-      accessToken: "fresh-token",
+      submitToken: "S".repeat(43),
       content: ready.content,
     });
+    expect(JSON.stringify(h.inputs[0])).not.toContain("token-");
     expect(h.logs.join("\n")).not.toContain("CUSTOMER-SECRET");
     expect(h.logs.join("\n")).not.toContain(TOKEN);
   });
@@ -158,6 +165,13 @@ describe("watcher tick", () => {
     const cases: [Partial<RunReport>, string][] = [
       [{ outcome: null, timedOut: true }, "timeout"],
       [{ outcome: null, toolSetOk: false }, "tool_set"],
+      [
+        {
+          outcome: null,
+          violation: { kind: "foreign_tool_use", detail: "Bash" },
+        },
+        "guard",
+      ],
       [{ outcome: null, aborted: true }, "aborted"],
       [{ outcome: null }, "no_outcome"],
     ];
@@ -256,6 +270,57 @@ describe("watcher loop", () => {
     expect(h.logs[0]).toContain("watcher started");
     expect(h.logs.at(-1)).toContain("watcher stopped");
     expect(h.logs.join("\n")).toContain("tick failed");
+  });
+
+  test("sleeps the normal poll interval after nothing to do and after a skipped claim", async () => {
+    for (const claim of [
+      { status: "nothing_to_do", nothingToDo: "injection_flagged" },
+      { status: "refused", reason: "lost_race" },
+    ] as JobClaimResult[]) {
+      const controller = new AbortController();
+      const waits: number[] = [];
+      const h = harness({ claim });
+      h.deps.sleep = async (ms) => {
+        waits.push(ms);
+        controller.abort();
+      };
+      await runWatcher(h.deps, controller.signal);
+      expect(waits).toEqual([10]);
+    }
+  });
+
+  test("backs off on a 429 and honors Retry-After", async () => {
+    const controller = new AbortController();
+    const waits: number[] = [];
+    const h = harness({});
+    h.deps.api = {
+      ...h.deps.api,
+      async offers() {
+        throw new RateLimitedError(45);
+      },
+    };
+    h.deps.sleep = async (ms) => {
+      waits.push(ms);
+      if (waits.length === 2) controller.abort();
+    };
+    await runWatcher(h.deps, controller.signal);
+    expect(waits).toEqual([45_000, 45_000]);
+    expect(h.logs.join("\n")).toContain("rate limited");
+    const tiny = harness({});
+    const stop = new AbortController();
+    const tinyWaits: number[] = [];
+    tiny.deps.api = {
+      ...tiny.deps.api,
+      async offers() {
+        throw new RateLimitedError(0);
+      },
+    };
+    tiny.deps.sleep = async (ms) => {
+      tinyWaits.push(ms);
+      stop.abort();
+    };
+    await runWatcher(tiny.deps, stop.signal);
+    expect(tinyWaits).toEqual([10]);
   });
 
   test("abortableSleep resolves on timeout and on abort", async () => {

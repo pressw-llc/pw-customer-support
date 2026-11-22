@@ -5,6 +5,7 @@ import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js"
 import { createTokenValidator } from "@pw-support/api";
 import {
   connectMcp,
+  registerWatcher,
   type ServedApp,
   serveApp,
   startTestIssuer,
@@ -54,11 +55,7 @@ function fakeClaude(options: FakeClaudeOptions = {}) {
     seen.spawned += 1;
     const mcpPath = command[command.indexOf("--mcp-config") + 1] as string;
     const server = JSON.parse(readFileSync(mcpPath, "utf8")).mcpServers
-      .pw_submit as {
-      command: string;
-      args: string[];
-      env: Record<string, string>;
-    };
+      .pw_submit as { command: string; args: string[] };
     let ended: () => void = () => {};
     const stdinEnded = new Promise<void>((resolve) => {
       ended = resolve;
@@ -84,6 +81,9 @@ function fakeClaude(options: FakeClaudeOptions = {}) {
           mcp_servers: [{ name: "pw_submit", status: "connected" }],
           skills: [],
           slash_commands: [],
+          agents: [],
+          plugins: [],
+          permissionMode: "dontAsk",
         });
         await stdinEnded;
         if (seen.killed) return finish(143);
@@ -103,7 +103,7 @@ function fakeClaude(options: FakeClaudeOptions = {}) {
           new StdioClientTransport({
             command: server.command,
             args: server.args,
-            env: { PATH: process.env.PATH ?? "", ...server.env },
+            env: { PATH: process.env.PATH ?? "" },
           }),
         );
         await client.callTool({
@@ -122,6 +122,7 @@ function fakeClaude(options: FakeClaudeOptions = {}) {
       exited,
       kill() {
         seen.killed = true;
+        ended();
         finish(143);
       },
     };
@@ -134,6 +135,7 @@ let h: TriageHarness;
 let idp: TestIssuer;
 let served: ServedApp;
 let token: string;
+let watcher: { machineId: string; secret: string };
 
 beforeAll(async () => {
   idp = await startTestIssuer();
@@ -143,6 +145,7 @@ beforeAll(async () => {
   });
   served = serveApp(h.app);
   token = await idp.token({ claims: ADA });
+  watcher = await registerWatcher(served.url, token);
 });
 
 afterAll(async () => {
@@ -160,14 +163,17 @@ function watcherDeps(spawner: Spawner, runTimeoutMs = 20_000): WatcherDeps {
     PW_SUPPORT_RUN_TIMEOUT_SECONDS: String(runTimeoutMs / 1000),
   });
   return {
-    api: createSupportApi({ apiUrl: served.url, getToken: async () => token }),
+    api: createSupportApi({
+      apiUrl: served.url,
+      getToken: async () => token,
+      watcher,
+    }),
     runner: createClaudeCliRunner({
       config,
       cliPath: CLI_PATH,
       spawner,
       timeoutMs: runTimeoutMs,
     }),
-    getToken: async () => token,
     sleep: async () => {},
     log: () => {},
     pollMs: 10,
@@ -198,12 +204,16 @@ describe("watcher against the real MCP route", () => {
     expect(job?.claimedByKind).toBe("laptop");
     expect(job?.claimedBy).toBe(ADA.sub);
     expect(job?.outcome).toBe("agent");
-    const message = JSON.parse(claude.seen.stdin.trim());
+    const message = JSON.parse(
+      claude.seen.stdin.trim().split("\n").at(-1) as string,
+    );
     expect(JSON.stringify(message.message.content)).toContain(
       "<untrusted_request>",
     );
     expect(claude.seen.stdin).not.toContain(token);
     expect(claude.seen.stdin).not.toContain(job?.claimToken as string);
+    expect(claude.seen.stdin.trim().split("\n")).toHaveLength(2);
+    expect(job?.submitTokenHash).toBeString();
   });
 
   test("a schema-invalid result reopens the job without a retry and the cloud completes it", async () => {
@@ -287,6 +297,7 @@ describe("watcher against the real MCP route", () => {
     const api = createSupportApi({
       apiUrl: served.url,
       getToken: async () => token,
+      watcher,
     });
     const offers = await api.offers();
     expect(offers.some((offer) => offer.jobId === jobId)).toBe(true);
@@ -307,5 +318,6 @@ describe("watcher against the real MCP route", () => {
       accepted: false,
       reason: "stale_claim",
     });
+    await api.close();
   });
 });

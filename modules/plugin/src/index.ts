@@ -15,10 +15,6 @@ export {
   type SpawnedProcess,
   type Spawner,
 } from "./runner";
-export {
-  SUBMIT_ENV,
-  SUBMIT_TOOL_FULL_NAME,
-  type SubmitOutcome,
-} from "./submit-server";
+export { SUBMIT_TOOL_FULL_NAME, type SubmitOutcome } from "./submit-server";
 export { createSupportApi, type SupportApi } from "./support-api";
 export { type TickResult, tick, type WatcherDeps } from "./watcher";

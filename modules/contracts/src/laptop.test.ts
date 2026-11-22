@@ -194,7 +194,7 @@ describe("interactive tool outputs carry no customer free text", () => {
   );
 
   test("the interactive surface has exactly the six tools and no job tool", () => {
-    expect([...interactiveToolNames].sort()).toEqual(
+    expect([...interactiveToolNames].sort() as string[]).toEqual(
       Object.keys(interactiveToolOutputs).sort(),
     );
     for (const job of laptopToolNames) {
