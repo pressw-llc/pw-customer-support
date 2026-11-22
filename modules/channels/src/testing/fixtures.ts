@@ -20,7 +20,11 @@ import {
 import { and, eq } from "drizzle-orm";
 import { createLinearAdapter, type LinearAdapter } from "../linear/adapter";
 import { createLinearClient, type LinearClient } from "../linear/client";
-import { type LinearStub, startLinearStub } from "./linear-stub";
+import {
+  freshConnectionFetch,
+  type LinearStub,
+  startLinearStub,
+} from "./linear-stub";
 
 export const VALID_RESULT: TriageResult = {
   title: "Cannot sign in",
@@ -48,6 +52,7 @@ export async function createChannelsHarness() {
   const linear: LinearClient = createLinearClient({
     apiUrl: stub.url,
     secrets: { get: async () => "lin_api_test" },
+    fetcher: freshConnectionFetch,
   });
   const clock = new OffsetClock();
   const adapter: LinearAdapter = createLinearAdapter({

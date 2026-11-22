@@ -1,4 +1,4 @@
-import { afterAll, beforeAll, describe, expect, test } from "bun:test";
+import { afterAll, beforeAll, describe, expect, spyOn, test } from "bun:test";
 import {
   intakeResultSchema,
   requestListSchema,
@@ -379,6 +379,7 @@ describe("POST /v1/requests", () => {
 
 describe("D7: persist before processing", () => {
   test("D7: when static-check processing throws, the request row and request.created event still exist", async () => {
+    const quiet = spyOn(console, "error").mockImplementation(() => {});
     const failing = await createHarness({
       deps: {
         checks: {
@@ -420,11 +421,13 @@ describe("D7: persist before processing", () => {
         );
       expect(rows).toHaveLength(1);
     } finally {
+      quiet.mockRestore();
       await failing.close();
     }
   });
 
   test("D7: when storage throws, the request and event persist and the file reports storage_failed", async () => {
+    const quiet = spyOn(console, "error").mockImplementation(() => {});
     const broken = await createHarness({
       deps: {
         storage: {
@@ -455,6 +458,7 @@ describe("D7: persist before processing", () => {
       expect(types).toContain("request.created");
       expect(types).toContain("attachment.rejected");
     } finally {
+      quiet.mockRestore();
       await broken.close();
     }
   });
@@ -680,6 +684,7 @@ describe("GET /v1/attachments/:id", () => {
   });
 
   test("a storage read failure returns 500 without leaking details", async () => {
+    const quiet = spyOn(console, "error").mockImplementation(() => {});
     const broken = await createHarness({
       deps: {
         storage: {
@@ -703,6 +708,7 @@ describe("GET /v1/attachments/:id", () => {
       expect(response.status).toBe(500);
       expect(await response.text()).not.toContain("secret bucket detail");
     } finally {
+      quiet.mockRestore();
       await broken.close();
     }
   });

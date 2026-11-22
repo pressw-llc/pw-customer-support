@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, spyOn, test } from "bun:test";
 import {
   buildHoldWarning,
   classifyStaffComment,
@@ -247,6 +247,69 @@ describe("Jev wording scorer", () => {
         )) as unknown as typeof fetch,
     });
     await expect(malformed.score("x")).rejects.toThrow();
+  });
+
+  test("resolves the key from the shared secrets provider on every call", async () => {
+    const seen: string[] = [];
+    let key = "first";
+    const scorer = createJevWordingScorer({
+      apiKey: async () => key,
+      fetcher: (async (_url: unknown, init?: RequestInit) => {
+        seen.push(
+          String(
+            (init?.headers as Record<string, string> | undefined)
+              ?.Authorization,
+          ),
+        );
+        return new Response(
+          JSON.stringify({ answers: { wording: { noul: 1 } } }),
+        );
+      }) as unknown as typeof fetch,
+    });
+    await scorer.score("a");
+    key = "second";
+    await scorer.score("b");
+    expect(seen).toEqual(["Bearer first", "Bearer second"]);
+    const failing = createJevWordingScorer({
+      apiKey: async () => {
+        throw new Error("secret typesafe-api-key is not configured");
+      },
+    });
+    await expect(failing.score("x")).rejects.toThrow(/not configured/);
+  });
+
+  test("a secrets provider always yields a scorer that reads its key per call", async () => {
+    const names: string[] = [];
+    const secrets = {
+      get: async (name: string) => {
+        names.push(name);
+        return "from-provider";
+      },
+    };
+    const calls: string[] = [];
+    const fetchSpy = spyOn(globalThis, "fetch").mockImplementation((async (
+      _url: unknown,
+      init?: RequestInit,
+    ) => {
+      calls.push(
+        String(
+          (init?.headers as Record<string, string> | undefined)?.Authorization,
+        ),
+      );
+      return new Response(
+        JSON.stringify({ answers: { wording: { noul: 0.8 } } }),
+      );
+    }) as unknown as typeof fetch);
+    const scorer = wordingScorerFor({}, secrets);
+    expect(scorer).not.toBeNull();
+    try {
+      const result = await scorer?.score("Hello customer");
+      expect(result?.score).toBe(4);
+    } finally {
+      fetchSpy.mockRestore();
+    }
+    expect(names).toEqual(["typesafe-api-key"]);
+    expect(calls).toEqual(["Bearer from-provider"]);
   });
 
   test("the runtime builds a scorer only when the key is set", () => {

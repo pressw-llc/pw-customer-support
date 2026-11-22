@@ -17,12 +17,12 @@ Result: correctness APPROVE in round 2. Security APPROVE in round 3.
 | 2 | Edit order is not tracked | SHOULD-FIX | FIXED. `updatedAt` orders changes. A superseded comment is re-fetched from Linear. `tests/phase-3-round2.test.ts` N1. |
 | 2 | The plain-text step deletes staff words | SHOULD-FIX | FIXED. Staff replies skip the HTML stripper. The stripper removes only real HTML. N2 tests. |
 | 2 | Parked comments store unrelated comment bodies | SHOULD-FIX | FIXED. A parked row holds ids only. The body comes from Linear after the ticket exists. N3 tests. |
-| 3 | An update during a fetch is not recorded | CONSIDER | DEFERRED to the Phase 5 branch as a hardening item. |
-| 3 | A confirm fetches the held comment only when a change row exists | CONSIDER | DEFERRED to the Phase 5 branch as a hardening item. |
-| 3 | An update with no `updatedAt` uses the receipt time | CONSIDER | DEFERRED to the Phase 5 branch as a hardening item. |
-| 3 | The shared stripper misses custom elements and can consume prose between `<b` and `>` | CONSIDER | DEFERRED to the Phase 5 branch. No sink executes HTML. |
+| 3 | An update during a fetch is not recorded | CONSIDER | FIXED on the integration branch. `tests/phase-3-round3.test.ts` H1 tests. |
+| 3 | A confirm fetches the held comment only when a change row exists | CONSIDER | FIXED on the integration branch. A confirm always fetches and compares. H2 tests. |
+| 3 | An update with no `updatedAt` uses the receipt time | CONSIDER | FIXED on the integration branch. The update marks `refetch_required`. H3 tests. |
+| 3 | The shared stripper misses custom elements and can consume prose between `<b` and `>` | CONSIDER | FIXED on the integration branch. A tag must be well formed, and a custom element with an attribute is HTML. H4 tests in `modules/api/src/file-type.test.ts`. |
 | 3 | A failed cancel notice is not retried | CONSIDER | REJECTED. The notice is a courtesy to the author. The customer path is unaffected. |
-| 3 | `getComment` treats any not-found error as deleted | CONSIDER | DEFERRED to the Phase 5 branch: log the case. |
+| 3 | `getComment` treats any not-found error as deleted | CONSIDER | FIXED on the integration branch. Only a definite entity-not-found means removed. H5 tests in `modules/channels/src/linear.test.ts`. |
 
 ## Correctness
 

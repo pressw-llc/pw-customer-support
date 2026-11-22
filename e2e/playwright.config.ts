@@ -1,6 +1,7 @@
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { defineConfig, devices } from "@playwright/test";
+import { LOCAL_OIDC_CLIENT_ID, resolveStackEnv } from "@pw-support/contracts";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const root = resolve(here, "..");
@@ -8,6 +9,9 @@ const root = resolve(here, "..");
 export const E2E = {
   apiPort: Number(process.env.E2E_API_PORT) || 8788,
   appPort: Number(process.env.E2E_APP_PORT) || 5174,
+  adminPort: Number(process.env.E2E_ADMIN_PORT) || 5184,
+  policyApiPort: Number(process.env.E2E_POLICY_API_PORT) || 8789,
+  audienceApiPort: Number(process.env.E2E_AUDIENCE_API_PORT) || 8790,
   projectKey: "pk_e2e_acme_portal",
   projectSlug: "e2e",
   clientSlug: "acme",
@@ -18,6 +22,37 @@ export const E2E = {
 
 const apiUrl = `http://127.0.0.1:${E2E.apiPort}`;
 const appUrl = `http://127.0.0.1:${E2E.appPort}`;
+const adminUrl = `http://127.0.0.1:${E2E.adminPort}`;
+const issuer = resolveStackEnv(process.env).localIssuer;
+const secretsScope = `e2e-${Date.now().toString(36)}`;
+
+export const ADMIN = {
+  url: adminUrl,
+  apiUrl,
+  policyApiUrl: `http://127.0.0.1:${E2E.policyApiPort}`,
+  audienceApiUrl: `http://127.0.0.1:${E2E.audienceApiPort}`,
+  allowedDomain: "pressw.test",
+  issuer,
+  clientId: LOCAL_OIDC_CLIENT_ID,
+} as const;
+
+function variantApi(port: number, env: Record<string, string>) {
+  return {
+    command: "bun modules/api/src/server.ts",
+    cwd: root,
+    url: `http://127.0.0.1:${port}/health`,
+    reuseExistingServer: false,
+    timeout: 60_000,
+    env: {
+      API_PORT: String(port),
+      ADMIN_ORIGINS: adminUrl,
+      SECRETS_SCOPE: secretsScope,
+      COGNITO_ISSUER: issuer,
+      COGNITO_AUDIENCE: LOCAL_OIDC_CLIENT_ID,
+      ...env,
+    },
+  };
+}
 
 export default defineConfig({
   testDir: here,
@@ -43,10 +78,18 @@ export default defineConfig({
         SEED_PROJECT_KEY: E2E.projectKey,
         RATE_LIMIT_PER_USER: "5000",
         RATE_LIMIT_PER_KEY: "50000",
+        ADMIN_ORIGINS: adminUrl,
+        SECRETS_SCOPE: secretsScope,
+        COGNITO_ISSUER: issuer,
+        COGNITO_AUDIENCE: LOCAL_OIDC_CLIENT_ID,
         LINEAR_WEBHOOK_SECRET: E2E.webhookSecret,
         TRIAGE_INITIAL_DELAY_SECONDS: "0",
       },
     },
+    variantApi(E2E.policyApiPort, {
+      ADMIN_ALLOWED_EMAIL_DOMAINS: ADMIN.allowedDomain,
+    }),
+    variantApi(E2E.audienceApiPort, { COGNITO_AUDIENCE: "another-client" }),
     {
       command: "bun scripts/stack-setup.ts && bun e2e/backend.ts",
       cwd: root,
@@ -65,6 +108,19 @@ export default defineConfig({
         TRIAGE_INITIAL_DELAY_SECONDS: "0",
         TRIAGE_INTAKE_GRACE_SECONDS: "2",
         TRIAGE_WORKER_ID: "e2e-worker",
+      },
+    },
+    {
+      command: "bunx vite",
+      cwd: resolve(root, "modules/admin"),
+      url: adminUrl,
+      reuseExistingServer: false,
+      timeout: 60_000,
+      env: {
+        ADMIN_DEV_PORT: String(E2E.adminPort),
+        VITE_API_URL: apiUrl,
+        VITE_OIDC_AUTHORITY: issuer,
+        VITE_OIDC_CLIENT_ID: LOCAL_OIDC_CLIENT_ID,
       },
     },
     {

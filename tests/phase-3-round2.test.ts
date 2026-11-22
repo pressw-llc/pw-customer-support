@@ -50,6 +50,7 @@ async function deliver(comment: StubComment, action: CommentAction = "create") {
 async function post(payload: Record<string, unknown>) {
   const raw = JSON.stringify(payload);
   const response = await fetch(p.webhookUrl, {
+    keepalive: false,
     method: "POST",
     headers: {
       "Linear-Delivery": crypto.randomUUID(),
@@ -311,10 +312,12 @@ describe("N1 edit order is tracked", () => {
       sourceUpdatedAt: new Date(Date.now() - 5000),
     });
     made.comment.body = "@external current words [s=4]";
+    const changedAt = new Date(Date.now() + 60_000);
+    made.comment.updatedAt = changedAt.toISOString();
     await p.h.db.insert(commentChanges).values({
       commentId: made.comment.id,
       action: "update",
-      updatedAt: new Date(Date.now() + 60_000),
+      updatedAt: changedAt,
     });
     await p.drain(s.requestId);
     const bodies = bodiesOf(await p.thread(s.who, s.requestId));

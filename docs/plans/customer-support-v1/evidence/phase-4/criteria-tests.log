@@ -1,0 +1,23 @@
+PASS A15 admin: a reply scored 2.5 is sent and shows as flagged with its score
+PASS A15 admin: a held reply shows its score, reason, expiry, and warning until it is confirmed
+PASS A15 admin: an edited hold shows as cancelled with its reason
+PASS A29: the cc list persists on the project
+PASS A19: accepts a valid token and extracts the staff identity
+PASS A19: rejects the wrong issuer
+PASS A19: rejects the wrong audience
+PASS A19: rejects an expired token and a token that is not yet valid
+PASS A19: rejects alg none
+PASS A19: rejects HS256 signed with the public key
+PASS A19: rejects an unknown kid and a signature from another key
+PASS A19: rejects a token without exp or sub
+PASS A29: saves the cc list, normalizes it, and returns it on the next read
+PASS A18: a saved Linear key lives only in Secrets Manager
+junit failures: 0
+playwright tests:
+admin.spec.ts:48:1 › A19: an admin route returns 401 without a token and with a forged token
+admin.spec.ts:65:1 › A19: a staff member logs in through the mock issuer and sees the request list with a running timer
+admin.spec.ts:91:1 › A19: the access token stays out of localStorage
+admin.spec.ts:97:1 › A18: a saved Linear key shows as configured and its value appears nowhere
+admin.spec.ts:137:1 › A29: a saved CC list survives a reload
+admin.spec.ts:227:1 › A15: a reply scored 2.5 sends and shows a flag in the admin UI
+admin.spec.ts:257:1 › A15: a held reply shows as held with its score until it is confirmed

@@ -78,8 +78,21 @@ export type InboundCommentResult =
   | { status: "stored"; inbound: InboundCommentRow }
   | { status: "awaiting_ticket"; inbound: InboundCommentRow }
   | { status: "superseded" }
+  | { status: "request_gone" }
   | { status: "duplicate_delivery" }
   | { status: "duplicate_comment" };
+
+export async function lockRequestRow(
+  tx: SupportTx,
+  requestId: string,
+): Promise<boolean> {
+  const rows = await tx
+    .select({ id: requests.id })
+    .from(requests)
+    .where(eq(requests.id, requestId))
+    .for("key share");
+  return rows.length > 0;
+}
 
 async function insertDelivery(
   tx: SupportTx,
@@ -164,6 +177,9 @@ export async function persistInboundComment(
     const superseded = change ? supersedes(change, sourceUpdatedAt) : false;
     if (change?.action === "remove") return { status: "superseded" };
     const found = await findTicketByLinearIssue(tx, input.issueId);
+    if (found && !(await lockRequestRow(tx, found.request.id))) {
+      return { status: "request_gone" };
+    }
     const trusted = found !== null && !superseded;
     const [inbound] = await tx
       .insert(inboundComments)
@@ -219,6 +235,7 @@ export type CommentChangeResult =
   | { status: "unknown_comment" }
   | { status: "unchanged" }
   | { status: "stale" }
+  | { status: "refetch_required" }
   | { status: "updated" }
   | { status: "removed" }
   | { status: "cancelled"; reply: ReplyRow };
@@ -264,7 +281,10 @@ export async function applyCommentChange(
       return { status: "duplicate_delivery" };
     }
     await lockComment(tx, input.commentId);
-    const updatedAt = input.updatedAt ?? new Date();
+    const receivedAt = new Date();
+    const updatedAt = input.updatedAt ?? receivedAt;
+    const untimedUpdate =
+      input.action === "update" && input.updatedAt === undefined;
     const [inbound] = await tx
       .select()
       .from(inboundComments)
@@ -276,6 +296,7 @@ export async function applyCommentChange(
       )
       .for("update");
     if (!inbound) {
+      if (untimedUpdate) return { status: "unknown_comment" };
       await recordChange(tx, {
         commentId: input.commentId,
         action: input.action,
@@ -313,13 +334,26 @@ export async function applyCommentChange(
         ? { status: "cancelled", reply: cancelled }
         : { status: "unchanged" };
     }
+    if (untimedUpdate) {
+      await tx
+        .update(inboundComments)
+        .set({ refetchRequired: true })
+        .where(eq(inboundComments.id, inbound.id));
+      return { status: "refetch_required" };
+    }
     const stored = inbound.sourceUpdatedAt;
     if (stored && updatedAt.getTime() <= stored.getTime()) {
       return { status: "stale" };
     }
-    if (inbound.refetchRequired || input.body === undefined) {
-      return { status: "unchanged" };
+    if (inbound.refetchRequired) {
+      await recordChange(tx, {
+        commentId: input.commentId,
+        action: "update",
+        updatedAt,
+      });
+      return { status: "refetch_required" };
     }
+    if (input.body === undefined) return { status: "unchanged" };
     const edited = input.body !== inbound.body;
     await tx
       .update(inboundComments)

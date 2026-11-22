@@ -17,63 +17,79 @@ bun run db:migrate
 bun run check
 ```
 
-The stack runs Postgres on `127.0.0.1:5447` and LocalStack on `127.0.0.1:4577`. `bun run env sync` creates `.env.local` from `.env.example`. Every script still runs on built-in defaults against the local stack without it. `bun run stack:up` and `bun run stack:down` pass the ports from `.env.local` to Docker Compose.
+The stack runs Postgres on `127.0.0.1:5447`, LocalStack on `127.0.0.1:4577`, and a mock OIDC issuer on `127.0.0.1:4599`. `bun run env sync` creates `.env.local` from `.env.example`. Every script still runs on built-in defaults against the local stack without it. `bun run stack:up` and `bun run stack:down` pass the ports from `.env.local` to Docker Compose.
 
 ## Environment
 
 `.env.example` is the committed template. Put real values in `.env.local`, which is gitignored. Manage both files with `bun run env` and the `env-files` skill. Do not edit them by hand. `bun run env set` writes a blank to `.env.example` for a key whose name contains `KEY`, `SECRET`, `TOKEN`, `PASSWORD`, `PRIVATE`, or `CREDENTIAL`, and for any value read from `--stdin`. Pass `--not-secret` to publish a dummy value, as with the LocalStack credentials.
 
-| Variable                                     | Default                                | Purpose                                        |
-| -------------------------------------------- | -------------------------------------- | ---------------------------------------------- |
-| `SUPPORT_POSTGRES_PORT`                      | `5447`                                 | Host port for Postgres                         |
-| `SUPPORT_LOCALSTACK_PORT`                    | `4577`                                 | Host port for LocalStack                       |
-| `DATABASE_URL`                               | derived from `SUPPORT_POSTGRES_PORT`   | Optional override of the Postgres URL          |
-| `AWS_REGION`                                 | `us-east-1`                            | AWS region for the SDK clients                 |
-| `AWS_ENDPOINT_URL`                           | derived from `SUPPORT_LOCALSTACK_PORT` | Optional override of the AWS endpoint          |
-| `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY` | `test`                                 | Local credentials for LocalStack               |
-| `ATTACHMENTS_BUCKET`                         | `pw-support-attachments`               | S3 bucket for attachments                      |
-| `TRIAGE_WAKE_QUEUE`                          | `pw-support-triage-wake`               | SQS queue that wakes triage                    |
-| `TRIAGE_WAKE_DLQ`                            | `pw-support-triage-wake-dlq`           | Dead-letter queue for the wake queue           |
-| `API_PORT`                                   | `8787`                                 | Port for the Hono API server                   |
-| `ANTHROPIC_API_KEY`                          | blank, secret                          | Anthropic API key                              |
-| `TYPESAFE_API_KEY`                           | blank, secret                          | TypeSafe key for the Jev filter                |
-| `LINEAR_API_KEY`                             | blank, secret                          | Linear API key                                 |
-| `LINEAR_WEBHOOK_SECRET`                      | blank, secret                          | Linear webhook signing secret                  |
-| `COGNITO_ISSUER`                             | blank                                  | Cognito token issuer URL                       |
-| `COGNITO_AUDIENCE`                           | blank                                  | Cognito token audience                         |
-| `NODE_ENV`                                   | unset                                  | `production` turns off the LocalStack defaults |
-| `RATE_LIMIT_WINDOW_SECONDS`                  | `60`                                   | Rate limit window length                       |
-| `RATE_LIMIT_PER_KEY`                         | `600`                                  | Requests per window for one project key        |
-| `RATE_LIMIT_PER_USER`                        | `120`                                  | Requests per window for one hashed ID          |
-| `MAX_REQUEST_BYTES`                          | 251 MiB                                | Request body cap before a 413                  |
-| `SEED_CLIENT_SLUG`                           | `acme`                                 | `seed:dev` client slug                         |
-| `SEED_PROJECT_SLUG`                          | `portal`                               | `seed:dev` project slug                        |
-| `SEED_PROJECT_KEY`                           | random, blank in the template          | `seed:dev` key for a new project               |
-| `TRIAGE_INITIAL_DELAY_SECONDS`               | `60`                                   | Cloud delay for a new job on an idle channel   |
-| `TRIAGE_LEASE_SECONDS`                       | `120`                                  | Claim lease length                             |
-| `TRIAGE_MAX_ATTEMPTS`                        | `3`                                    | Cloud attempts before human triage             |
-| `TRIAGE_INTAKE_GRACE_SECONDS`                | `300`                                  | Wait for attachment storage before a claim     |
-| `TRIAGE_SWEEP_INTERVAL_SECONDS`              | `30`                                   | Worker sweep and dispatch interval             |
-| `TRIAGE_AGENT_MODEL`                         | `claude-sonnet-5-5`                    | Model for the synced triage agent              |
-| `TRIAGE_AGENT_ID`                            | blank, lock file                       | Agent id, overrides the lock file              |
-| `TRIAGE_AGENT_TIMEOUT_SECONDS`               | `240`                                  | Agent session timeout                          |
-| `TRIAGE_WORKER_ID`                           | random                                 | Claimant name for the cloud worker             |
-| `TRIAGE_MAX_CHARS_PER_FILE`                  | `20000`                                | Extracted text cap per file                    |
-| `TRIAGE_MAX_CHARS_TOTAL`                     | `60000`                                | Extracted text cap per request                 |
-| `TRIAGE_MAX_IMAGES`                          | `6`                                    | Images sent to the agent                       |
-| `JEV_INJECTION_THRESHOLD`                    | `0.5`                                  | Score at or above which Jev flags a request    |
-| `JEV_TIMEOUT_MS`                             | `15000`                                | Jev request timeout                            |
-| `JEV_CHUNK_CHARS`                            | `4000`                                 | Characters per Jev judgment                    |
-| `JEV_JUDGE_IMAGES`                           | `1`                                    | Judge images with Jev. Off sends no image      |
-| `LINEAR_API_URL`                             | blank, Linear API                      | Linear GraphQL URL. Ignored in production      |
-| `LINEAR_TEST_TEAM_ID`                        | blank                                  | Team for the self-skipping live Linear test    |
-| `LINEAR_STUB_PORT`                           | `4590`                                 | Port for `bun run dev:linear-stub`             |
-| `SEED_LINEAR_TEAM_ID`                        | blank                                  | Team id for `bun run seed:settings`            |
-| `VALIDATE_TIME_FACTOR`                       | `1`                                    | Scale for the delays in `validate:phase-2`     |
-| `SUPPORT_API_URL`                            | `http://localhost:8787`                | Widget build-time default API URL              |
-| `VITE_SUPPORT_PROJECT_KEY`                   | blank                                  | Example app project key                        |
-| `VITE_SUPPORT_USER_EMAIL`                    | blank                                  | Example app signed-in email                    |
-| `VITE_SUPPORT_API_URL`                       | blank, widget default                  | Example app API URL                            |
+| Variable                                     | Default                                | Purpose                                                                              |
+| -------------------------------------------- | -------------------------------------- | ------------------------------------------------------------------------------------ |
+| `SUPPORT_POSTGRES_PORT`                      | `5447`                                 | Host port for Postgres                                                               |
+| `SUPPORT_LOCALSTACK_PORT`                    | `4577`                                 | Host port for LocalStack                                                             |
+| `DATABASE_URL`                               | derived from `SUPPORT_POSTGRES_PORT`   | Optional override of the Postgres URL                                                |
+| `AWS_REGION`                                 | `us-east-1`                            | AWS region for the SDK clients                                                       |
+| `AWS_ENDPOINT_URL`                           | derived from `SUPPORT_LOCALSTACK_PORT` | Optional override of the AWS endpoint                                                |
+| `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY` | `test`                                 | Local credentials for LocalStack                                                     |
+| `ATTACHMENTS_BUCKET`                         | `pw-support-attachments`               | S3 bucket for attachments                                                            |
+| `TRIAGE_WAKE_QUEUE`                          | `pw-support-triage-wake`               | SQS queue that wakes triage                                                          |
+| `TRIAGE_WAKE_DLQ`                            | `pw-support-triage-wake-dlq`           | Dead-letter queue for the wake queue                                                 |
+| `API_PORT`                                   | `8787`                                 | Port for the Hono API server                                                         |
+| `ANTHROPIC_API_KEY`                          | blank, secret                          | Anthropic API key                                                                    |
+| `TYPESAFE_API_KEY`                           | blank, secret                          | TypeSafe key for the Jev filter                                                      |
+| `LINEAR_API_KEY`                             | blank, secret                          | Linear API key                                                                       |
+| `LINEAR_WEBHOOK_SECRET`                      | blank, secret                          | Linear webhook signing secret                                                        |
+| `COGNITO_ISSUER`                             | blank, mock issuer locally             | Token issuer URL. Production fails closed                                            |
+| `COGNITO_AUDIENCE`                           | blank, `pw-support-admin` locally      | Comma list of accepted client ids                                                    |
+| `SUPPORT_OIDC_PORT`                          | `4599`                                 | Host port for the mock OIDC issuer                                                   |
+| `ADMIN_DEV_PORT`                             | `5183`                                 | Port for the admin Vite dev server                                                   |
+| `ADMIN_ORIGINS`                              | blank, local admin origins             | Origins that admin CORS allows                                                       |
+| `ADMIN_ALLOWED_EMAIL_DOMAINS`                | blank, off                             | Comma list of allowed staff email domains                                            |
+| `ADMIN_REQUIRED_GROUP`                       | blank, off                             | Cognito group a staff token must carry                                               |
+| `ADMIN_MAX_BODY_BYTES`                       | `16384`                                | Body cap for admin requests                                                          |
+| `ADMIN_RATE_LIMIT_PER_WINDOW`                | `60`                                   | Admin mutations per window per staff member                                          |
+| `AUTH_FETCH_TIMEOUT_MS`                      | `5000`                                 | Timeout for issuer discovery and JWKS fetches                                        |
+| `SECRETS_SCOPE`                              | `global`                               | Scope segment in the Secrets Manager name                                            |
+| `VITE_API_URL`                               | blank, local API                       | Admin app API base URL                                                               |
+| `VITE_OIDC_AUTHORITY`                        | blank, mock issuer                     | Admin app OIDC issuer URL                                                            |
+| `VITE_OIDC_CLIENT_ID`                        | blank, `pw-support-admin`              | Admin app OIDC client id                                                             |
+| `VITE_OIDC_SCOPE`                            | blank, `openid profile email`          | Admin app OIDC scopes                                                                |
+| `VITE_OIDC_LOGOUT_URL`                       | blank                                  | Admin app IdP logout URL template, used when discovery has no `end_session_endpoint` |
+| `VALIDATE_API_PORT`                          | `8796`                                 | API port for `validate:phase-4`                                                      |
+| `E2E_ADMIN_PORT`                             | `5184`                                 | Admin app port for the e2e suite                                                     |
+| `NODE_ENV`                                   | unset                                  | `production` turns off the LocalStack defaults                                       |
+| `RATE_LIMIT_WINDOW_SECONDS`                  | `60`                                   | Rate limit window length                                                             |
+| `RATE_LIMIT_PER_KEY`                         | `600`                                  | Requests per window for one project key                                              |
+| `RATE_LIMIT_PER_USER`                        | `120`                                  | Requests per window for one hashed ID                                                |
+| `MAX_REQUEST_BYTES`                          | 251 MiB                                | Request body cap before a 413                                                        |
+| `SEED_CLIENT_SLUG`                           | `acme`                                 | `seed:dev` client slug                                                               |
+| `SEED_PROJECT_SLUG`                          | `portal`                               | `seed:dev` project slug                                                              |
+| `SEED_PROJECT_KEY`                           | random, blank in the template          | `seed:dev` key for a new project                                                     |
+| `TRIAGE_INITIAL_DELAY_SECONDS`               | `60`                                   | Cloud delay for a new job on an idle channel                                         |
+| `TRIAGE_LEASE_SECONDS`                       | `120`                                  | Claim lease length                                                                   |
+| `TRIAGE_MAX_ATTEMPTS`                        | `3`                                    | Cloud attempts before human triage                                                   |
+| `TRIAGE_INTAKE_GRACE_SECONDS`                | `300`                                  | Wait for attachment storage before a claim                                           |
+| `TRIAGE_SWEEP_INTERVAL_SECONDS`              | `30`                                   | Worker sweep and dispatch interval                                                   |
+| `TRIAGE_AGENT_MODEL`                         | `claude-sonnet-5-5`                    | Model for the synced triage agent                                                    |
+| `TRIAGE_AGENT_ID`                            | blank, lock file                       | Agent id, overrides the lock file                                                    |
+| `TRIAGE_AGENT_TIMEOUT_SECONDS`               | `240`                                  | Agent session timeout                                                                |
+| `TRIAGE_WORKER_ID`                           | random                                 | Claimant name for the cloud worker                                                   |
+| `TRIAGE_MAX_CHARS_PER_FILE`                  | `20000`                                | Extracted text cap per file                                                          |
+| `TRIAGE_MAX_CHARS_TOTAL`                     | `60000`                                | Extracted text cap per request                                                       |
+| `TRIAGE_MAX_IMAGES`                          | `6`                                    | Images sent to the agent                                                             |
+| `JEV_INJECTION_THRESHOLD`                    | `0.5`                                  | Score at or above which Jev flags a request                                          |
+| `JEV_TIMEOUT_MS`                             | `15000`                                | Jev request timeout                                                                  |
+| `JEV_CHUNK_CHARS`                            | `4000`                                 | Characters per Jev judgment                                                          |
+| `JEV_JUDGE_IMAGES`                           | `1`                                    | Judge images with Jev. Off sends no image                                            |
+| `LINEAR_API_URL`                             | blank, Linear API                      | Linear GraphQL URL. Ignored in production                                            |
+| `LINEAR_TEST_TEAM_ID`                        | blank                                  | Team for the self-skipping live Linear test                                          |
+| `LINEAR_STUB_PORT`                           | `4590`                                 | Port for `bun run dev:linear-stub`                                                   |
+| `SEED_LINEAR_TEAM_ID`                        | blank                                  | Team id for `bun run seed:settings`                                                  |
+| `VALIDATE_TIME_FACTOR`                       | `1`                                    | Scale for the delays in `validate:phase-2`                                           |
+| `SUPPORT_API_URL`                            | `http://localhost:8787`                | Widget build-time default API URL                                                    |
+| `VITE_SUPPORT_PROJECT_KEY`                   | blank                                  | Example app project key                                                              |
+| `VITE_SUPPORT_USER_EMAIL`                    | blank                                  | Example app signed-in email                                                          |
+| `VITE_SUPPORT_API_URL`                       | blank, widget default                  | Example app API URL                                                                  |
 
 ## Run the widget locally
 
@@ -112,7 +128,7 @@ Script-tag use loads `dist/support-widget.global.js` and calls `window.PressWSup
 | `bun run check`                 | Run install, lint, build, typecheck, stack, test, e2e, and synth in order |
 | `bun run check --skip-install`  | Run the same stages without the install                                   |
 | `bun run lint`                  | Run Biome and the module boundary check                                   |
-| `bun run build`                 | Build the widget into `modules/widget/dist`                               |
+| `bun run build`                 | Build the widget and the admin app into each module `dist`                |
 | `bun run typecheck`             | Run `tsc --noEmit` in every module, the example app, and e2e              |
 | `bun run test`                  | Run root tests, then the widget tests under happy-dom                     |
 | `bun test path/to/file.test.ts` | Run one root test file                                                    |
@@ -125,6 +141,7 @@ Script-tag use loads `dist/support-widget.global.js` and calls `window.PressWSup
 | `bun run seed:dev`              | Create the demo project and print its project key                         |
 | `bun run dev:api`               | Migrate, set up the stack, and start the API on `API_PORT`                |
 | `bun run dev:example`           | Start the example host app with Vite                                      |
+| `bun run dev:admin`             | Start the admin app on `ADMIN_DEV_PORT` against the local API and issuer  |
 | `bun run dev:worker`            | Migrate, set up the stack, and run the triage worker and the dispatcher   |
 | `bun run dev:linear-stub`       | Start the local Linear GraphQL stub                                       |
 | `bun run agent:sync`            | Publish the triage agent and write its lock file                          |
@@ -132,6 +149,7 @@ Script-tag use loads `dist/support-widget.global.js` and calls `window.PressWSup
 | `bun run validate:pipelines`    | Run `bunx pw-pipeline validate`                                           |
 | `bun run validate:phase-2`      | Run the live Phase 2 validation against Jev and Managed Agents            |
 | `bun run validate:phase-3`      | Run the live Phase 3 validation against Jev                               |
+| `bun run validate:phase-4`      | Run the live admin validation against the mock issuer and LocalStack      |
 | `bun run synth`                 | Run `cdk synth` with no AWS credentials                                   |
 
 `bun run check` leaves the stack running. Run `bun run stack:down` to stop it. The e2e stage installs Chromium when it is missing. Screenshots land in `e2e/artifacts`.
@@ -230,7 +248,7 @@ The title and the summary come from the validated result and render as inert tex
 
 The last line of the description is the marker `Support request ID: <id>`. The adapter finds an existing issue with an `endsWith` filter and then checks in code that the last line equals the exact marker, so quoted text or a summary that contains another marker never binds a request to the wrong issue.
 
-The Linear key comes from a `SecretsProvider`. Phase 2 reads `LINEAR_API_KEY`. Phase 4 swaps in Secrets Manager.
+The Linear key comes from a `SecretsProvider`. The runtime uses `createManagedSecrets`, which reads the Secrets Manager value that the admin settings saved and falls back to `LINEAR_API_KEY`.
 
 `bun run dev:linear-stub` serves a GraphQL stub for `issueCreate`, `issueLabels`, `issueLabelCreate`, `team`, `issues`, `viewer`, issue comments, `commentCreate` with `parentId`, and `issueArchive`. Set `LINEAR_API_URL` to the printed URL and `LINEAR_API_KEY` to any value. The override applies only outside production. A live test in `modules/channels` creates and archives one ticket when `LINEAR_API_KEY` and `LINEAR_TEST_TEAM_ID` are set.
 
@@ -311,6 +329,10 @@ Editing or deleting a held comment in Linear cancels the hold in the same transa
 
 The adapter orders changes by the `updatedAt` of the signed payload and stores it as `source_updated_at`. An update applies only when its `updatedAt` is strictly newer. An update or a remove that arrives before its create is recorded in `support.comment_changes` with the action and time and no text. A create whose `updatedAt` is older than a recorded change, or any create after a recorded remove, never trusts its payload: the adapter fetches the current comment from Linear and processes that, or marks it removed. The adapter applies the same rule before it scores a marked comment and before a confirm releases a held reply. A payload with no `createdAt` is never a confirm and never `@external`. An actor or user marked `app`, a non-user type, a `botActor`, or an external user is never human.
 
+A confirm always fetches every live held comment of the thread from Linear before it releases anything. It compares the body and the author with the stored row. A different body, a different author, or a comment Linear no longer returns cancels the hold and sends nothing. A newer `updatedAt` with the same body releases the reply and updates the stored time. A failed fetch keeps the confirm pending and it retries with backoff. It never sends on a failure.
+
+An update webhook with no `updatedAt` marks the stored comment `refetch_required` and records no change time. An update that arrives while `refetch_required` is true records its change row. `applyFetchedComment` keeps `refetch_required` set while a newer change row remains, so the next fetch picks up the later edit.
+
 A hold past its expiry is hidden from `listHeldReplies`, skipped by the warning retry, and marked `expired` with `reply.expired` by the next dispatcher tick.
 
 ### Customer follow-ups
@@ -325,7 +347,7 @@ A comment on an issue with no ticket row yet is stored pending with no request, 
 
 ### Webhook setup
 
-Create a Linear webhook for the `Comment` resource and point it at `POST <api>/webhooks/linear`. Scope the webhook to the teams that hold support tickets. The API stores ids only for comments on other issues, but a scoped webhook keeps unrelated traffic out. Set `LINEAR_WEBHOOK_SECRET` to the signing secret Linear shows. The route needs a public URL. For a local API, run a tunnel such as `cloudflared tunnel --url http://localhost:8787` or `ngrok http 8787` and use its address. The route returns 503 and stores nothing while the secret is missing.
+Create a Linear webhook for the `Comment` resource and point it at `POST <api>/webhooks/linear`. Scope the webhook to the teams that hold support tickets. The API stores ids only for comments on other issues, but a scoped webhook keeps unrelated traffic out. Save the signing secret Linear shows in the admin settings, or set `LINEAR_WEBHOOK_SECRET` for local development. The route reads it through the same Secrets Manager provider as the Linear key and the Jev key, with the environment variable as the fallback. The route needs a public URL. For a local API, run a tunnel such as `cloudflared tunnel --url http://localhost:8787` or `ngrok http 8787` and use its address. The route returns 503 and stores nothing while the secret is missing.
 
 The route checks the `Linear-Signature` header against an HMAC SHA-256 of the raw body, rejects a `webhookTimestamp` older than 60 seconds, treats `Linear-Delivery` as an idempotency key, and caps the body at 256 KiB.
 
@@ -334,6 +356,74 @@ The Linear stub sends signed `Comment` webhooks for tests. `stub.configureWebhoo
 ### Validation
 
 `bun run validate:phase-3` needs `TYPESAFE_API_KEY`. It starts the API, the worker, and the Linear stub, then prints one PASS, FAIL, or SKIP line for A14, A15, the flag band, and A16. The flag band prints SKIP and the script exits non-zero when no live sample lands in the 2 to 3 range, unless you pass `--allow-skip`. A16 waits one redelivery period and syncs again before it asserts a single copy. plus a table of live wording scores for 17 sample replies. It seeds its ticket through the human triage path, so it needs no Anthropic key. The e2e suite in `e2e/reply-loop.spec.ts` forces scores through an injected scorer in `e2e/backend.ts`.
+## Admin
+
+The admin app is a Vite React app with Tailwind v4, shadcn/ui, TanStack Query, and `oidc-client-ts`. It lives in `modules/admin`. Staff see the request list, a request detail page, and settings for projects, keys, and integrations.
+
+### Login
+
+The admin app signs staff in with the authorization code flow and PKCE. The API validates the bearer token with `jose`. It pins RS256 and checks the signature, the issuer, the expiry, the audience, and `token_use` when present. Cognito ID tokens carry `aud`. Access tokens carry `client_id`. The validator accepts either claim against `COGNITO_AUDIENCE`. Any failure, a missing setting, or a JWKS outage returns 401. `ADMIN_ALLOWED_EMAIL_DOMAINS` and `ADMIN_REQUIRED_GROUP` add optional checks. The admin app sends the ID token, so audit rows carry the staff email.
+
+Locally, a mock OIDC issuer container (`mock-oauth2-server`) serves discovery and JWKS. The API has no bypass flag. Start the stack, then the API and the admin app, and open `http://127.0.0.1:5183`. The issuer shows a sign-in form. Enter any user name and optional claims such as `{"email":"ada@pressw.test"}`. `COGNITO_ISSUER` and `COGNITO_AUDIENCE` default to the mock issuer when `NODE_ENV` is not `production`.
+
+```bash
+bun run stack:up && bun run stack:setup
+bun run dev:api
+bun run dev:admin
+```
+
+In AWS, the issuer is the `pw-telemetry-platform` Cognito pool, `https://cognito-idp.<region>.amazonaws.com/<poolId>`. The pool lives in another account, so the API needs only its public JWKS. The admin app needs a new app client on that pool with the CloudFront URL plus `/auth/callback` as its callback URL. Set `COGNITO_ISSUER`, `COGNITO_AUDIENCE` (the app client id), and `ADMIN_ORIGINS` on the API. Put `VITE_API_URL`, `VITE_OIDC_AUTHORITY`, and `VITE_OIDC_CLIENT_ID` in a `config.json` file next to `index.html`, or set them at build time. The CDK stack exposes the same values through the `cognitoIssuer` and `cognitoAudience` context keys, and no real id lives in this repository. The app keeps tokens in session storage and renews silently.
+
+The API answers `401` for a missing, invalid, expired, wrong-issuer, or wrong-audience token, with a `WWW-Authenticate` header. It answers `403` with `{"error":"forbidden"}` for a valid token that fails `ADMIN_ALLOWED_EMAIL_DOMAINS` or `ADMIN_REQUIRED_GROUP`. The app starts at most one fresh login after a `401` or a renewal failure. A second `401` right after sign-in shows "Sign-in could not be verified" with a retry button. A `403` shows "Not authorized for this desk" with the signed-in email and a sign-out button. A callback error or an unknown callback state shows "Sign-in failed".
+
+Cognito does not advertise `end_session_endpoint` in discovery, so set `VITE_OIDC_LOGOUT_URL` to the hosted UI logout endpoint. The placeholders `{client_id}` and `{logout_uri}` are URL-encoded on substitution. `{logout_uri}` is the admin origin plus `/signed-out`.
+
+```
+VITE_OIDC_LOGOUT_URL=https://<hosted-ui-domain>/logout?client_id={client_id}&logout_uri={logout_uri}
+```
+
+Use the hosted UI domain of the pool, for example `<prefix>.auth.us-east-1.amazoncognito.com`. Register `https://<admin-origin>/signed-out` under the app client's allowed sign-out URLs, or Cognito rejects the logout. A discovery document that does have `end_session_endpoint` takes precedence. With neither, the signed-out screen says that the identity provider session may still be active and tells the user to close the browser.
+
+### Admin routes
+
+Every route sits behind the token validator. CORS allows only `ADMIN_ORIGINS`. Mutations are rate limited per staff member and capped at `ADMIN_MAX_BODY_BYTES`.
+
+| Route                                         | Action                                                       |
+| --------------------------------------------- | ------------------------------------------------------------ |
+| `GET /admin/me`                               | Return the staff identity from the token                     |
+| `GET /admin/requests`                         | Page requests, newest first, with filters and a cursor       |
+| `GET /admin/requests/:id`                     | Return the thread, timeline, judgments, job, and reply flags |
+| `GET /admin/attachments/:id`                  | Stream an attachment                                         |
+| `GET /admin/projects`                         | List projects with keys and CC lists                         |
+| `POST /admin/projects`                        | Create a project                                             |
+| `PATCH /admin/projects/:id`                   | Edit the name or the Linear team                             |
+| `PUT /admin/projects/:id/cc-list`             | Replace the severe-request CC list                           |
+| `POST /admin/projects/:id/keys`               | Mint a key. The full key appears once                        |
+| `POST /admin/projects/:id/keys/:keyId/revoke` | Revoke a key                                                 |
+| `GET /admin/integrations`                     | Return `configured` and update metadata, never a value       |
+| `PUT /admin/integrations/:kind`               | Store a secret in Secrets Manager                            |
+
+The list filters are `projectId`, `status`, `flaggedReplies`, `needsHuman`, `limit`, and `cursor`. `needsHuman` matches a job with the `human_triage` outcome or a result with `needs_human`. `flaggedReplies` reads `support.replies`. It matches a request with a flagged reply, the rows `listFlaggedReplies` returns, or a hold that has not expired.
+
+The request detail returns every thread message with `author`, `authorName`, `originChannel`, and `audience`, so internal Linear comments and customer-visible replies stay distinct. It also returns a `replies` list from `support.replies`. Each reply carries its status (`held`, `sent`, `cancelled`, or `expired`), its wording score, the hold reason, the cancel reason, the expiry, and whether the warning was posted. The UI renders every body, summary, author name, and event payload as a plain text node.
+
+### Acknowledgement timer
+
+`acknowledged_at` is the earliest message on the request where the author is `staff` and the origin is `linear` or the audience is `external`. These are the values the reply loop writes: an internal Linear comment has `origin_channel=linear` and `author=staff`, and a released reply has `audience=external`. One subquery in `modules/db/src/admin.ts` defines it. It stays null until staff comment. The list shows a running timer from `created_at` while it is null and the time to acknowledge afterwards. The timer turns amber at 15 minutes and red at 60 minutes. The constants `ACK_WARN_MINUTES` and `ACK_CRITICAL_MINUTES` live in `@pw-support/contracts`.
+
+### Integration secrets
+
+Saving a Linear API key, a Linear webhook secret, or a TypeSafe key writes the value to Secrets Manager under `pw-support/<scope>/<name>` and creates the secret when it does not exist. Postgres stores only the secret name in `support.integrations`, with `updated_at` and `updated_by`. No API response, log line, or event holds the value. The admin routes log the error name and never the request body.
+
+`createManagedSecrets` in `@pw-support/channels` reads the value through the Postgres reference with a 30 second cache. It falls back to the matching environment variable, such as `LINEAR_API_KEY`, when no reference exists. The Linear client, the Jev client, the wording scorer, and the webhook intake use it. The API invalidates its own cache after a save, and other processes see the change within the cache time.
+
+### CC list
+
+The severe-request CC list belongs to a project, in `support.projects.severe_cc_emails`. A Slack alert fires for one request, and a request belongs to one project, so a project list needs no routing rule. A global default can join later without a migration. V1 stores the list and nothing reads it.
+
+### Validation
+
+`bun run validate:phase-4` starts the API with the mock issuer and LocalStack and prints one PASS or FAIL line per check. It covers A15-admin (a flagged reply from the admin API for staff, 401 without a token), A19 (401 without a token, with a forged token, with a token from another issuer, and 200 with an issued token), A29, and the five A18 checks. A18b scans a real `pg_dump` taken inside the Postgres container. The Playwright suite in `e2e/admin.spec.ts` drives the login through the mock issuer and writes screenshots to `e2e/artifacts`.
 
 ## Modules
 

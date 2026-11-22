@@ -403,6 +403,7 @@ describe("migrate on an empty database", () => {
         "event_cursors",
         "events",
         "inbound_comments",
+        "integrations",
         "judgments",
         "message_deliveries",
         "messages",

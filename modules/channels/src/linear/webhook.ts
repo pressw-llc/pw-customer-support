@@ -190,7 +190,7 @@ export function createLinearWebhookIntake(
           deliveryId: delivery,
           commentId: change.data.id,
           action: payload.data.action,
-          updatedAt: parsedTime(change.data.updatedAt) ?? clock(),
+          updatedAt: parsedTime(change.data.updatedAt) ?? undefined,
           body:
             change.data.body === undefined
               ? undefined
@@ -199,7 +199,11 @@ export function createLinearWebhookIntake(
         if (outcome.status === "cancelled") {
           return respond(200, { status: "accepted", change: "cancelled" });
         }
-        if (outcome.status === "updated" || outcome.status === "removed") {
+        if (
+          outcome.status === "updated" ||
+          outcome.status === "removed" ||
+          outcome.status === "refetch_required"
+        ) {
           return respond(200, { status: "accepted", change: outcome.status });
         }
         return respond(200, { status: "ignored", reason: outcome.status });

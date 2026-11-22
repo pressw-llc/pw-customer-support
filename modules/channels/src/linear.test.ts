@@ -1,4 +1,4 @@
-import { afterAll, beforeAll, describe, expect, test } from "bun:test";
+import { afterAll, beforeAll, describe, expect, spyOn, test } from "bun:test";
 import {
   CreateQueueCommand,
   DeleteQueueCommand,
@@ -44,6 +44,113 @@ beforeAll(async () => {
 
 afterAll(async () => {
   await h.close();
+});
+
+describe("H5 getComment tells a removed comment from a refused request", () => {
+  const KEY = "lin_api_secret_value_123";
+  function clientAnswering(status: number, body: unknown) {
+    return createLinearClient({
+      secrets: { get: async () => KEY },
+      fetcher: (async () =>
+        new Response(typeof body === "string" ? body : JSON.stringify(body), {
+          status,
+        })) as unknown as typeof fetch,
+    });
+  }
+
+  test("a definite entity-not-found answer means removed", async () => {
+    const client = clientAnswering(200, {
+      errors: [{ message: "Entity not found: Comment - Could not find" }],
+    });
+    expect(await client.getComment("c-1")).toBeNull();
+    const empty = clientAnswering(200, { data: { comment: null } });
+    expect(await empty.getComment("c-1")).toBeNull();
+  });
+
+  test("an authentication error throws and logs one clear line with no key", async () => {
+    const log = spyOn(console, "error").mockImplementation(() => {});
+    try {
+      const client = clientAnswering(401, {
+        errors: [{ message: "Authentication required, not authenticated" }],
+      });
+      await expect(client.getComment("c-2")).rejects.toThrow(/Authentication/);
+      expect(log).toHaveBeenCalledTimes(1);
+      const line = String(log.mock.calls[0]?.[0]);
+      expect(line).toContain("c-2");
+      expect(line).toContain("HTTP 401");
+      expect(line).not.toContain(KEY);
+    } finally {
+      log.mockRestore();
+    }
+  });
+
+  test("a permission error, even worded as not found elsewhere, throws", async () => {
+    const log = spyOn(console, "error").mockImplementation(() => {});
+    try {
+      const forbidden = clientAnswering(200, {
+        errors: [
+          { message: "You do not have permission to view this comment" },
+        ],
+      });
+      await expect(forbidden.getComment("c-3")).rejects.toThrow(/permission/);
+      const raw403 = clientAnswering(403, "<html>Forbidden</html>");
+      await expect(raw403.getComment("c-3")).rejects.toThrow(LinearError);
+      expect(log).toHaveBeenCalledTimes(2);
+    } finally {
+      log.mockRestore();
+    }
+  });
+
+  test("other failures throw without being treated as removed", async () => {
+    const log = spyOn(console, "error").mockImplementation(() => {});
+    try {
+      const vague = clientAnswering(200, {
+        errors: [{ message: "The thing you asked for was not found nearby" }],
+      });
+      await expect(vague.getComment("c-4")).rejects.toThrow(LinearError);
+      const outage = clientAnswering(502, "bad gateway");
+      await expect(outage.getComment("c-4")).rejects.toThrow(LinearError);
+      expect(log).not.toHaveBeenCalled();
+    } finally {
+      log.mockRestore();
+    }
+  });
+});
+
+describe("the stub settles its own webhooks before it stops", () => {
+  test("stop waits for a comment webhook that createComment started", async () => {
+    const received: string[] = [];
+    const target = Bun.serve({
+      port: 0,
+      async fetch(request) {
+        await Bun.sleep(50);
+        received.push(await request.text());
+        return Response.json({ ok: true });
+      },
+    });
+    const stub = startLinearStub();
+    stub.configureWebhook({
+      url: `http://127.0.0.1:${target.port}/hook`,
+      secret: "s",
+    });
+    const issue = {
+      id: "issue-settle",
+      identifier: "ACME-9",
+      title: "t",
+      description: "",
+    };
+    stub.issues.push(issue as never);
+    const client = createLinearClient({
+      apiUrl: stub.url,
+      secrets: { get: async () => "lin_api_test" },
+    });
+    await client.createComment(issue.id, "own comment");
+    expect(received).toHaveLength(0);
+    await stub.stop();
+    expect(received).toHaveLength(1);
+    expect(stub.deliveries).toHaveLength(1);
+    await target.stop(true);
+  });
 });
 
 describe("linear client against the stub", () => {
@@ -631,7 +738,7 @@ describe("dispatcher", () => {
 });
 
 describe("SQS delivery", () => {
-  const env = resolveStackEnv({});
+  const env = resolveStackEnv();
   const sqs = new SQSClient({
     endpoint: env.awsEndpointUrl,
     region: "us-east-1",

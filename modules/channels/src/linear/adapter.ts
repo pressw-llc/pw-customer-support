@@ -34,7 +34,7 @@ import {
   inTransaction,
   isMessageReady,
   isRecordedOwnComment,
-  listHeldNeedingRefresh,
+  listHeldInThread,
   listJudgments,
   listLateAttachments,
   listUndeliveredFollowUps,
@@ -214,12 +214,13 @@ export function createLinearAdapter(deps: LinearAdapterDeps): LinearAdapter {
 
   async function refreshHeldReplies(inbound: InboundCommentRow) {
     if (!inbound.requestId || !inbound.parentCommentId) return;
-    const stale = await listHeldNeedingRefresh(
+    const held = await listHeldInThread(
       db,
       inbound.requestId,
       inbound.parentCommentId,
+      clock(),
     );
-    for (const held of stale) await refreshFromLinear(held);
+    for (const row of held) await refreshFromLinear(row);
   }
 
   async function postCancelNotice(replyId: string): Promise<void> {
@@ -258,6 +259,7 @@ export function createLinearAdapter(deps: LinearAdapterDeps): LinearAdapter {
       await refreshFromLinear(inbound);
       inbound = await getInboundComment(db, inboundId);
       if (!inbound || inbound.status === "processed") return;
+      if (inbound.refetchRequired) return;
     }
     if (await isOwnComment(inbound)) {
       await ignoreInboundComment(db, inbound.id, "own_comment");

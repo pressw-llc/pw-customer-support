@@ -13,6 +13,7 @@ import {
   appendCommentReceived,
   expireReply,
   findTicketByLinearIssue,
+  lockRequestRow,
   type RequestRecord,
 } from "./replies";
 import {
@@ -212,7 +213,8 @@ export async function resolveOrphanComments(
   for (const { issueId } of issues) {
     attached += await inTransaction(db, async (tx) => {
       const found = await findTicketByLinearIssue(tx, issueId);
-      return found ? attachOrphanComments(tx, issueId, found.request) : 0;
+      if (!found || !(await lockRequestRow(tx, found.request.id))) return 0;
+      return attachOrphanComments(tx, issueId, found.request);
     });
   }
   const cutoff = new Date(now.getTime() - ORPHAN_COMMENT_TTL_SECONDS * 1000);

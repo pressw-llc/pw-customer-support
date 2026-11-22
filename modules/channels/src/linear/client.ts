@@ -1,8 +1,10 @@
+import { INTEGRATIONS, integrationKinds } from "@pw-support/contracts";
 import { z } from "zod";
 
 export const LINEAR_API_URL = "https://api.linear.app/graphql";
-export const LINEAR_KEY_SECRET = "linear-api-key";
-export const LINEAR_WEBHOOK_SECRET = "linear-webhook-secret";
+export const LINEAR_KEY_SECRET = INTEGRATIONS.linear_api_key.secretName;
+export const LINEAR_WEBHOOK_SECRET =
+  INTEGRATIONS.linear_webhook_secret.secretName;
 
 export interface SecretsProvider {
   get(name: string): Promise<string>;
@@ -11,10 +13,12 @@ export interface SecretsProvider {
 export function envSecrets(
   env: Record<string, string | undefined> = process.env,
 ): SecretsProvider {
-  const names: Record<string, string> = {
-    [LINEAR_KEY_SECRET]: "LINEAR_API_KEY",
-    [LINEAR_WEBHOOK_SECRET]: "LINEAR_WEBHOOK_SECRET",
-  };
+  const names: Record<string, string> = Object.fromEntries(
+    integrationKinds.map((kind) => [
+      INTEGRATIONS[kind].secretName,
+      INTEGRATIONS[kind].envVar,
+    ]),
+  );
   return {
     async get(name) {
       const variable = names[name];
@@ -127,7 +131,15 @@ const commentNode = z.object({
   externalUser: z.unknown().nullish(),
 });
 
-const NOT_FOUND = /not found/i;
+const NOT_FOUND = /entity not found/i;
+const DENIED =
+  /authenticat|unauthori[sz]ed|forbidden|permission|access denied|do not have access|invalid api key/i;
+
+function isDenied(error: LinearError): boolean {
+  return (
+    error.status === 401 || error.status === 403 || DENIED.test(error.message)
+  );
+}
 
 const labelNode = z.object({ id: z.string(), name: z.string() });
 
@@ -298,8 +310,14 @@ export function createLinearClient(options: LinearClientOptions): LinearClient {
           z.object({ comment: commentNode.nullable() }),
         );
       } catch (error) {
-        if (error instanceof LinearError && NOT_FOUND.test(error.message)) {
-          return null;
+        if (error instanceof LinearError) {
+          if (isDenied(error)) {
+            console.error(
+              `[linear] getComment ${commentId} was refused (HTTP ${error.status ?? "unknown"}): check the Linear API key and its access; the comment is not treated as removed`,
+            );
+            throw error;
+          }
+          if (NOT_FOUND.test(error.message)) return null;
         }
         throw error;
       }

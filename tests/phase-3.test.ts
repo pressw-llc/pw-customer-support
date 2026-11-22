@@ -743,6 +743,7 @@ describe("webhook security", () => {
     expect(notJson.delivery.status).toBe(400);
     expect(wrongShape.delivery.status).toBe(400);
     const invalidUtf8 = await fetch(p.webhookUrl, {
+      keepalive: false,
       method: "POST",
       headers: {
         "Linear-Delivery": crypto.randomUUID(),
@@ -777,6 +778,7 @@ describe("webhook security", () => {
     const post = async (payload: Record<string, unknown>) => {
       const raw = JSON.stringify(payload);
       return fetch(p.webhookUrl, {
+        keepalive: false,
         method: "POST",
         headers: {
           "Linear-Delivery": crypto.randomUUID(),

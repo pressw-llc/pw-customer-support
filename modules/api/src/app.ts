@@ -1,4 +1,10 @@
-import type { LinearWebhookIntake } from "@pw-support/channels";
+import {
+  createSecretsManagerClient,
+  createSecretWriter,
+  type LinearWebhookIntake,
+  type ManagedSecrets,
+  type SecretWriter,
+} from "@pw-support/channels";
 import {
   LINEAR_DELIVERY_HEADER,
   LINEAR_SIGNATURE_HEADER,
@@ -12,6 +18,8 @@ import type { SupportDb } from "@pw-support/db";
 import { Hono } from "hono";
 import { bodyLimit } from "hono/body-limit";
 import { cors } from "hono/cors";
+import { adminRoutes } from "./admin";
+import { createTokenValidator, type TokenValidator } from "./auth";
 import type { ApiConfig } from "./config";
 import {
   type Checks,
@@ -30,6 +38,9 @@ export interface AppDeps {
   config: ApiConfig;
   checks?: Checks;
   wake?: WakeSender;
+  validator?: TokenValidator;
+  secretWriter?: SecretWriter;
+  secrets?: Pick<ManagedSecrets, "invalidate">;
   timing?: TriageTiming;
   linearWebhook?: LinearWebhookIntake;
   now?: () => Date;
@@ -164,6 +175,26 @@ export function createApp(deps: AppDeps): Hono {
       });
       return c.json(result.body, result.status);
     },
+  );
+
+  const validator =
+    deps.validator ??
+    createTokenValidator(deps.config.auth, {
+      onReject: (reason) => {
+        if (reason === "not_configured") console.error("[auth] not configured");
+      },
+    });
+  app.route(
+    "/admin",
+    adminRoutes({
+      db: deps.db,
+      storage: deps.storage,
+      config: deps.config,
+      validator,
+      secretWriter:
+        deps.secretWriter ?? createSecretWriter(createSecretsManagerClient()),
+      secrets: deps.secrets,
+    }),
   );
 
   app.onError((error, c) => {

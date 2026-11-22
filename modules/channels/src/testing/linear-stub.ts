@@ -115,6 +115,11 @@ export function commentWebhookPayload(
   };
 }
 
+export const freshConnectionFetch = ((
+  url: Parameters<typeof fetch>[0],
+  init?: Parameters<typeof fetch>[1],
+) => fetch(url, { ...init, keepalive: false })) as typeof fetch;
+
 export async function deliverCommentWebhook(
   target: StubWebhookTarget,
   comment: StubComment,
@@ -141,6 +146,7 @@ export async function deliverCommentWebhook(
     method: "POST",
     headers,
     body: rawBody,
+    keepalive: false,
   });
   return {
     deliveryId,
@@ -285,12 +291,19 @@ export function startLinearStub(options: StubOptions = {}): LinearStub {
       counters.clear();
     },
     stop: async () => {
+      await Promise.allSettled([...pending]);
       await server.stop(true);
     },
   };
   let failures = { count: 0, message: "" };
   let webhook: StubWebhookTarget | null = null;
   const counters = new Map<string, number>();
+  const pending = new Set<Promise<unknown>>();
+
+  function emitInBackground(comment: StubComment): void {
+    const delivery = emit(comment).finally(() => pending.delete(delivery));
+    pending.add(delivery);
+  }
 
   async function emit(
     comment: StubComment,
@@ -468,7 +481,7 @@ export function startLinearStub(options: StubOptions = {}): LinearStub {
         updatedAt: new Date().toISOString(),
       };
       stub.comments.push(comment);
-      void emit(comment);
+      emitInBackground(comment);
       return { commentCreate: { success: true, comment: { id: comment.id } } };
     },
     viewer() {
@@ -517,6 +530,7 @@ export function startLinearStub(options: StubOptions = {}): LinearStub {
 
   const server = Bun.serve({
     port: options.port ?? 0,
+    idleTimeout: 0,
     async fetch(request) {
       if (request.method !== "POST") {
         return new Response("method not allowed", { status: 405 });
