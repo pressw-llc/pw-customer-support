@@ -1,6 +1,6 @@
 import { describe, expect, spyOn, test } from "bun:test";
 import { join } from "node:path";
-import { findViolations, main } from "./lint-boundaries";
+import { findCycles, findViolations, main } from "./lint-boundaries";
 
 const fixtures = join(import.meta.dir, "fixtures");
 const script = join(import.meta.dir, "lint-boundaries.ts");
@@ -44,7 +44,31 @@ describe("findViolations", () => {
   });
 });
 
+describe("findCycles", () => {
+  test("reports a cycle between modules once with its path", () => {
+    expect(findCycles(join(fixtures, "boundary-cycle"))).toEqual([
+      ["@pw-support/a", "@pw-support/b", "@pw-support/c", "@pw-support/a"],
+    ]);
+  });
+
+  test("a tree with no cycle reports none", () => {
+    expect(findCycles(join(fixtures, "boundary-clean"))).toEqual([]);
+  });
+
+  test("finds none in the real workspace, where api and triage depend one way", () => {
+    expect(findCycles(join(import.meta.dir, ".."))).toEqual([]);
+  });
+});
+
 describe("lint-boundaries command", () => {
+  test("exits non-zero on a workspace dependency cycle", () => {
+    const result = lint(join(fixtures, "boundary-cycle"));
+    expect(result.exitCode).toBe(1);
+    expect(result.stderr.toString()).toContain(
+      "workspace dependency cycle: @pw-support/a -> @pw-support/b",
+    );
+  });
+
   test("exits non-zero on a planted deep import", () => {
     const result = lint(join(fixtures, "boundary-violations"));
     expect(result.exitCode).toBe(1);

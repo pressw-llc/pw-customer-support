@@ -325,7 +325,7 @@ async function main() {
 
   const port = 48000 + Math.floor(Math.random() * 1000);
   apiUrl = `http://127.0.0.1:${port}`;
-  api = startChild(["bun", "modules/api/src/server.ts"], {
+  api = startChild(["bun", "apps/server/src/server.ts"], {
     ...process.env,
     ...timingEnv,
     API_PORT: String(port),

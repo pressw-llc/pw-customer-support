@@ -1,0 +1,17 @@
+{
+  "name": "@pw-support/server",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "start": "bun src/server.ts"
+  },
+  "dependencies": {
+    "@pw-support/api": "workspace:*",
+    "@pw-support/channels": "workspace:*",
+    "@pw-support/contracts": "workspace:*",
+    "@pw-support/db": "workspace:*",
+    "@pw-support/triage": "workspace:*"
+  }
+}

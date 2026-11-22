@@ -110,18 +110,85 @@ export function findViolations(root: string): Violation[] {
   return violations;
 }
 
+interface Manifest {
+  name: string;
+  dependencies?: Record<string, string>;
+  devDependencies?: Record<string, string>;
+  peerDependencies?: Record<string, string>;
+}
+
+function workspaceManifests(root: string): Manifest[] {
+  const manifests: Manifest[] = [];
+  for (const group of ["modules", "apps"]) {
+    const dir = join(root, group);
+    if (!existsSync(dir)) continue;
+    for (const entry of readdirSync(dir, { withFileTypes: true })) {
+      const manifest = join(dir, entry.name, "package.json");
+      if (!entry.isDirectory() || !existsSync(manifest)) continue;
+      manifests.push(JSON.parse(readFileSync(manifest, "utf8")) as Manifest);
+    }
+  }
+  return manifests;
+}
+
+export function findCycles(root: string): string[][] {
+  const manifests = workspaceManifests(resolve(root));
+  const names = new Set(manifests.map((manifest) => manifest.name));
+  const edges = new Map<string, string[]>(
+    manifests.map((manifest) => [
+      manifest.name,
+      Object.entries({
+        ...manifest.peerDependencies,
+        ...manifest.devDependencies,
+        ...manifest.dependencies,
+      })
+        .filter(
+          ([name, range]) => names.has(name) && range.startsWith("workspace:"),
+        )
+        .map(([name]) => name)
+        .sort(),
+    ]),
+  );
+  const cycles: string[][] = [];
+  const state = new Map<string, "visiting" | "done">();
+  const path: string[] = [];
+  const visit = (name: string) => {
+    state.set(name, "visiting");
+    path.push(name);
+    for (const next of edges.get(name) ?? []) {
+      if (state.get(next) === "visiting") {
+        cycles.push([...path.slice(path.indexOf(next)), next]);
+      } else if (!state.has(next)) {
+        visit(next);
+      }
+    }
+    path.pop();
+    state.set(name, "done");
+  };
+  for (const name of [...names].sort()) {
+    if (!state.has(name)) visit(name);
+  }
+  return cycles;
+}
+
 function rootFromArgs(args: string[]): string {
   const index = args.indexOf("--root");
   return index >= 0 && args[index + 1] ? (args[index + 1] as string) : ".";
 }
 
 export function main(args: string[]): number {
-  const violations = findViolations(rootFromArgs(args));
+  const root = rootFromArgs(args);
+  const violations = findViolations(root);
   for (const v of violations) {
     console.error(`${v.file}:${v.line} "${v.specifier}" ${v.reason}`);
   }
-  if (violations.length > 0) {
-    console.error(`[lint-boundaries] ${violations.length} violation(s)`);
+  const cycles = findCycles(root);
+  for (const cycle of cycles) {
+    console.error(`workspace dependency cycle: ${cycle.join(" -> ")}`);
+  }
+  const total = violations.length + cycles.length;
+  if (total > 0) {
+    console.error(`[lint-boundaries] ${total} violation(s)`);
     return 1;
   }
   console.log("[lint-boundaries] no violations");

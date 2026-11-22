@@ -28,6 +28,17 @@
         "zod": "^3.24.1",
       },
     },
+    "apps/server": {
+      "name": "@pw-support/server",
+      "version": "0.0.0",
+      "dependencies": {
+        "@pw-support/api": "workspace:*",
+        "@pw-support/channels": "workspace:*",
+        "@pw-support/contracts": "workspace:*",
+        "@pw-support/db": "workspace:*",
+        "@pw-support/triage": "workspace:*",
+      },
+    },
     "e2e": {
       "name": "@pw-support/e2e",
       "version": "0.0.0",
@@ -94,7 +105,6 @@
         "@pw-support/channels": "workspace:*",
         "@pw-support/contracts": "workspace:*",
         "@pw-support/db": "workspace:*",
-        "@pw-support/triage": "workspace:*",
         "hono": "^4.6.14",
         "jose": "6.2.3",
         "postgres": "^3.4.9",
@@ -423,6 +433,8 @@
     "@pw-support/infra": ["@pw-support/infra@workspace:modules/infra"],
 
     "@pw-support/plugin": ["@pw-support/plugin@workspace:modules/plugin"],
+
+    "@pw-support/server": ["@pw-support/server@workspace:apps/server"],
 
     "@pw-support/triage": ["@pw-support/triage@workspace:modules/triage"],
 

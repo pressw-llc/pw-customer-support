@@ -39,7 +39,7 @@ function report(ok: boolean, name: string, detail = ""): void {
 
 let logs = "";
 function spawnApi(apiPort: number, extra: Record<string, string> = {}) {
-  const child = Bun.spawn(["bun", "modules/api/src/server.ts"], {
+  const child = Bun.spawn(["bun", "apps/server/src/server.ts"], {
     env: {
       ...process.env,
       API_PORT: String(apiPort),

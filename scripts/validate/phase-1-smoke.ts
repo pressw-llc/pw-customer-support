@@ -115,7 +115,7 @@ async function run(): Promise<void> {
   const db = createDb();
   const suffix = randomSuffix();
   const slugs = [`smoke-a-${suffix}`, `smoke-b-${suffix}`];
-  const child = Bun.spawn(["bun", "modules/api/src/server.ts"], {
+  const child = Bun.spawn(["bun", "apps/server/src/server.ts"], {
     env: { ...process.env, API_PORT: String(PORT) },
     stdout: "ignore",
     stderr: "inherit",

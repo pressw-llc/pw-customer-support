@@ -38,7 +38,7 @@ export const ADMIN = {
 
 function variantApi(port: number, env: Record<string, string>) {
   return {
-    command: "bun modules/api/src/server.ts",
+    command: "bun apps/server/src/server.ts",
     cwd: root,
     url: `http://127.0.0.1:${port}/health`,
     reuseExistingServer: false,
@@ -66,7 +66,7 @@ export default defineConfig({
   projects: [{ name: "chromium", use: { ...devices["Desktop Chrome"] } }],
   webServer: [
     {
-      command: "bun scripts/seed-dev.ts && bun modules/api/src/server.ts",
+      command: "bun scripts/seed-dev.ts && bun apps/server/src/server.ts",
       cwd: root,
       url: `${apiUrl}/health`,
       reuseExistingServer: false,

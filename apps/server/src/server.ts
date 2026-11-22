@@ -1,4 +1,13 @@
 import {
+  createApp,
+  createS3Storage,
+  createSqsClient,
+  createSqsWakeSender,
+  createTokenValidator,
+  loadConfig,
+  mcpAuthConfig,
+} from "@pw-support/api";
+import {
   createLinearWebhookIntake,
   createManagedSecrets,
   createSecretsManagerClient,
@@ -11,11 +20,6 @@ import {
   jevFromSecrets,
   loadTriageConfig,
 } from "@pw-support/triage";
-import { createApp } from "./app";
-import { createTokenValidator } from "./auth";
-import { loadConfig, mcpAuthConfig } from "./config";
-import { createS3Storage } from "./storage";
-import { createSqsClient, createSqsWakeSender } from "./wake";
 
 const config = loadConfig();
 const db = createDb();

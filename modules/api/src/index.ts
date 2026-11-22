@@ -7,7 +7,7 @@ export {
   type TokenResult,
   type TokenValidator,
 } from "./auth";
-export { type ApiConfig, loadConfig } from "./config";
+export { type ApiConfig, loadConfig, mcpAuthConfig } from "./config";
 export { type LaptopBackend, type McpDeps, mcpRoutes } from "./mcp";
 export {
   createS3Storage,

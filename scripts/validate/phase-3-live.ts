@@ -377,7 +377,7 @@ async function main() {
     ANTHROPIC_API_KEY: "",
     TRIAGE_AGENT_ID: "",
   };
-  api = startChild(["bun", "modules/api/src/server.ts"], {
+  api = startChild(["bun", "apps/server/src/server.ts"], {
     ...baseEnv,
     API_PORT: String(port),
   });
