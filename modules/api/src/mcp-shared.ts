@@ -29,6 +29,7 @@ export interface McpConfig {
   perWindow: number;
   windowSeconds: number;
   maxBodyBytes: number;
+  disabled?: boolean;
 }
 
 export interface McpDeps {

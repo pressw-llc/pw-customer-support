@@ -1,9 +1,11 @@
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import {
   interactiveToolOutputs,
+  MCP_LAPTOP_PATH,
   MCP_PATH,
   mcpInputs,
   type StaffIdentity,
+  WATCHER_PATH,
 } from "@pw-support/contracts";
 import {
   addSubscription,
@@ -172,6 +174,13 @@ export function buildMcpServer(
 
 export function mcpRoutes(deps: McpDeps): Hono<McpEnv> {
   const routes = new Hono<McpEnv>();
+
+  if (deps.config.disabled) {
+    for (const path of [MCP_PATH, MCP_LAPTOP_PATH, WATCHER_PATH]) {
+      routes.all(path, (c) => c.json({ error: "mcp_not_configured" }, 503));
+    }
+    return routes;
+  }
 
   routes.use(MCP_PATH, requireEngineer(deps.validator));
   routes.on(["GET", "DELETE"], MCP_PATH, methodNotAllowed());

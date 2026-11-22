@@ -25,6 +25,7 @@ export interface ApiConfig {
     requiredGroup: string | undefined;
     perWindow: number;
     maxBodyBytes: number;
+    disabled?: boolean;
   };
   admin: {
     maxBodyBytes: number;
@@ -47,17 +48,22 @@ export function mcpAuthConfig(config: ApiConfig): AuthConfig {
   };
 }
 
-export function productionWarnings(
-  config: ApiConfig,
+export function mcpMissingSettings(env: NodeJS.ProcessEnv): string[] {
+  if (env.NODE_ENV !== "production") return [];
+  const missing: string[] = [];
+  if (csv(env.MCP_AUDIENCE).length === 0) missing.push("MCP_AUDIENCE");
+  if (!env.MCP_REQUIRED_GROUP) missing.push("MCP_REQUIRED_GROUP");
+  return missing;
+}
+
+export function productionConfigErrors(
   env: NodeJS.ProcessEnv = process.env,
 ): string[] {
-  const warnings: string[] = [];
-  if (env.NODE_ENV === "production" && !config.mcp.requiredGroup) {
-    warnings.push(
-      "MCP_REQUIRED_GROUP is not set; /mcp accepts any user of the pool that holds an MCP-client token",
-    );
-  }
-  return warnings;
+  const missing = mcpMissingSettings(env);
+  if (missing.length === 0) return [];
+  return [
+    `${missing.join(" and ")} must be set in production; /mcp, /mcp/laptop, and /laptop/watcher answer 503 until they are`,
+  ];
 }
 
 const DEFAULT_PORT = 8787;
@@ -83,6 +89,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): ApiConfig {
     : local
       ? [LOCAL_OIDC_CLIENT_ID]
       : [];
+  const mcpDisabled = mcpMissingSettings(env).length > 0;
   const accessKeyId = env.AWS_ACCESS_KEY_ID ?? (local ? "test" : undefined);
   const secretAccessKey =
     env.AWS_SECRET_ACCESS_KEY ?? (local ? "test" : undefined);
@@ -122,8 +129,9 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): ApiConfig {
         ? csv(env.MCP_AUDIENCE)
         : local
           ? [LOCAL_MCP_CLIENT_ID, ...adminAudiences]
-          : adminAudiences,
+          : [],
       requiredGroup: env.MCP_REQUIRED_GROUP || undefined,
+      ...(mcpDisabled ? { disabled: true } : {}),
       perWindow: positiveInt(env.MCP_RATE_LIMIT_PER_WINDOW, 120),
       maxBodyBytes: positiveInt(env.MCP_MAX_BODY_BYTES, 256 * 1024),
     },
