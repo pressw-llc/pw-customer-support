@@ -57,6 +57,7 @@ function createEndpoint(input: {
   fetcher?: typeof fetch;
 }): Endpoint {
   let client: Client | null = null;
+  let connecting: Promise<Client> | null = null;
   let limited: number | null = null;
 
   const transportFetch = async (
@@ -81,16 +82,23 @@ function createEndpoint(input: {
     return response;
   };
 
-  async function connect(): Promise<Client> {
-    if (client) return client;
-    const created = new Client({ name: input.clientName, version: "1.0.0" });
-    await created.connect(
-      new StreamableHTTPClientTransport(new URL(input.url), {
-        fetch: transportFetch as typeof fetch,
-      }),
-    );
-    client = created;
-    return created;
+  function connect(): Promise<Client> {
+    if (client) return Promise.resolve(client);
+    connecting ??= (async () => {
+      const created = new Client({ name: input.clientName, version: "1.0.0" });
+      try {
+        await created.connect(
+          new StreamableHTTPClientTransport(new URL(input.url), {
+            fetch: transportFetch as typeof fetch,
+          }),
+        );
+        client = created;
+        return created;
+      } finally {
+        connecting = null;
+      }
+    })();
+    return connecting;
   }
 
   async function close(): Promise<void> {

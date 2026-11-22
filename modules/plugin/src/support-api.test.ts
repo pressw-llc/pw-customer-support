@@ -156,6 +156,19 @@ describe("support api client", () => {
     await api.close();
   });
 
+  test("concurrent first calls share one in-flight connect", async () => {
+    const server = startServer();
+    active = server;
+    const api = createSupportApi({
+      apiUrl: server.url,
+      getToken: async () => "t",
+      watcher,
+    });
+    await Promise.all([api.offers(), api.offers(), api.offers()]);
+    expect(server.connections()).toBe(1);
+    await api.close();
+  });
+
   test("a tool error does not drop the client, and a transport error reconnects", async () => {
     const server = startServer();
     active = server;
