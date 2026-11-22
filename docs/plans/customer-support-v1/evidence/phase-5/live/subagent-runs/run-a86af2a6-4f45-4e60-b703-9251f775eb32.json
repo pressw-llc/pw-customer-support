@@ -1,0 +1,148 @@
+{
+  "toolSetOk": true,
+  "init": {
+    "toolNames": [
+      "mcp__pw_submit__submit_result"
+    ],
+    "mcpServers": [
+      {
+        "name": "pw_submit",
+        "status": "connected"
+      }
+    ],
+    "pluginCount": 9,
+    "skillCount": 0,
+    "slashCommandCount": 0,
+    "agentCount": 16,
+    "permissionMode": "dontAsk"
+  },
+  "hookEvents": [
+    "SessionStart"
+  ],
+  "violation": null,
+  "childEnvKeys": [
+    "AWS_REGION",
+    "HOME",
+    "LANG",
+    "LOGNAME",
+    "PATH",
+    "TMPDIR",
+    "USER"
+  ],
+  "managedContext": "organization-managed CLAUDE.md and SessionStart output can enter the headless context and no flag disables them",
+  "tools": [
+    "mcp__pw_submit__submit_result"
+  ],
+  "mcpServers": [
+    {
+      "name": "pw_submit",
+      "status": "connected"
+    }
+  ],
+  "outcome": {
+    "accepted": true
+  },
+  "timedOut": false,
+  "aborted": false,
+  "exitCode": 0,
+  "permissionDenials": 0,
+  "turns": 2,
+  "costUsd": 0.06634820000000001,
+  "digest": [
+    {
+      "type": "system",
+      "subtype": "hook_started",
+      "hook_event": "SessionStart"
+    },
+    {
+      "type": "system",
+      "subtype": "hook_response",
+      "hook_event": "SessionStart"
+    },
+    {
+      "type": "system",
+      "subtype": "init",
+      "tools": [
+        "mcp__pw_submit__submit_result"
+      ],
+      "mcp_servers": [
+        {
+          "name": "pw_submit",
+          "status": "connected",
+          "source": "dynamic"
+        }
+      ],
+      "pluginCount": 9,
+      "skillCount": 0,
+      "slashCommandCount": 0,
+      "agentCount": 16,
+      "permissionMode": "dontAsk"
+    },
+    {
+      "type": "assistant",
+      "blocks": [
+        {
+          "type": "text"
+        }
+      ]
+    },
+    {
+      "type": "rate_limit_event"
+    },
+    {
+      "type": "result",
+      "subtype": "success",
+      "is_error": false,
+      "num_turns": 1,
+      "total_cost_usd": 0.041024000000000005,
+      "permission_denials": 0
+    },
+    {
+      "type": "system",
+      "subtype": "init",
+      "tools": [
+        "mcp__pw_submit__submit_result"
+      ],
+      "mcp_servers": [
+        {
+          "name": "pw_submit",
+          "status": "connected",
+          "source": "dynamic"
+        }
+      ],
+      "pluginCount": 9,
+      "skillCount": 0,
+      "slashCommandCount": 0,
+      "agentCount": 16,
+      "permissionMode": "dontAsk"
+    },
+    {
+      "type": "assistant",
+      "blocks": [
+        {
+          "type": "tool_use",
+          "name": "mcp__pw_submit__submit_result"
+        }
+      ]
+    },
+    {
+      "type": "user"
+    },
+    {
+      "type": "assistant",
+      "blocks": [
+        {
+          "type": "text"
+        }
+      ]
+    },
+    {
+      "type": "result",
+      "subtype": "success",
+      "is_error": false,
+      "num_turns": 2,
+      "total_cost_usd": 0.06634820000000001,
+      "permission_denials": 0
+    }
+  ]
+}

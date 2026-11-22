@@ -1,5 +1,6 @@
-2026-11-22T01:00:47.034Z watcher started
-2026-11-22T01:00:49.306Z claimed {"job":"95cee1f9-6544-4509-a93f-8b9be539890b","leaseSeconds":120}
-2026-11-22T01:00:53.814Z subagent finished {"job":"95cee1f9-6544-4509-a93f-8b9be539890b","tools":"mcp__pw_submit__submit_result","toolSetOk":true,"exitCode":0,"turns":2,"permissionDenials":0}
-2026-11-22T01:00:53.814Z result accepted {"job":"95cee1f9-6544-4509-a93f-8b9be539890b"}
-2026-11-22T01:00:54.967Z nothing to do {"job":"25593715-f1fa-43a4-a947-76f006bfea8d","reason":"injection_flagged"}
+2026-11-22T01:51:11.062Z purged stale run directories {"count":1}
+2026-11-22T01:51:11.062Z watcher started
+2026-11-22T01:51:13.196Z claimed {"job":"a86af2a6-4f45-4e60-b703-9251f775eb32","leaseSeconds":120}
+2026-11-22T01:51:18.412Z subagent finished {"job":"a86af2a6-4f45-4e60-b703-9251f775eb32","tools":"mcp__pw_submit__submit_result","toolSetOk":true,"violation":null,"exitCode":0,"turns":2,"permissionDenials":0}
+2026-11-22T01:51:18.412Z result accepted {"job":"a86af2a6-4f45-4e60-b703-9251f775eb32"}
+2026-11-22T01:51:21.564Z nothing to do {"job":"c4438b74-a530-46fe-9872-79f9e7f39192","reason":"injection_flagged"}

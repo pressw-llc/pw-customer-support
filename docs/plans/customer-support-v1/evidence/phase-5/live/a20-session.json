@@ -1,9 +1,6 @@
 {
   "init": {
     "tools": [
-      "mcp__pw-support__job_claim",
-      "mcp__pw-support__job_renew",
-      "mcp__pw-support__job_submit_result",
       "mcp__pw-support__jobs_offers",
       "mcp__pw-support__request_get",
       "mcp__pw-support__requests_query",
@@ -28,20 +25,20 @@
     {
       "name": "mcp__pw-support__subscription_add",
       "input": {
-        "prefix": "acme-v5-a20-2537e2"
+        "prefix": "acme-v5-a20-1a5dc9"
       }
     },
     {
       "name": "mcp__pw-support__requests_query",
       "input": {
-        "channelPrefix": "acme-v5-a20-2537e2",
+        "channelPrefix": "acme-v5-a20-1a5dc9",
         "limit": 5
       }
     },
     {
       "name": "mcp__pw-support__subscription_remove",
       "input": {
-        "prefix": "acme-v5-a20-2537e2"
+        "prefix": "acme-v5-a20-1a5dc9"
       }
     }
   ],
@@ -67,7 +64,7 @@
     "subtype": "success",
     "is_error": false,
     "num_turns": 5,
-    "total_cost_usd": 0.0966836,
+    "total_cost_usd": 0.13643509999999998,
     "permission_denials": 0
   },
   "events": 14

@@ -1,3 +1,3 @@
-ps -o pid,ppid,tty,stat -p 51425
-51425     1 ??       Ss
+ps -o pid,ppid,tty,stat -p 96142
+96142 96044 ??       Ss
 started detached with stdio [ignore, logfile, logfile]; tty column "??" means no controlling terminal
