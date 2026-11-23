@@ -263,14 +263,14 @@ describe("mcp surface split", () => {
     try {
       const rpc = { jsonrpc: "2.0", id: 1, method: "tools/list" };
       const machine = crypto.randomUUID();
-      const token = await idp.token({ claims: { sub: "shape-" + sub } });
-      const bearer = { Authorization: "Bearer " + token };
+      const token = await idp.token({ claims: { sub: `shape-${sub}` } });
+      const bearer = { Authorization: `Bearer ${token}` };
       const bads = [
         "",
         "short",
         "x".repeat(44),
-        "x".repeat(42) + "'",
-        "x".repeat(40) + " or 1",
+        `${"x".repeat(42)}'`,
+        `${"x".repeat(40)} or 1`,
       ];
       for (const bad of bads) {
         const submit = await postMcp(
@@ -279,15 +279,15 @@ describe("mcp surface split", () => {
           rpc,
           LAPTOP_PATH,
         );
-        expect(submit.status, "submit " + bad).toBe(401);
+        expect(submit.status, `submit ${bad}`).toBe(401);
         if (bad === "") continue;
         const watcher = await postMcp(
           url.url,
-          { ...bearer, [WATCHER_HEADER]: machine + "." + bad },
+          { ...bearer, [WATCHER_HEADER]: `${machine}.${bad}` },
           rpc,
           LAPTOP_PATH,
         );
-        expect(watcher.status, "watcher " + bad).toBe(401);
+        expect(watcher.status, `watcher ${bad}`).toBe(401);
       }
     } finally {
       url.stop();
