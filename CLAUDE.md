@@ -52,6 +52,14 @@ bun run env set NAME[=VALUE]        # manage .env.example and .env.local
 
 Manage `.env.example` and `.env.local` only through `bun run env`, as the `env-files` skill describes. Never read or hand-edit them.
 
+## Lint rules
+
+- Run `bun run format`, then `bun run lint`, before every commit.
+- Biome formats every tracked JSON file, including `*.code-workspace`: two-space indent and a final newline.
+- Build strings with template literals. Do not join strings with `+`.
+- Put a one-line `biome-ignore lint/suspicious/noTemplateCurlyInString: <reason>` above a plain string that holds a literal `${...}`.
+- Fix info and warning findings in the same change. `bun run lint` must print zero findings.
+
 ## Architecture
 
 A Bun workspace with nine modules under `modules/*` and the process entry under `apps/server`. Packages are `@pw-support/<module>` and private, except `widget`, which is `@pressw-llc/support-react`.

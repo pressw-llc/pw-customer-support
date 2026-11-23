@@ -13,6 +13,7 @@ import { dirname, join, relative } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
+// biome-ignore lint/suspicious/noTemplateCurlyInString: literal plugin variable
 const CLI = '"${CLAUDE_PLUGIN_ROOT}/bin/pw-support"';
 const SUBCOMMANDS =
   "login|logout|token|headers|watch|submit-server|help|run|start|stop|status";
@@ -168,6 +169,7 @@ describe("bin/pw-support", () => {
 describe("terminal instructions never use the plugin root variable", () => {
   const README = join(ROOT, "..", "..", "README.md");
   const documents = [...pluginFiles(), README].filter((f) => f.endsWith(".md"));
+  // biome-ignore lint/suspicious/noTemplateCurlyInString: literal plugin variable
   const VARIABLE = "${CLAUDE_PLUGIN_ROOT}";
   const FENCE = "`".repeat(3);
 
